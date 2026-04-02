@@ -66,6 +66,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Validate scores if provided
+    const scores = teams.map(t => t.score).filter(s => s !== undefined);
+    if (scores.length > 0 && scores.length !== teams.length) {
+      return NextResponse.json(
+        { error: 'Either all teams must have scores or none' },
+        { status: 400 }
+      );
+    }
+
     processMatch({ game_id, notes, teams });
 
     return NextResponse.json({ success: true }, { status: 201 });

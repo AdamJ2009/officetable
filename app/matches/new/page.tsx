@@ -20,6 +20,8 @@ export default function NewMatchPage() {
   const [selectedGame, setSelectedGame] = useState<number | null>(null);
   const [team1Players, setTeam1Players] = useState<number[]>([]);
   const [team2Players, setTeam2Players] = useState<number[]>([]);
+  const [team1Score, setTeam1Score] = useState<string>("");
+  const [team2Score, setTeam2Score] = useState<string>("");
   const [winningTeam, setWinningTeam] = useState<1 | 2>(1);
   const [notes, setNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -69,6 +71,24 @@ export default function NewMatchPage() {
     setError(null);
 
     try {
+      const score1 = team1Score !== "" ? parseInt(team1Score, 10) : undefined;
+      const score2 = team2Score !== "" ? parseInt(team2Score, 10) : undefined;
+
+      // Validate scores if both provided
+      if ((score1 !== undefined || score2 !== undefined) && (score1 === undefined || score2 === undefined || isNaN(score1) || isNaN(score2))) {
+        setError("Both scores must be provided together");
+        setSubmitting(false);
+        return;
+      }
+
+      // Auto-set winner based on scores if provided
+      let finalWinner = winningTeam;
+      if (score1 !== undefined && score2 !== undefined) {
+        if (score1 > score2) finalWinner = 1;
+        else if (score2 > score1) finalWinner = 2;
+        // If equal, keep the manual selection (or could error)
+      }
+
       const res = await fetch("/api/matches", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -79,12 +99,14 @@ export default function NewMatchPage() {
             {
               team: 0,
               player_ids: team1Players,
-              won: winningTeam === 1,
+              won: finalWinner === 1,
+              score: score1,
             },
             {
               team: 1,
               player_ids: team2Players,
-              won: winningTeam === 2,
+              won: finalWinner === 2,
+              score: score2,
             },
           ],
         }),
@@ -185,6 +207,40 @@ export default function NewMatchPage() {
               )}
             </div>
           </div>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Score (optional)
+          </label>
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium text-blue-700">Team 1:</span>
+              <input
+                type="number"
+                value={team1Score}
+                onChange={(e) => setTeam1Score(e.target.value)}
+                placeholder="0"
+                min="0"
+                className="w-20 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <span className="text-gray-400">-</span>
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium text-red-700">Team 2:</span>
+              <input
+                type="number"
+                value={team2Score}
+                onChange={(e) => setTeam2Score(e.target.value)}
+                placeholder="0"
+                min="0"
+                className="w-20 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+          </div>
+          <p className="text-xs text-gray-500 mt-1">
+            Close scores weight rating changes lower; blowouts weight higher.
+          </p>
         </div>
 
         <div>

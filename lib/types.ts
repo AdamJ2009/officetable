@@ -32,6 +32,7 @@ export interface MatchParticipant {
   player_id: number;
   team: number;
   won: boolean;
+  score: number | null;
 }
 
 export interface MatchWithParticipants extends Match {
@@ -56,5 +57,6 @@ export interface CreateMatchInput {
     team: number;
     player_ids: number[];
     won: boolean;
+    score?: number;
   }[];
 }

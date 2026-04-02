@@ -67,6 +67,42 @@ export function getLeaderboard(gameId: number): LeaderboardEntry[] {
   return stmt.all(gameId) as LeaderboardEntry[];
 }
 
+/**
+ * Calculate weight based on score difference.
+ * Close games (small diff) get lower weight, blowouts get higher weight.
+ * Weight range: 0.5 (close game) to 2.0 (blowout)
+ * If no scores provided, weight defaults to 1.0
+ */
+function calculateWeight(teams: CreateMatchInput['teams']): number {
+  const scores = teams.map(t => t.score);
+
+  // If any team lacks a score, use default weight
+  if (scores.some(s => s === undefined || s === null)) {
+    return 1.0;
+  }
+
+  const validScores = scores as number[];
+  if (validScores.length < 2) return 1.0;
+
+  const score1 = validScores[0];
+  const score2 = validScores[1];
+  const diff = Math.abs(score1 - score2);
+  const total = score1 + score2;
+
+  if (total === 0) return 1.0;
+
+  // Normalized difference (0 to ~1 for decisive wins)
+  const normalizedDiff = diff / total;
+
+  // Map to weight range [0.5, 2.0]
+  // A close game (normalizedDiff near 0) → weight 0.5
+  // A blowout (normalizedDiff near 1) → weight 2.0
+  // Weight formula: 0.5 + 1.5 * normalizedDiff
+  const weight = 0.5 + 1.5 * normalizedDiff;
+
+  return Math.min(2.0, Math.max(0.5, weight));
+}
+
 export function processMatch(input: CreateMatchInput): void {
   const { game_id, notes, teams } = input;
 
@@ -91,8 +127,13 @@ export function processMatch(input: CreateMatchInput): void {
   // Determine ranks: winning team gets rank 1, losing team gets rank 2
   const ranks = teams.map((team) => (team.won ? 1 : 2));
 
-  // Rate the match
-  const results = rate(teamRatings, { rank: ranks });
+  // Calculate weight based on score difference
+  const weightValue = calculateWeight(teams);
+  // Weight must be a 2D array: one array per team, with one weight per player
+  const weight = teamRatings.map((team) => team.map(() => weightValue));
+
+  // Rate the match with weight
+  const results = rate(teamRatings, { rank: ranks, weight });
 
   // Update ratings in database
   const updateStmt = db.prepare(`
@@ -104,7 +145,7 @@ export function processMatch(input: CreateMatchInput): void {
   `);
 
   const insertParticipant = db.prepare(`
-    INSERT INTO match_participants (match_id, player_id, team, won) VALUES (?, ?, ?, ?)
+    INSERT INTO match_participants (match_id, player_id, team, won, score) VALUES (?, ?, ?, ?, ?)
   `);
 
   // Use transaction for atomicity
@@ -123,7 +164,7 @@ export function processMatch(input: CreateMatchInput): void {
         const playerRating = teamResult[playerIndex];
 
         updateStmt.run(playerRating.mu, playerRating.sigma, playerId, game_id);
-        insertParticipant.run(matchId, playerId, team.team, team.won ? 1 : 0);
+        insertParticipant.run(matchId, playerId, team.team, team.won ? 1 : 0, team.score ?? null);
       }
     }
   });

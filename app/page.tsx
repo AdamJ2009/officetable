@@ -52,12 +52,20 @@ export default function Home() {
     <div>
       <div className="flex items-center justify-between mb-8">
         <h1 className="text-3xl font-bold">Leaderboard</h1>
-        <Link
-          href="/matches/new"
-          className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
-        >
-          Record Match
-        </Link>
+        <div className="flex gap-3">
+          <Link
+            href="/matches"
+            className="bg-gray-200 text-gray-800 px-4 py-2 rounded-lg hover:bg-gray-300 transition-colors"
+          >
+            Match History
+          </Link>
+          <Link
+            href="/matches/new"
+            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            Record Match
+          </Link>
+        </div>
       </div>
 
       <div className="mb-6">

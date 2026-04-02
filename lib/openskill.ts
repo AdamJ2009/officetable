@@ -189,7 +189,8 @@ export function processMatch(input: CreateMatchInput): void {
   `);
 
   const insertParticipant = db.prepare(`
-    INSERT INTO match_participants (match_id, player_id, team, score) VALUES (?, ?, ?, ?)
+    INSERT INTO match_participants (match_id, player_id, team, score, mu_before, mu_after, sigma_before, sigma_after)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   // Use transaction for atomicity
@@ -205,10 +206,20 @@ export function processMatch(input: CreateMatchInput): void {
 
       for (let playerIndex = 0; playerIndex < team.player_ids.length; playerIndex++) {
         const playerId = team.player_ids[playerIndex];
+        const originalRating = teamRatings[teamIndex][playerIndex];
         const playerRating = teamResult[playerIndex];
 
         updateStmt.run(playerRating.mu, playerRating.sigma, playerId, game_id);
-        insertParticipant.run(matchId, playerId, team.team, team.score);
+        insertParticipant.run(
+          matchId,
+          playerId,
+          team.team,
+          team.score,
+          originalRating.mu,
+          playerRating.mu,
+          originalRating.sigma,
+          playerRating.sigma
+        );
       }
     }
   });

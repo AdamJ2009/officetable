@@ -32,6 +32,10 @@ export interface MatchParticipant {
   player_id: number;
   team: number;
   score: number;
+  mu_before: number;
+  mu_after: number;
+  sigma_before: number;
+  sigma_after: number;
 }
 
 export interface MatchWithParticipants extends Match {

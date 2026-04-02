@@ -27,6 +27,19 @@ Run the test script to see how different results would effect skill:
 npx tsx scripts/test-skill-changes.ts
 ```
 
+## Import Data
+
+This can import historical data of 1v1 games in a space-separated list of format:
+```
+<Player on Team 2> <Score for Team 2> <Player for Team 1> <Score for Team 1> <UNIX timestamp>
+```
+(Team 2 then Team 1 for red/blue blue/red diff between this and old ladder)
+
+Import with:
+```bash
+npx tsx scripts/import-matches.ts <game_id> < your-matches.txt
+```
+
 
 ## Learn More
 

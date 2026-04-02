@@ -2,18 +2,24 @@ import { rating, rate, ordinal } from 'openskill';
 import db from './db';
 import type { PlayerRating, LeaderboardEntry, CreateMatchInput } from './types';
 
+// Constants for sigma management
+const MIN_SIGMA = 1.0; // Minimum sigma floor - never go below this
+const INITIAL_SIGMA = 8.333; // Default starting sigma
+const SIGMA_DECAY_PER_DAY = 0.01; // How much sigma increases per day of inactivity
+const MAX_SIGMA_INCREASE = 5.0; // Maximum sigma increase from inactivity
+
 export function createPlayerRating(playerId: number, gameId: number): PlayerRating {
   const stmt = db.prepare(`
     INSERT INTO player_ratings (player_id, game_id, mu, sigma)
-    VALUES (?, ?, 25, 8.333)
+    VALUES (?, ?, 25, ?)
   `);
-  const result = stmt.run(playerId, gameId);
+  const result = stmt.run(playerId, gameId, INITIAL_SIGMA);
   return {
     id: result.lastInsertRowid as number,
     player_id: playerId,
     game_id: gameId,
     mu: 25,
-    sigma: 8.333,
+    sigma: INITIAL_SIGMA,
   };
 }
 
@@ -35,6 +41,42 @@ export function getOrCreatePlayerRating(playerId: number, gameId: number): Playe
   const existing = stmt.get(playerId, gameId) as PlayerRating | undefined;
   if (existing) return existing;
   return createPlayerRating(playerId, gameId);
+}
+
+/**
+ * Get the date of the last match a player played in a specific game
+ */
+function getLastMatchDate(playerId: number, gameId: number): Date | null {
+  const stmt = db.prepare(`
+    SELECT MAX(m.played_at) as last_match
+    FROM matches m
+    JOIN match_participants mp ON m.id = mp.match_id
+    WHERE mp.player_id = ? AND m.game_id = ?
+  `);
+  const result = stmt.get(playerId, gameId) as { last_match: string | null };
+  return result.last_match ? new Date(result.last_match) : null;
+}
+
+/**
+ * Calculate sigma increase based on days since last match.
+ * More days = higher uncertainty.
+ */
+function calculateSigmaDecay(currentSigma: number, daysSinceLastMatch: number): number {
+  if (daysSinceLastMatch <= 0) return currentSigma;
+
+  // Calculate decay increase
+  const decayIncrease = Math.min(daysSinceLastMatch * SIGMA_DECAY_PER_DAY, MAX_SIGMA_INCREASE);
+  const newSigma = currentSigma + decayIncrease;
+
+  // Cap at initial sigma (don't exceed starting uncertainty from decay alone)
+  return Math.min(newSigma, INITIAL_SIGMA);
+}
+
+/**
+ * Apply sigma floor - sigma should never go below MIN_SIGMA
+ */
+function applySigmaFloor(sigma: number): number {
+  return Math.max(sigma, MIN_SIGMA);
 }
 
 export function getLeaderboard(gameId: number): LeaderboardEntry[] {
@@ -104,9 +146,6 @@ function calculateWeight(teams: CreateMatchInput['teams']): number {
   const normalizedDiff = diff / total;
 
   // Map to weight range [0.5, 2.0]
-  // A close game (normalizedDiff near 0) → weight 0.5
-  // A blowout (normalizedDiff near 1) → weight 2.0
-  // Weight formula: 0.5 + 1.5 * normalizedDiff
   const weight = 0.5 + 1.5 * normalizedDiff;
 
   return Math.min(2.0, Math.max(0.5, weight));
@@ -131,15 +170,27 @@ function getRanksFromScores(teams: CreateMatchInput['teams']): number[] {
   return teams.map(t => t.score === maxScore ? 1 : 2);
 }
 
-export function processMatch(input: CreateMatchInput): void {
+export function processMatch(input: CreateMatchInput, matchTimestamp?: Date): void {
   const { game_id, notes, teams } = input;
+  const matchDate = matchTimestamp || new Date();
 
-  // Get or create ratings for all players
+  // Get or create ratings for all players, applying sigma decay for inactive players
   const ratingsByPlayer: Map<number, { mu: number; sigma: number }> = new Map();
+
   for (const team of teams) {
     for (const playerId of team.player_ids) {
       const rating = getOrCreatePlayerRating(playerId, game_id);
-      ratingsByPlayer.set(playerId, { mu: rating.mu, sigma: rating.sigma });
+
+      // Calculate sigma decay based on days since last match
+      const lastMatchDate = getLastMatchDate(playerId, game_id);
+      let adjustedSigma = rating.sigma;
+
+      if (lastMatchDate) {
+        const daysSinceLastMatch = Math.floor((matchDate.getTime() - lastMatchDate.getTime()) / (1000 * 60 * 60 * 24));
+        adjustedSigma = calculateSigmaDecay(rating.sigma, daysSinceLastMatch);
+      }
+
+      ratingsByPlayer.set(playerId, { mu: rating.mu, sigma: adjustedSigma });
     }
   }
 
@@ -160,7 +211,7 @@ export function processMatch(input: CreateMatchInput): void {
   // Rate the match
   const rawResults = rate(teamRatings, { rank: ranks });
 
-  // Apply weight to rating changes
+  // Apply weight to rating changes and enforce sigma floor
   const results = rawResults.map((team, teamIndex) =>
     team.map((playerResult, playerIndex) => {
       const originalRating = teamRatings[teamIndex][playerIndex];
@@ -172,9 +223,13 @@ export function processMatch(input: CreateMatchInput): void {
       // Weight affects sigma change by sqrt (since sigma is std dev)
       const weightedSigmaChange = sigmaChange * Math.sqrt(weight);
 
+      // Calculate new sigma and apply floor
+      let newSigma = originalRating.sigma + weightedSigmaChange;
+      newSigma = applySigmaFloor(newSigma);
+
       return {
         mu: originalRating.mu + weightedMuChange,
-        sigma: originalRating.sigma + weightedSigmaChange,
+        sigma: newSigma,
       };
     })
   );
@@ -185,7 +240,7 @@ export function processMatch(input: CreateMatchInput): void {
   `);
 
   const insertMatch = db.prepare(`
-    INSERT INTO matches (game_id, notes) VALUES (?, ?)
+    INSERT INTO matches (game_id, notes, played_at) VALUES (?, ?, ?)
   `);
 
   const insertParticipant = db.prepare(`
@@ -195,8 +250,9 @@ export function processMatch(input: CreateMatchInput): void {
 
   // Use transaction for atomicity
   const updateRatings = db.transaction(() => {
-    // Create match record
-    const matchResult = insertMatch.run(game_id, notes || null);
+    // Create match record with timestamp
+    const playedAt = matchDate.toISOString().replace('T', ' ').replace(/\.\d+Z$/, '');
+    const matchResult = insertMatch.run(game_id, notes || null, playedAt);
     const matchId = matchResult.lastInsertRowid as number;
 
     // Update each team's players

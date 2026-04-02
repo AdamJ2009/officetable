@@ -128,12 +128,33 @@ export function processMatch(input: CreateMatchInput): void {
   const ranks = teams.map((team) => (team.won ? 1 : 2));
 
   // Calculate weight based on score difference
-  const weightValue = calculateWeight(teams);
-  // Weight must be a 2D array: one array per team, with one weight per player
-  const weight = teamRatings.map((team) => team.map(() => weightValue));
+  // Note: OpenSkill's weight param is defined but not implemented in the library,
+  // so we apply weighting manually by scaling the rating changes
+  const weight = calculateWeight(teams);
 
-  // Rate the match with weight
-  const results = rate(teamRatings, { rank: ranks, weight });
+  // Rate the match
+  const results = rate(teamRatings, { rank: ranks });
+
+  // Apply weight to rating changes
+  // For mu: scale the change by weight
+  // For sigma: scale the reduction by sqrt(weight) to maintain proper uncertainty dynamics
+  const weightedResults = results.map((team, teamIndex) =>
+    team.map((playerResult, playerIndex) => {
+      const originalRating = teamRatings[teamIndex][playerIndex];
+      const muChange = playerResult.mu - originalRating.mu;
+      const sigmaChange = playerResult.sigma - originalRating.sigma;
+
+      // Weight affects mu change linearly
+      const weightedMuChange = muChange * weight;
+      // Weight affects sigma change by sqrt (since sigma is std dev)
+      const weightedSigmaChange = sigmaChange * Math.sqrt(weight);
+
+      return {
+        mu: originalRating.mu + weightedMuChange,
+        sigma: originalRating.sigma + weightedSigmaChange,
+      };
+    })
+  );
 
   // Update ratings in database
   const updateStmt = db.prepare(`
@@ -157,7 +178,7 @@ export function processMatch(input: CreateMatchInput): void {
     // Update each team's players
     for (let teamIndex = 0; teamIndex < teams.length; teamIndex++) {
       const team = teams[teamIndex];
-      const teamResult = results[teamIndex];
+      const teamResult = weightedResults[teamIndex];
 
       for (let playerIndex = 0; playerIndex < team.player_ids.length; playerIndex++) {
         const playerId = team.player_ids[playerIndex];

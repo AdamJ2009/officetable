@@ -47,8 +47,11 @@ db.exec(`
     match_id INTEGER NOT NULL,
     player_id INTEGER NOT NULL,
     team INTEGER NOT NULL,
-    won BOOLEAN NOT NULL,
-    score INTEGER DEFAULT NULL,
+    score INTEGER NOT NULL,
+    mu_before REAL NOT NULL,
+    mu_after REAL NOT NULL,
+    sigma_before REAL NOT NULL,
+    sigma_after REAL NOT NULL,
     FOREIGN KEY (match_id) REFERENCES matches(id),
     FOREIGN KEY (player_id) REFERENCES players(id)
   );
@@ -59,16 +62,5 @@ const seedGames = db.prepare(`
   INSERT OR IGNORE INTO games (name) VALUES ('foosball'), ('table-tennis'), ('pool')
 `);
 seedGames.run();
-
-// Migration: Add score column to match_participants if not exists
-const addScoreColumn = db.prepare(`
-  SELECT score FROM match_participants LIMIT 1
-`);
-try {
-  addScoreColumn.get();
-} catch {
-  // Column doesn't exist, add it
-  db.exec(`ALTER TABLE match_participants ADD COLUMN score INTEGER DEFAULT NULL`);
-}
 
 export default db;

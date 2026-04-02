@@ -16,6 +16,7 @@ interface LeaderboardEntry {
   rating: number;
   wins: number;
   losses: number;
+  draws: number;
 }
 
 export default function Home() {
@@ -101,7 +102,7 @@ export default function Home() {
                   Rating
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  W/L
+                  W/L/D
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Win Rate
@@ -110,7 +111,7 @@ export default function Home() {
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
               {leaderboard.map((entry, index) => {
-                const totalGames = entry.wins + entry.losses;
+                const totalGames = entry.wins + entry.losses + entry.draws;
                 const winRate = totalGames > 0 ? ((entry.wins / totalGames) * 100).toFixed(0) : "-";
                 return (
                   <tr key={entry.player_id}>
@@ -124,7 +125,7 @@ export default function Home() {
                       {entry.rating.toFixed(1)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {entry.wins} / {entry.losses}
+                      {entry.wins} / {entry.losses} / {entry.draws}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       {totalGames > 0 ? `${winRate}%` : "-"}

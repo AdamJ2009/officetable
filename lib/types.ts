@@ -31,8 +31,7 @@ export interface MatchParticipant {
   match_id: number;
   player_id: number;
   team: number;
-  won: boolean;
-  score: number | null;
+  score: number;
 }
 
 export interface MatchWithParticipants extends Match {
@@ -48,6 +47,7 @@ export interface LeaderboardEntry {
   rating: number; // mu - 3*sigma (conservative rating)
   wins: number;
   losses: number;
+  draws: number;
 }
 
 export interface CreateMatchInput {
@@ -56,7 +56,6 @@ export interface CreateMatchInput {
   teams: {
     team: number;
     player_ids: number[];
-    won: boolean;
-    score?: number;
+    score: number;
   }[];
 }

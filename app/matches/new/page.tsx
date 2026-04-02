@@ -20,9 +20,8 @@ export default function NewMatchPage() {
   const [selectedGame, setSelectedGame] = useState<number | null>(null);
   const [team1Players, setTeam1Players] = useState<number[]>([]);
   const [team2Players, setTeam2Players] = useState<number[]>([]);
-  const [team1Score, setTeam1Score] = useState<string>("");
-  const [team2Score, setTeam2Score] = useState<string>("");
-  const [winningTeam, setWinningTeam] = useState<1 | 2>(1);
+  const [team1Score, setTeam1Score] = useState<string>("0");
+  const [team2Score, setTeam2Score] = useState<string>("0");
   const [notes, setNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -67,28 +66,18 @@ export default function NewMatchPage() {
       return;
     }
 
+    const score1 = parseInt(team1Score, 10);
+    const score2 = parseInt(team2Score, 10);
+
+    if (isNaN(score1) || isNaN(score2) || score1 < 0 || score2 < 0) {
+      setError("Scores must be valid non-negative numbers");
+      return;
+    }
+
     setSubmitting(true);
     setError(null);
 
     try {
-      const score1 = team1Score !== "" ? parseInt(team1Score, 10) : undefined;
-      const score2 = team2Score !== "" ? parseInt(team2Score, 10) : undefined;
-
-      // Validate scores if both provided
-      if ((score1 !== undefined || score2 !== undefined) && (score1 === undefined || score2 === undefined || isNaN(score1) || isNaN(score2))) {
-        setError("Both scores must be provided together");
-        setSubmitting(false);
-        return;
-      }
-
-      // Auto-set winner based on scores if provided
-      let finalWinner = winningTeam;
-      if (score1 !== undefined && score2 !== undefined) {
-        if (score1 > score2) finalWinner = 1;
-        else if (score2 > score1) finalWinner = 2;
-        // If equal, keep the manual selection (or could error)
-      }
-
       const res = await fetch("/api/matches", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -99,13 +88,11 @@ export default function NewMatchPage() {
             {
               team: 0,
               player_ids: team1Players,
-              won: finalWinner === 1,
               score: score1,
             },
             {
               team: 1,
               player_ids: team2Players,
-              won: finalWinner === 2,
               score: score2,
             },
           ],
@@ -128,6 +115,10 @@ export default function NewMatchPage() {
   const availablePlayers = players.filter(
     (p) => !team1Players.includes(p.id) && !team2Players.includes(p.id)
   );
+
+  const score1 = parseInt(team1Score, 10) || 0;
+  const score2 = parseInt(team2Score, 10) || 0;
+  const winnerText = score1 > score2 ? "Team 1 wins" : score2 > score1 ? "Team 2 wins" : "Tie";
 
   return (
     <div>
@@ -211,7 +202,7 @@ export default function NewMatchPage() {
 
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">
-            Score (optional)
+            Score
           </label>
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">
@@ -220,55 +211,28 @@ export default function NewMatchPage() {
                 type="number"
                 value={team1Score}
                 onChange={(e) => setTeam1Score(e.target.value)}
-                placeholder="0"
                 min="0"
                 className="w-20 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
-            <span className="text-gray-400">-</span>
+            <span className="text-gray-400 text-xl">-</span>
             <div className="flex items-center gap-2">
               <span className="text-sm font-medium text-red-700">Team 2:</span>
               <input
                 type="number"
                 value={team2Score}
                 onChange={(e) => setTeam2Score(e.target.value)}
-                placeholder="0"
                 min="0"
                 className="w-20 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
           </div>
-          <p className="text-xs text-gray-500 mt-1">
-            Close scores weight rating changes lower; blowouts weight higher.
+          <p className="text-sm text-gray-600 mt-2">
+            Result: <span className="font-semibold">{winnerText}</span>
           </p>
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Winner
-          </label>
-          <div className="flex gap-4">
-            <label className="flex items-center">
-              <input
-                type="radio"
-                name="winner"
-                checked={winningTeam === 1}
-                onChange={() => setWinningTeam(1)}
-                className="mr-2"
-              />
-              Team 1
-            </label>
-            <label className="flex items-center">
-              <input
-                type="radio"
-                name="winner"
-                checked={winningTeam === 2}
-                onChange={() => setWinningTeam(2)}
-                className="mr-2"
-              />
-              Team 2
-            </label>
-          </div>
+          <p className="text-xs text-gray-500 mt-1">
+            Close scores result in smaller rating changes; blowouts result in larger changes.
+          </p>
         </div>
 
         {availablePlayers.length > 0 && (
@@ -307,7 +271,7 @@ export default function NewMatchPage() {
             type="text"
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
-            placeholder="e.g., Close game, 11-9"
+            placeholder="e.g., Great comeback!"
             className="block w-full max-w-md px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>

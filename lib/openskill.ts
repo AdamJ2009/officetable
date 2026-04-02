@@ -46,21 +46,37 @@ export function getLeaderboard(gameId: number): LeaderboardEntry[] {
       pr.sigma,
       pr.mu - 3 * pr.sigma as rating,
       COALESCE(wins.count, 0) as wins,
-      COALESCE(losses.count, 0) as losses
+      COALESCE(losses.count, 0) as losses,
+      COALESCE(draws.count, 0) as draws
     FROM player_ratings pr
     JOIN players p ON pr.player_id = p.id
     LEFT JOIN (
       SELECT player_id, COUNT(*) as count
       FROM match_participants
-      WHERE won = 1
+      WHERE score > 0 AND score > (
+        SELECT MAX(score) FROM match_participants mp2 WHERE mp2.match_id = match_participants.match_id AND mp2.team != match_participants.team
+      )
       GROUP BY player_id
     ) wins ON wins.player_id = pr.player_id
     LEFT JOIN (
       SELECT player_id, COUNT(*) as count
       FROM match_participants
-      WHERE won = 0
+      WHERE score >= 0 AND score < (
+        SELECT MAX(score) FROM match_participants mp2 WHERE mp2.match_id = match_participants.match_id AND mp2.team != match_participants.team
+      )
       GROUP BY player_id
     ) losses ON losses.player_id = pr.player_id
+    LEFT JOIN (
+      SELECT player_id, COUNT(*) as count
+      FROM match_participants mp1
+      WHERE EXISTS (
+        SELECT 1 FROM match_participants mp2
+        WHERE mp2.match_id = mp1.match_id
+        AND mp2.team != mp1.team
+        AND mp2.score = mp1.score
+      )
+      GROUP BY player_id
+    ) draws ON draws.player_id = pr.player_id
     WHERE pr.game_id = ?
     ORDER BY rating DESC
   `);
@@ -71,21 +87,14 @@ export function getLeaderboard(gameId: number): LeaderboardEntry[] {
  * Calculate weight based on score difference.
  * Close games (small diff) get lower weight, blowouts get higher weight.
  * Weight range: 0.5 (close game) to 2.0 (blowout)
- * If no scores provided, weight defaults to 1.0
  */
 function calculateWeight(teams: CreateMatchInput['teams']): number {
   const scores = teams.map(t => t.score);
 
-  // If any team lacks a score, use default weight
-  if (scores.some(s => s === undefined || s === null)) {
-    return 1.0;
-  }
+  if (scores.length < 2) return 1.0;
 
-  const validScores = scores as number[];
-  if (validScores.length < 2) return 1.0;
-
-  const score1 = validScores[0];
-  const score2 = validScores[1];
+  const score1 = scores[0];
+  const score2 = scores[1];
   const diff = Math.abs(score1 - score2);
   const total = score1 + score2;
 
@@ -103,6 +112,25 @@ function calculateWeight(teams: CreateMatchInput['teams']): number {
   return Math.min(2.0, Math.max(0.5, weight));
 }
 
+/**
+ * Determine ranks from scores.
+ * Lower rank = better performance.
+ * Returns array of ranks for each team.
+ */
+function getRanksFromScores(teams: CreateMatchInput['teams']): number[] {
+  const scores = teams.map(t => t.score);
+  const maxScore = Math.max(...scores);
+  const minScore = Math.min(...scores);
+
+  // If all scores are equal, it's a tie (all rank 1)
+  if (maxScore === minScore) {
+    return teams.map(() => 1);
+  }
+
+  // Winners get rank 1, losers get rank 2
+  return teams.map(t => t.score === maxScore ? 1 : 2);
+}
+
 export function processMatch(input: CreateMatchInput): void {
   const { game_id, notes, teams } = input;
 
@@ -116,7 +144,6 @@ export function processMatch(input: CreateMatchInput): void {
   }
 
   // Build teams for OpenSkill rate function
-  // Teams are ordered by their team number, and we pass ranks (lower = better)
   const teamRatings = teams.map((team) =>
     team.player_ids.map((playerId) => {
       const r = ratingsByPlayer.get(playerId)!;
@@ -124,21 +151,17 @@ export function processMatch(input: CreateMatchInput): void {
     })
   );
 
-  // Determine ranks: winning team gets rank 1, losing team gets rank 2
-  const ranks = teams.map((team) => (team.won ? 1 : 2));
+  // Determine ranks from scores
+  const ranks = getRanksFromScores(teams);
 
   // Calculate weight based on score difference
-  // Note: OpenSkill's weight param is defined but not implemented in the library,
-  // so we apply weighting manually by scaling the rating changes
   const weight = calculateWeight(teams);
 
   // Rate the match
-  const results = rate(teamRatings, { rank: ranks });
+  const rawResults = rate(teamRatings, { rank: ranks });
 
   // Apply weight to rating changes
-  // For mu: scale the change by weight
-  // For sigma: scale the reduction by sqrt(weight) to maintain proper uncertainty dynamics
-  const weightedResults = results.map((team, teamIndex) =>
+  const results = rawResults.map((team, teamIndex) =>
     team.map((playerResult, playerIndex) => {
       const originalRating = teamRatings[teamIndex][playerIndex];
       const muChange = playerResult.mu - originalRating.mu;
@@ -166,7 +189,7 @@ export function processMatch(input: CreateMatchInput): void {
   `);
 
   const insertParticipant = db.prepare(`
-    INSERT INTO match_participants (match_id, player_id, team, won, score) VALUES (?, ?, ?, ?, ?)
+    INSERT INTO match_participants (match_id, player_id, team, score) VALUES (?, ?, ?, ?)
   `);
 
   // Use transaction for atomicity
@@ -178,14 +201,14 @@ export function processMatch(input: CreateMatchInput): void {
     // Update each team's players
     for (let teamIndex = 0; teamIndex < teams.length; teamIndex++) {
       const team = teams[teamIndex];
-      const teamResult = weightedResults[teamIndex];
+      const teamResult = results[teamIndex];
 
       for (let playerIndex = 0; playerIndex < team.player_ids.length; playerIndex++) {
         const playerId = team.player_ids[playerIndex];
         const playerRating = teamResult[playerIndex];
 
         updateStmt.run(playerRating.mu, playerRating.sigma, playerId, game_id);
-        insertParticipant.run(matchId, playerId, team.team, team.won ? 1 : 0, team.score ?? null);
+        insertParticipant.run(matchId, playerId, team.team, team.score);
       }
     }
   });

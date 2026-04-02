@@ -57,22 +57,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validate teams have exactly one winner
-    const winners = teams.filter((t) => t.won);
-    if (winners.length !== 1) {
-      return NextResponse.json(
-        { error: 'Exactly one team must win' },
-        { status: 400 }
-      );
-    }
-
-    // Validate scores if provided
-    const scores = teams.map(t => t.score).filter(s => s !== undefined);
-    if (scores.length > 0 && scores.length !== teams.length) {
-      return NextResponse.json(
-        { error: 'Either all teams must have scores or none' },
-        { status: 400 }
-      );
+    // Validate all teams have scores
+    for (const team of teams) {
+      if (typeof team.score !== 'number' || team.score < 0) {
+        return NextResponse.json(
+          { error: 'All teams must have a valid score (non-negative number)' },
+          { status: 400 }
+        );
+      }
     }
 
     processMatch({ game_id, notes, teams });

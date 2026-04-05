@@ -127,28 +127,24 @@ export function getLeaderboard(gameId: number): LeaderboardEntry[] {
 
 /**
  * Calculate weight based on score difference.
- * Close games (small diff) get lower weight, blowouts get higher weight.
- * Weight range: 0.5 (close game) to 2.0 (blowout)
+ * For foosball (first to 10), goal differential matters significantly.
+ * Weight range: 1.5 (close 1-goal game) to 4.0 (blowout)
  */
 function calculateWeight(teams: CreateMatchInput['teams']): number {
   const scores = teams.map(t => t.score);
 
-  if (scores.length < 2) return 1.0;
+  if (scores.length < 2) return 1.5;
 
   const score1 = scores[0];
   const score2 = scores[1];
   const diff = Math.abs(score1 - score2);
-  const total = score1 + score2;
 
-  if (total === 0) return 1.0;
+  // Base weight 1.5 ensures even close games move ratings significantly
+  // +0.25 per goal differential rewards decisive wins
+  // 1-goal: 1.75 | 3-goal: 2.25 | 5-goal: 2.75 | 10-goal: 4.0
+  const weight = 1.5 + (diff * 0.25);
 
-  // Normalized difference (0 to ~1 for decisive wins)
-  const normalizedDiff = diff / total;
-
-  // Map to weight range [0.5, 2.0]
-  const weight = 0.5 + 1.5 * normalizedDiff;
-
-  return Math.min(2.0, Math.max(0.5, weight));
+  return Math.min(4.0, Math.max(1.5, weight));
 }
 
 /**
@@ -208,8 +204,9 @@ export function processMatch(input: CreateMatchInput, matchTimestamp?: Date): vo
   // Calculate weight based on score difference
   const weight = calculateWeight(teams);
 
-  // Rate the match
-  const rawResults = rate(teamRatings, { rank: ranks });
+  // Rate the match with lower beta for more volatility
+  // Default beta is 25/3 ≈ 8.333, we use 3.0 for bigger swings
+  const rawResults = rate(teamRatings, { rank: ranks, beta: 3.0 });
 
   // Apply weight to rating changes and enforce sigma floor
   const results = rawResults.map((team, teamIndex) =>

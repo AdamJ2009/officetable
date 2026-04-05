@@ -28,12 +28,11 @@ function formatChange(before: { mu: number; sigma: number }, after: { mu: number
 
 // Calculate weight based on score difference (same as lib/openskill.ts)
 function calculateWeight(score1: number | null, score2: number | null): number {
-  if (score1 === null || score2 === null) return 1.0;
+  if (score1 === null || score2 === null) return 1.5;
   const diff = Math.abs(score1 - score2);
-  const total = score1 + score2;
-  if (total === 0) return 1.0;
-  const normalizedDiff = diff / total;
-  return Math.min(2.0, Math.max(0.5, 0.5 + 1.5 * normalizedDiff));
+  // Base weight 1.5, +0.25 per goal differential
+  const weight = 1.5 + (diff * 0.25);
+  return Math.min(4.0, Math.max(1.5, weight));
 }
 
 // Apply weighting to rating changes (same as lib/openskill.ts)
@@ -91,7 +90,7 @@ for (const scenario of scenarios) {
   const weight = calculateWeight(scenario.score1, scenario.score2);
   console.log(`Score: ${scenario.score1}-${scenario.score2}, Weight: ${weight.toFixed(3)}`);
 
-  const rawResults = rate(teamRatings, { rank: ranks });
+  const rawResults = rate(teamRatings, { rank: ranks, beta: 3.0 });
   const results = applyWeight(rawResults, teamRatings, weight);
 
   const player1After = results[0][0];
@@ -135,7 +134,7 @@ for (const scenario of tieScenarios) {
   const weight = calculateWeight(scenario.score1, scenario.score2);
   console.log(`Score: ${scenario.score1}-${scenario.score2}, Weight: ${weight.toFixed(3)}`);
 
-  const rawResults = rate(teamRatings, { rank: ranks });
+  const rawResults = rate(teamRatings, { rank: ranks, beta: 3.0 });
   const results = applyWeight(rawResults, teamRatings, weight);
 
   const player1After = results[0][0];
@@ -175,7 +174,7 @@ for (const diff of skillDiffs) {
 
   // Expected outcome: higher skill wins
   console.log('\nExpected outcome (high skill wins, weight=1.0):');
-  let rawResults = rate([[highBefore], [lowBefore]], { rank: [1, 2] });
+  let rawResults = rate([[highBefore], [lowBefore]], { rank: [1, 2], beta: 3.0 });
   let results = applyWeight(rawResults, [[highBefore], [lowBefore]], 1.0);
 
   let highAfter = results[0][0];
@@ -195,7 +194,7 @@ for (const diff of skillDiffs) {
 
   // Upset: lower skill wins
   console.log('\nUpset outcome (low skill wins, weight=1.0):');
-  rawResults = rate([[highBefore], [lowBefore]], { rank: [2, 1] });
+  rawResults = rate([[highBefore], [lowBefore]], { rank: [2, 1], beta: 3.0 });
   results = applyWeight(rawResults, [[highBefore], [lowBefore]], 1.0);
 
   highAfter = results[0][0];
@@ -235,7 +234,7 @@ const teamB = [p3Before, p4Before];
 
 // Team A wins
 console.log('\n--- Team A (mixed) wins vs Team B (balanced), weight=1.0 ---');
-let rawResults = rate([teamA, teamB], { rank: [1, 2] });
+let rawResults = rate([teamA, teamB], { rank: [1, 2], beta: 3.0 });
 let results = applyWeight(rawResults, [teamA, teamB], 1.0);
 
 let p1After = results[0][0];
@@ -253,7 +252,7 @@ console.log(`  Player4: μ ${(p4After.mu - 25).toFixed(2)}, Rating ${(25 - 18).t
 
 // Team B wins (upset for the high-skill player on Team A)
 console.log('\n--- Team B (balanced) wins vs Team A (mixed), weight=1.0 ---');
-rawResults = rate([teamA, teamB], { rank: [2, 1] });
+rawResults = rate([teamA, teamB], { rank: [2, 1], beta: 3.0 });
 results = applyWeight(rawResults, [teamA, teamB], 1.0);
 
 p1After = results[0][0];
@@ -292,7 +291,7 @@ for (const scenario of mixedScenarios) {
   const p3 = rating({ mu: 25, sigma: 6 });
   const p4 = rating({ mu: 25, sigma: 6 });
 
-  const rawResults = rate([[p1, p2], [p3, p4]], { rank: [1, 2] });
+  const rawResults = rate([[p1, p2], [p3, p4]], { rank: [1, 2], beta: 3.0 });
   const results = applyWeight(rawResults, [[p1, p2], [p3, p4]], weight);
 
   const p1After = results[0][0];
@@ -334,7 +333,7 @@ for (const ex of weightExamples) {
   const p1 = rating({ mu: 25, sigma: 8.333 });
   const p2 = rating({ mu: 25, sigma: 8.333 });
 
-  const rawResults = rate([[p1], [p2]], { rank: [1, 2] });
+  const rawResults = rate([[p1], [p2]], { rank: [1, 2], beta: 3.0 });
   const results = applyWeight(rawResults, [[p1], [p2]], ex.weight);
 
   const muChange = results[0][0].mu - 25;

@@ -57,9 +57,24 @@ db.exec(`
   );
 `);
 
-// Seed games if not exists
+// Add score_type and score_value columns to games table if they don't exist
+try {
+  db.exec(`ALTER TABLE games ADD COLUMN score_type TEXT DEFAULT 'first_to'`);
+} catch (e) {
+  // Column already exists, ignore
+}
+try {
+  db.exec(`ALTER TABLE games ADD COLUMN score_value INTEGER DEFAULT 10`);
+} catch (e) {
+  // Column already exists, ignore
+}
+
+// Seed games with scoring configuration if not exists
 const seedGames = db.prepare(`
-  INSERT OR IGNORE INTO games (name) VALUES ('foosball'), ('table-tennis'), ('pool')
+  INSERT OR IGNORE INTO games (name, score_type, score_value) VALUES
+    ('foosball', 'best_of', 10),
+    ('table-tennis', 'first_to', 11),
+    ('pool', 'first_to', 7)
 `);
 seedGames.run();
 

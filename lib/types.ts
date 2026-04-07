@@ -7,6 +7,8 @@ export interface Player {
 export interface Game {
   id: number;
   name: string;
+  score_type: 'best_of' | 'first_to';
+  score_value: number;
   created_at: string;
 }
 

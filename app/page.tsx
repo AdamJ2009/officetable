@@ -11,9 +11,7 @@ interface Game {
 interface LeaderboardEntry {
   player_id: number;
   player_name: string;
-  mu: number;
-  sigma: number;
-  rating: number;
+  elo: number;
   wins: number;
   losses: number;
   draws: number;
@@ -130,7 +128,7 @@ export default function Home() {
                       {entry.player_name}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {entry.rating.toFixed(1)}
+                      {Math.round(entry.elo)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       {entry.wins} / {entry.losses} / {entry.draws}

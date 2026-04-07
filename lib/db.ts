@@ -25,8 +25,7 @@ db.exec(`
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     player_id INTEGER NOT NULL,
     game_id INTEGER NOT NULL,
-    mu REAL DEFAULT 25,
-    sigma REAL DEFAULT 8.333,
+    elo REAL DEFAULT 1000,
     UNIQUE(player_id, game_id),
     FOREIGN KEY (player_id) REFERENCES players(id),
     FOREIGN KEY (game_id) REFERENCES games(id)
@@ -48,10 +47,8 @@ db.exec(`
     player_id INTEGER NOT NULL,
     team INTEGER NOT NULL,
     score INTEGER NOT NULL,
-    mu_before REAL NOT NULL,
-    mu_after REAL NOT NULL,
-    sigma_before REAL NOT NULL,
-    sigma_after REAL NOT NULL,
+    elo_before REAL NOT NULL,
+    elo_after REAL NOT NULL,
     FOREIGN KEY (match_id) REFERENCES matches(id),
     FOREIGN KEY (player_id) REFERENCES players(id)
   );
@@ -67,6 +64,53 @@ try {
   db.exec(`ALTER TABLE games ADD COLUMN score_value INTEGER DEFAULT 10`);
 } catch (e) {
   // Column already exists, ignore
+}
+
+// Migration: Add elo column to player_ratings if it doesn't exist (old schema had mu/sigma)
+try {
+  db.exec(`ALTER TABLE player_ratings ADD COLUMN elo REAL DEFAULT 1000`);
+} catch (e) {
+  // Column already exists, ignore
+}
+
+// Migration: Add elo_before/elo_after to match_participants if they don't exist
+try {
+  db.exec(`ALTER TABLE match_participants ADD COLUMN elo_before REAL DEFAULT 1000`);
+} catch (e) {
+  // Column already exists, ignore
+}
+try {
+  db.exec(`ALTER TABLE match_participants ADD COLUMN elo_after REAL DEFAULT 1000`);
+} catch (e) {
+  // Column already exists, ignore
+}
+
+// Migration: Convert existing mu values to elo (if mu exists and elo is null/default)
+try {
+  // Check if mu column exists (old schema)
+  const tableInfo = db.prepare(`PRAGMA table_info(player_ratings)`).all() as { name: string }[];
+  const hasMu = tableInfo.some(col => col.name === 'mu');
+
+  if (hasMu) {
+    // Convert mu to elo: scale from ~25 centered to 1000 centered
+    // mu values typically range 0-50, so multiply by 40 to get to 0-2000 range
+    db.exec(`UPDATE player_ratings SET elo = ROUND(mu * 40) WHERE elo IS NULL OR elo = 1000`);
+  }
+} catch (e) {
+  // Migration failed or already done, ignore
+}
+
+// Migration: Convert existing mu_before/mu_after in match_participants to elo
+try {
+  const tableInfo = db.prepare(`PRAGMA table_info(match_participants)`).all() as { name: string }[];
+  const hasMuBefore = tableInfo.some(col => col.name === 'mu_before');
+
+  if (hasMuBefore) {
+    db.exec(`UPDATE match_participants SET elo_before = ROUND(mu_before * 40) WHERE elo_before IS NULL OR elo_before = 1000`);
+    db.exec(`UPDATE match_participants SET elo_after = ROUND(mu_after * 40) WHERE elo_after IS NULL OR elo_after = 1000`);
+  }
+} catch (e) {
+  // Migration failed or already done, ignore
 }
 
 // Seed games with scoring configuration if not exists

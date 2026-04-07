@@ -16,8 +16,7 @@ export interface PlayerRating {
   id: number;
   player_id: number;
   game_id: number;
-  mu: number;
-  sigma: number;
+  elo: number;
   player_name?: string;
 }
 
@@ -34,10 +33,8 @@ export interface MatchParticipant {
   player_id: number;
   team: number;
   score: number;
-  mu_before: number;
-  mu_after: number;
-  sigma_before: number;
-  sigma_after: number;
+  elo_before: number;
+  elo_after: number;
 }
 
 export interface MatchWithParticipants extends Match {
@@ -48,9 +45,7 @@ export interface MatchWithParticipants extends Match {
 export interface LeaderboardEntry {
   player_id: number;
   player_name: string;
-  mu: number;
-  sigma: number;
-  rating: number; // mu - 3*sigma (conservative rating)
+  elo: number;
   wins: number;
   losses: number;
   draws: number;

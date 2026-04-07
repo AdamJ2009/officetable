@@ -20,10 +20,8 @@ interface Match {
     player_id: number;
     team: number;
     score: number;
-    mu_before: number;
-    mu_after: number;
-    sigma_before: number;
-    sigma_after: number;
+    elo_before: number;
+    elo_after: number;
     player_name: string;
   }[];
 }
@@ -67,13 +65,10 @@ export default function MatchesPage() {
     });
   };
 
-  const formatRatingChange = (before: number, after: number, isSigma: boolean = false) => {
+  const formatRatingChange = (before: number, after: number) => {
     const diff = after - before;
     const sign = diff >= 0 ? "+" : "";
-    if (isSigma) {
-      return `${sign}${diff.toFixed(3)}`;
-    }
-    return `${sign}${diff.toFixed(1)}`;
+    return `${sign}${Math.round(diff)}`;
   };
 
   const getTeamResult = (match: Match, team: number) => {
@@ -178,22 +173,12 @@ export default function MatchesPage() {
                         </div>
                         <div className="space-y-2">
                           {teamParticipants.map((p) => {
-                            const ratingBefore = p.mu_before - 3 * p.sigma_before;
-                            const ratingAfter = p.mu_after - 3 * p.sigma_after;
-                            const ratingDiff = ratingAfter - ratingBefore;
-
                             return (
                               <div key={p.player_id} className="text-sm">
                                 <div className="font-medium">{p.player_name}</div>
                                 <div className="flex gap-4 text-gray-600 text-xs">
-                                  <span title="μ (mean skill)">
-                                    μ: {formatRatingChange(p.mu_before, p.mu_after)}
-                                  </span>
-                                  <span title="σ (uncertainty)">
-                                    σ: {formatRatingChange(p.sigma_before, p.sigma_after, true)}
-                                  </span>
-                                  <span title="Conservative rating (μ - 3σ)" className={ratingDiff >= 0 ? "text-green-600" : "text-red-600"}>
-                                    Rating: {ratingDiff >= 0 ? "+" : ""}{ratingDiff.toFixed(1)}
+                                  <span className={p.elo_after > p.elo_before ? "text-green-600" : p.elo_after < p.elo_before ? "text-red-600" : ""}>
+                                    Elo: {formatRatingChange(p.elo_before, p.elo_after)}
                                   </span>
                                 </div>
                               </div>

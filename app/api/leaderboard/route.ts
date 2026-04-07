@@ -76,21 +76,17 @@ export async function GET(request: NextRequest) {
     SELECT
       pr.player_id,
       p.name as player_name,
-      pr.mu,
-      pr.sigma,
-      pr.mu - 3 * pr.sigma as rating
+      pr.elo
     FROM player_ratings pr
     JOIN players p ON pr.player_id = p.id
     WHERE pr.game_id = ?
-    ORDER BY rating DESC
+    ORDER BY pr.elo DESC
   `);
 
   const rows = stmt.all(parseInt(gameId)) as {
     player_id: number;
     player_name: string;
-    mu: number;
-    sigma: number;
-    rating: number;
+    elo: number;
   }[];
 
   // Combine with stats
@@ -99,9 +95,7 @@ export async function GET(request: NextRequest) {
     return {
       player_id: row.player_id,
       player_name: row.player_name,
-      mu: row.mu,
-      sigma: row.sigma,
-      rating: row.rating,
+      elo: row.elo,
       wins: stats.wins,
       losses: stats.losses,
       draws: stats.draws,

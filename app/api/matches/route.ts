@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import db from '@/lib/db';
-import { processMatch } from '@/lib/openskill';
+import { processMatch } from '@/lib/elo';
 import type { MatchWithParticipants, CreateMatchInput } from '@/lib/types';
 
 export async function GET(request: NextRequest) {

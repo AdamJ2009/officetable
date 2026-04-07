@@ -10,7 +10,7 @@
 
 import * as readline from 'readline';
 import db from '../lib/db';
-import { processMatch } from '../lib/openskill';
+import { processMatch } from '../lib/elo';
 
 const rl = readline.createInterface({
   input: process.stdin,
@@ -59,10 +59,10 @@ async function main() {
     const player2Id = getOrCreatePlayer(player2Name);
 
     // Get current ratings before processing
-    const rating1Before = db.prepare('SELECT mu, sigma FROM player_ratings WHERE player_id = ? AND game_id = ?')
-      .get(player1Id, gameId) as { mu: number; sigma: number } | undefined;
-    const rating2Before = db.prepare('SELECT mu, sigma FROM player_ratings WHERE player_id = ? AND game_id = ?')
-      .get(player2Id, gameId) as { mu: number; sigma: number } | undefined;
+    const rating1Before = db.prepare('SELECT elo FROM player_ratings WHERE player_id = ? AND game_id = ?')
+      .get(player1Id, gameId) as { elo: number } | undefined;
+    const rating2Before = db.prepare('SELECT elo FROM player_ratings WHERE player_id = ? AND game_id = ?')
+      .get(player2Id, gameId) as { elo: number } | undefined;
 
     // Process the match with the timestamp
     const matchDate = new Date(timestamp * 1000);
@@ -75,15 +75,15 @@ async function main() {
     }, matchDate);
 
     // Get ratings after
-    const rating1After = db.prepare('SELECT mu, sigma FROM player_ratings WHERE player_id = ? AND game_id = ?')
-      .get(player1Id, gameId) as { mu: number; sigma: number };
-    const rating2After = db.prepare('SELECT mu, sigma FROM player_ratings WHERE player_id = ? AND game_id = ?')
-      .get(player2Id, gameId) as { mu: number; sigma: number };
+    const rating1After = db.prepare('SELECT elo FROM player_ratings WHERE player_id = ? AND game_id = ?')
+      .get(player1Id, gameId) as { elo: number };
+    const rating2After = db.prepare('SELECT elo FROM player_ratings WHERE player_id = ? AND game_id = ?')
+      .get(player2Id, gameId) as { elo: number };
 
     const result = player1Score > player2Score ? 'W' : player1Score < player2Score ? 'L' : 'D';
     console.log(`  ${player1Name} (${player1Score}) vs ${player2Name} (${player2Score}) [${result}]`);
-    console.log(`    ${player1Name}: μ ${rating1Before?.mu.toFixed(1) ?? '25.0'} → ${rating1After.mu.toFixed(1)}, σ ${rating1Before?.sigma.toFixed(2) ?? '8.33'} → ${rating1After.sigma.toFixed(2)}`);
-    console.log(`    ${player2Name}: μ ${rating2Before?.mu.toFixed(1) ?? '25.0'} → ${rating2After.mu.toFixed(1)}, σ ${rating2Before?.sigma.toFixed(2) ?? '8.33'} → ${rating2After.sigma.toFixed(2)}`);
+    console.log(`    ${player1Name}: Elo ${rating1Before?.elo ?? 1000} → ${rating1After.elo}`);
+    console.log(`    ${player2Name}: Elo ${rating2Before?.elo ?? 1000} → ${rating2After.elo}`);
   }
 
   const lines: string[] = [];
@@ -132,17 +132,17 @@ async function main() {
   // Show final leaderboard
   console.log('\nFinal Leaderboard:');
   const leaderboard = db.prepare(`
-    SELECT p.name, pr.mu, pr.sigma, pr.mu - 3 * pr.sigma as rating
+    SELECT p.name, pr.elo
     FROM player_ratings pr
     JOIN players p ON pr.player_id = p.id
     WHERE pr.game_id = ?
-    ORDER BY rating DESC
-  `).all(gameId) as { name: string; mu: number; sigma: number; rating: number }[];
+    ORDER BY pr.elo DESC
+  `).all(gameId) as { name: string; elo: number }[];
 
-  console.log('Player                 μ       σ      Rating');
-  console.log('-'.repeat(45));
+  console.log('Player                 Elo');
+  console.log('-'.repeat(30));
   for (const entry of leaderboard) {
-    console.log(`${entry.name.padEnd(20)} ${entry.mu.toFixed(1).padStart(6)} ${entry.sigma.toFixed(2).padStart(7)} ${entry.rating.toFixed(1).padStart(8)}`);
+    console.log(`${entry.name.padEnd(20)} ${Math.round(entry.elo).toString().padStart(8)}`);
   }
 
   process.exit(0);

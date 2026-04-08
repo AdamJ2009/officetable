@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Link from "next/link";
 
 interface Player {
   id: number;
@@ -143,9 +144,14 @@ export default function PlayersPage() {
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {activePlayers.map((player) => (
-                  <tr key={player.id}>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                      {player.name}
+                  <tr key={player.id} className="hover:bg-gray-50">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                      <Link
+                        href={`/players/${player.id}`}
+                        className="text-blue-600 hover:underline"
+                      >
+                        {player.name}
+                      </Link>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       {new Date(player.created_at).toLocaleDateString()}
@@ -161,9 +167,14 @@ export default function PlayersPage() {
                   </tr>
                 ))}
                 {showRetired && retiredPlayers.map((player) => (
-                  <tr key={player.id} className="bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-500 line-through">
-                      {player.name}
+                  <tr key={player.id} className="bg-gray-50 hover:bg-gray-100">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                      <Link
+                        href={`/players/${player.id}`}
+                        className="text-gray-500 hover:underline line-through"
+                      >
+                        {player.name}
+                      </Link>
                       <span className="ml-2 text-xs text-gray-400">(Retired)</span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">

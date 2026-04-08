@@ -183,12 +183,17 @@ export default function Home() {
                 const winRate = totalGames > 0 ? ((entry.wins / totalGames) * 100).toFixed(0) : "-";
                 const isRetired = entry.status === 'retired';
                 return (
-                  <tr key={entry.player_id} className={isRetired ? 'bg-gray-50' : ''}>
+                  <tr key={entry.player_id} className={isRetired ? 'bg-gray-50 hover:bg-gray-100' : 'hover:bg-gray-50'}>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                       {index + 1}
                     </td>
-                    <td className={`px-6 py-4 whitespace-nowrap text-sm ${isRetired ? 'text-gray-500 line-through' : 'text-gray-900'}`}>
-                      {entry.player_name}
+                    <td className={`px-6 py-4 whitespace-nowrap text-sm ${isRetired ? 'text-gray-500' : 'text-gray-900'}`}>
+                      <Link
+                        href={`/players/${entry.player_id}`}
+                        className={`hover:underline ${isRetired ? 'line-through' : ''}`}
+                      >
+                        {entry.player_name}
+                      </Link>
                       {isRetired && <span className="ml-2 text-xs text-gray-400">(Retired)</span>}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">

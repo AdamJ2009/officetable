@@ -23,7 +23,7 @@ export default function PlayersPage() {
 
   function fetchPlayers() {
     setLoading(true);
-    fetch("/api/players")
+    fetch("/api/players?status=all")
       .then((res) => res.json())
       .then((data) => {
         setPlayers(data);

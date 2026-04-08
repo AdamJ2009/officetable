@@ -2,7 +2,7 @@ import db from './db';
 import type { PlayerRating, LeaderboardEntry, CreateMatchInput } from './types';
 
 // Classic Elo constants
-const DEFAULT_ELO = 1000;
+const DEFAULT_ELO = 0;
 const K_FACTOR = 32;
 
 // For team games, we use average team Elo

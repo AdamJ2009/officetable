@@ -82,8 +82,8 @@ async function main() {
 
     const result = player1Score > player2Score ? 'W' : player1Score < player2Score ? 'L' : 'D';
     console.log(`  ${player1Name} (${player1Score}) vs ${player2Name} (${player2Score}) [${result}]`);
-    console.log(`    ${player1Name}: Elo ${rating1Before?.elo ?? 1000} → ${rating1After.elo}`);
-    console.log(`    ${player2Name}: Elo ${rating2Before?.elo ?? 1000} → ${rating2After.elo}`);
+    console.log(`    ${player1Name}: Elo ${rating1Before?.elo ?? 0} → ${rating1After.elo}`);
+    console.log(`    ${player2Name}: Elo ${rating2Before?.elo ?? 0} → ${rating2After.elo}`);
   }
 
   const lines: string[] = [];

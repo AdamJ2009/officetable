@@ -25,7 +25,7 @@ db.exec(`
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     player_id INTEGER NOT NULL,
     game_id INTEGER NOT NULL,
-    elo REAL DEFAULT 1000,
+    elo REAL DEFAULT 0,
     UNIQUE(player_id, game_id),
     FOREIGN KEY (player_id) REFERENCES players(id),
     FOREIGN KEY (game_id) REFERENCES games(id)
@@ -68,19 +68,19 @@ try {
 
 // Migration: Add elo column to player_ratings if it doesn't exist (old schema had mu/sigma)
 try {
-  db.exec(`ALTER TABLE player_ratings ADD COLUMN elo REAL DEFAULT 1000`);
+  db.exec(`ALTER TABLE player_ratings ADD COLUMN elo REAL DEFAULT 0`);
 } catch (e) {
   // Column already exists, ignore
 }
 
 // Migration: Add elo_before/elo_after to match_participants if they don't exist
 try {
-  db.exec(`ALTER TABLE match_participants ADD COLUMN elo_before REAL DEFAULT 1000`);
+  db.exec(`ALTER TABLE match_participants ADD COLUMN elo_before REAL DEFAULT 0`);
 } catch (e) {
   // Column already exists, ignore
 }
 try {
-  db.exec(`ALTER TABLE match_participants ADD COLUMN elo_after REAL DEFAULT 1000`);
+  db.exec(`ALTER TABLE match_participants ADD COLUMN elo_after REAL DEFAULT 0`);
 } catch (e) {
   // Column already exists, ignore
 }
@@ -92,9 +92,9 @@ try {
   const hasMu = tableInfo.some(col => col.name === 'mu');
 
   if (hasMu) {
-    // Convert mu to elo: scale from ~25 centered to 1000 centered
-    // mu values typically range 0-50, so multiply by 40 to get to 0-2000 range
-    db.exec(`UPDATE player_ratings SET elo = ROUND(mu * 40) WHERE elo IS NULL OR elo = 1000`);
+    // Convert mu to elo: scale from ~25 centered to 0 centered
+    // mu values typically range 0-50, so multiply by 40 to get to 0-2000 range, then subtract 1000
+    db.exec(`UPDATE player_ratings SET elo = ROUND(mu * 40 - 1000) WHERE elo IS NULL OR elo = 0`);
   }
 } catch (e) {
   // Migration failed or already done, ignore
@@ -106,8 +106,27 @@ try {
   const hasMuBefore = tableInfo.some(col => col.name === 'mu_before');
 
   if (hasMuBefore) {
-    db.exec(`UPDATE match_participants SET elo_before = ROUND(mu_before * 40) WHERE elo_before IS NULL OR elo_before = 1000`);
-    db.exec(`UPDATE match_participants SET elo_after = ROUND(mu_after * 40) WHERE elo_after IS NULL OR elo_after = 1000`);
+    db.exec(`UPDATE match_participants SET elo_before = ROUND(mu_before * 40 - 1000) WHERE elo_before IS NULL OR elo_before = 0`);
+    db.exec(`UPDATE match_participants SET elo_after = ROUND(mu_after * 40 - 1000) WHERE elo_after IS NULL OR elo_after = 0`);
+  }
+} catch (e) {
+  // Migration failed or already done, ignore
+}
+
+// Migration: Shift all existing elo values from 1000-centered to 0-centered
+// This only runs once when transitioning from the old 1000-default system
+try {
+  // Check if we need to migrate (elo values around 1000 indicate old system)
+  const sampleRating = db.prepare(`SELECT elo FROM player_ratings WHERE elo IS NOT NULL LIMIT 1`).get() as { elo: number } | undefined;
+
+  // If no ratings yet, nothing to migrate
+  // If elo is around 1000 (old default), we need to shift all values by -1000
+  // The mu migration already handles conversion to 0-centered, so we only shift if needed
+  if (sampleRating && sampleRating.elo >= 500) {
+    // Values are from the old 1000-centered system, shift them
+    db.exec(`UPDATE player_ratings SET elo = elo - 1000 WHERE elo IS NOT NULL`);
+    db.exec(`UPDATE match_participants SET elo_before = elo_before - 1000 WHERE elo_before IS NOT NULL`);
+    db.exec(`UPDATE match_participants SET elo_after = elo_after - 1000 WHERE elo_after IS NOT NULL`);
   }
 } catch (e) {
   // Migration failed or already done, ignore

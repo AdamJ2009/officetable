@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 
 interface Game {
@@ -13,10 +13,17 @@ interface Player {
   name: string;
 }
 
+interface PlayerRating {
+  player_id: number;
+  player_name: string;
+  elo: number;
+}
+
 export default function NewMatchPage() {
   const router = useRouter();
   const [games, setGames] = useState<Game[]>([]);
   const [players, setPlayers] = useState<Player[]>([]);
+  const [ratings, setRatings] = useState<PlayerRating[]>([]);
   const [selectedGame, setSelectedGame] = useState<number | null>(null);
   const [team1Players, setTeam1Players] = useState<number[]>([]);
   const [team2Players, setTeam2Players] = useState<number[]>([]);
@@ -38,6 +45,16 @@ export default function NewMatchPage() {
       setPlayers(playersData);
     });
   }, []);
+
+  useEffect(() => {
+    if (selectedGame) {
+      fetch(`/api/leaderboard?game_id=${selectedGame}`)
+        .then((res) => res.json())
+        .then((data) => {
+          setRatings(data);
+        });
+    }
+  }, [selectedGame]);
 
   function togglePlayer(team: 1 | 2, playerId: number) {
     if (team === 1) {
@@ -119,6 +136,32 @@ export default function NewMatchPage() {
   const score1 = parseInt(team1Score, 10) || 0;
   const score2 = parseInt(team2Score, 10) || 0;
   const winnerText = score1 > score2 ? "Team 1 wins" : score2 > score1 ? "Team 2 wins" : "Tie";
+
+  // Calculate predicted result based on team Elo
+  const prediction = useMemo(() => {
+    if (team1Players.length === 0 || team2Players.length === 0) return null;
+
+    const team1Elo = team1Players.reduce((sum, id) => {
+      const r = ratings.find((r) => r.player_id === id);
+      return sum + (r?.elo ?? 0);
+    }, 0) / team1Players.length;
+
+    const team2Elo = team2Players.reduce((sum, id) => {
+      const r = ratings.find((r) => r.player_id === id);
+      return sum + (r?.elo ?? 0);
+    }, 0) / team2Players.length;
+
+    // Expected result formula: 1 / (1 + 10^((opponentElo - teamElo) / 180))
+    const expectedTeam1 = 1 / (1 + Math.pow(10, (team2Elo - team1Elo) / 180));
+    const expectedTeam2 = 1 / (1 + Math.pow(10, (team1Elo - team2Elo) / 180));
+
+    return {
+      team1Elo,
+      team2Elo,
+      expectedTeam1,
+      expectedTeam2,
+    };
+  }, [team1Players, team2Players, ratings]);
 
   return (
     <div>
@@ -233,6 +276,29 @@ export default function NewMatchPage() {
           <p className="text-xs text-gray-500 mt-1">
             Close scores result in smaller rating changes; blowouts result in larger changes.
           </p>
+
+          {prediction && (
+            <div className="mt-3 p-3 bg-gray-50 rounded-lg">
+              <p className="text-sm font-medium text-gray-700 mb-2">Predicted Result</p>
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-blue-700">Team 1:</span>
+                  <span className="font-mono">
+                    {prediction.expectedTeam1.toFixed(3)} ({prediction.team1Elo.toFixed(1)} avg)
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-red-700">Team 2:</span>
+                  <span className="font-mono">
+                    {prediction.expectedTeam2.toFixed(3)} ({prediction.team2Elo.toFixed(1)} avg)
+                  </span>
+                </div>
+              </div>
+              <p className="text-xs text-gray-500 mt-2">
+                Expected point ratio based on current Elo ratings.
+              </p>
+            </div>
+          )}
         </div>
 
         {availablePlayers.length > 0 && (

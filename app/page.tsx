@@ -15,6 +15,7 @@ interface LeaderboardEntry {
   wins: number;
   losses: number;
   draws: number;
+  status?: 'active' | 'retired';
 }
 
 export default function Home() {
@@ -22,6 +23,7 @@ export default function Home() {
   const [selectedGame, setSelectedGame] = useState<number | null>(null);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showRetired, setShowRetired] = useState(false);
 
   useEffect(() => {
     fetch("/api/games")
@@ -37,14 +39,14 @@ export default function Home() {
   useEffect(() => {
     if (selectedGame) {
       setLoading(true);
-      fetch(`/api/leaderboard?game_id=${selectedGame}`)
+      fetch(`/api/leaderboard?game_id=${selectedGame}&include_retired=${showRetired}`)
         .then((res) => res.json())
         .then((data) => {
           setLeaderboard(data);
           setLoading(false);
         });
     }
-  }, [selectedGame]);
+  }, [selectedGame, showRetired]);
 
   return (
     <div>
@@ -83,6 +85,18 @@ export default function Home() {
         </select>
       </div>
 
+      <div className="mb-4">
+        <label className="flex items-center gap-2 text-sm text-gray-600">
+          <input
+            type="checkbox"
+            checked={showRetired}
+            onChange={(e) => setShowRetired(e.target.checked)}
+            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+          />
+          Show retired players
+        </label>
+      </div>
+
       {loading ? (
         <div className="text-gray-500">Loading...</div>
       ) : leaderboard.length === 0 ? (
@@ -119,13 +133,15 @@ export default function Home() {
               {leaderboard.map((entry, index) => {
                 const totalGames = entry.wins + entry.losses + entry.draws;
                 const winRate = totalGames > 0 ? ((entry.wins / totalGames) * 100).toFixed(0) : "-";
+                const isRetired = entry.status === 'retired';
                 return (
-                  <tr key={entry.player_id}>
+                  <tr key={entry.player_id} className={isRetired ? 'bg-gray-50' : ''}>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                       {index + 1}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                    <td className={`px-6 py-4 whitespace-nowrap text-sm ${isRetired ? 'text-gray-500 line-through' : 'text-gray-900'}`}>
                       {entry.player_name}
+                      {isRetired && <span className="ml-2 text-xs text-gray-400">(Retired)</span>}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       {entry.elo.toFixed(3)}

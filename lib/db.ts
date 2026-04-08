@@ -54,7 +54,14 @@ db.exec(`
   );
 `);
 
-// Add score_type and score_value columns to games table if they don't exist
+// Migration: Add status column to players table if it doesn't exist
+try {
+  db.exec(`ALTER TABLE players ADD COLUMN status TEXT DEFAULT 'active'`);
+} catch (e) {
+  // Column already exists, ignore
+}
+
+// Migration: Add score_type and score_value columns to games table if they don't exist
 try {
   db.exec(`ALTER TABLE games ADD COLUMN score_type TEXT DEFAULT 'first_to'`);
 } catch (e) {

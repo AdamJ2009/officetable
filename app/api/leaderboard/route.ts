@@ -5,6 +5,7 @@ import type { LeaderboardEntry } from '@/lib/types';
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const gameId = searchParams.get('game_id');
+  const includeRetired = searchParams.get('include_retired') === 'true';
 
   if (!gameId) {
     return NextResponse.json({ error: 'game_id is required' }, { status: 400 });
@@ -72,14 +73,18 @@ export async function GET(request: NextRequest) {
   }
 
   // Get base player data
+  const statusFilter = includeRetired
+    ? ''
+    : " AND (p.status IS NULL OR p.status = 'active')";
   const stmt = db.prepare(`
     SELECT
       pr.player_id,
       p.name as player_name,
-      pr.elo
+      pr.elo,
+      p.status
     FROM player_ratings pr
     JOIN players p ON pr.player_id = p.id
-    WHERE pr.game_id = ?
+    WHERE pr.game_id = ?${statusFilter}
     ORDER BY pr.elo DESC
   `);
 
@@ -87,6 +92,7 @@ export async function GET(request: NextRequest) {
     player_id: number;
     player_name: string;
     elo: number;
+    status: string | null;
   }[];
 
   // Combine with stats
@@ -99,6 +105,7 @@ export async function GET(request: NextRequest) {
       wins: stats.wins,
       losses: stats.losses,
       draws: stats.draws,
+      status: (row.status === 'retired' ? 'retired' : 'active') as 'active' | 'retired',
     };
   });
 

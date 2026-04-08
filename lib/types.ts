@@ -1,6 +1,7 @@
 export interface Player {
   id: number;
   name: string;
+  status: 'active' | 'retired';
   created_at: string;
 }
 
@@ -49,6 +50,7 @@ export interface LeaderboardEntry {
   wins: number;
   losses: number;
   draws: number;
+  status?: 'active' | 'retired';
 }
 
 export interface CreateMatchInput {

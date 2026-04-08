@@ -2,8 +2,17 @@ import { NextRequest, NextResponse } from 'next/server';
 import db from '@/lib/db';
 import type { Player } from '@/lib/types';
 
-export async function GET() {
-  const stmt = db.prepare('SELECT * FROM players ORDER BY name');
+export async function GET(request: NextRequest) {
+  const { searchParams } = new URL(request.url);
+  const status = searchParams.get('status');
+
+  let stmt;
+  if (status === 'all') {
+    stmt = db.prepare('SELECT * FROM players ORDER BY name');
+  } else {
+    // Default: only active players
+    stmt = db.prepare("SELECT * FROM players WHERE status IS NULL OR status = 'active' ORDER BY name");
+  }
   const players = stmt.all() as Player[];
   return NextResponse.json(players);
 }
@@ -27,5 +36,32 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Player name already exists' }, { status: 409 });
     }
     return NextResponse.json({ error: 'Failed to create player' }, { status: 500 });
+  }
+}
+
+export async function PUT(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const { id, status } = body;
+
+    if (!id || typeof id !== 'number') {
+      return NextResponse.json({ error: 'Player id is required' }, { status: 400 });
+    }
+
+    if (status !== 'active' && status !== 'retired') {
+      return NextResponse.json({ error: 'Status must be "active" or "retired"' }, { status: 400 });
+    }
+
+    const stmt = db.prepare('UPDATE players SET status = ? WHERE id = ?');
+    const result = stmt.run(status, id);
+
+    if (result.changes === 0) {
+      return NextResponse.json({ error: 'Player not found' }, { status: 404 });
+    }
+
+    const player = db.prepare('SELECT * FROM players WHERE id = ?').get(id) as Player;
+    return NextResponse.json(player);
+  } catch (error) {
+    return NextResponse.json({ error: 'Failed to update player' }, { status: 500 });
   }
 }

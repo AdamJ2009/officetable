@@ -301,24 +301,29 @@ export default function NewMatchPage() {
 
           {prediction && (
             <div className="mt-3 p-3 bg-gray-50 rounded-lg">
-              <p className="text-sm font-medium text-gray-700 mb-2">Predicted Result</p>
+              <p className="text-sm font-medium text-gray-700 mb-2">Expected Result (based on current Elo ratings)</p>
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div className="flex justify-between">
                   <span className="text-blue-700">Team 1:</span>
                   <span className="font-mono">
-                    {prediction.expectedTeam1Score} (score ratio: {prediction.expectedTeam1.toFixed(3)}, team elo: {prediction.team1Elo.toFixed(1)})
+                    {prediction.expectedTeam1Score}
                   </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-red-700">Team 2:</span>
                   <span className="font-mono">
-                    {prediction.expectedTeam2Score} (score ratio: {prediction.expectedTeam2.toFixed(3)}, team elo: {prediction.team2Elo.toFixed(1)})
+                    {prediction.expectedTeam2Score}
                   </span>
                 </div>
               </div>
-              <p className="text-xs text-gray-500 mt-2">
-                Expected point ratio based on current Elo ratings.
-              </p>
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-xs text-blue-700">(score ratio: {prediction.expectedTeam1.toFixed(3)}, team elo: {prediction.team1Elo.toFixed(1)})</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-xs text-red-700">(score ratio: {prediction.expectedTeam2.toFixed(3)}, team elo: {prediction.team2Elo.toFixed(1)})</span>
+                </div>
+              </div>
             </div>
           )}
         </div>

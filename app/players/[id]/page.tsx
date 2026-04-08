@@ -3,6 +3,12 @@
 import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts";
+
+interface EloHistoryPoint {
+  elo: number;
+  date: string;
+}
 
 interface GameStat {
   game_id: number;
@@ -25,6 +31,7 @@ interface GameStat {
     biggest_win: number;
     biggest_loss: number;
   };
+  elo_history: EloHistoryPoint[];
 }
 
 interface Opponent {
@@ -282,6 +289,60 @@ export default function PlayerProfilePage() {
                     </div>
                   </div>
                 </div>
+
+                {/* Elo History Chart */}
+                {game.elo_history.length > 1 && (
+                  <div className="px-6 py-4 border-b border-gray-200">
+                    <div className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-3">Skill History</div>
+                    <div className="h-48">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart
+                          data={game.elo_history.map((point, index) => ({
+                            match: index + 1,
+                            elo: point.elo,
+                            date: new Date(point.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                          }))}
+                          margin={{ top: 5, right: 20, left: 0, bottom: 5 }}
+                        >
+                          <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                          <XAxis
+                            dataKey="match"
+                            tick={{ fontSize: 10 }}
+                            tickLine={false}
+                            axisLine={{ stroke: '#e5e7eb' }}
+                            label={{ value: 'Match #', position: 'insideBottom', offset: -5, fontSize: 10, fill: '#6b7280' }}
+                          />
+                          <YAxis
+                            tick={{ fontSize: 10 }}
+                            tickLine={false}
+                            axisLine={{ stroke: '#e5e7eb' }}
+                            tickFormatter={(value) => value.toFixed(0)}
+                            domain={['auto', 'auto']}
+                          />
+                          <Tooltip
+                            contentStyle={{
+                              backgroundColor: 'white',
+                              border: '1px solid #e5e7eb',
+                              borderRadius: '0.375rem',
+                              fontSize: '12px'
+                            }}
+                            formatter={(value) => [(value as number).toFixed(3), 'Rating']}
+                            labelFormatter={(label) => `Match ${label}`}
+                          />
+                          <ReferenceLine y={0} stroke="#9ca3af" strokeDasharray="5 5" />
+                          <Line
+                            type="monotone"
+                            dataKey="elo"
+                            stroke="#3b82f6"
+                            strokeWidth={2}
+                            dot={false}
+                            activeDot={{ r: 4, fill: '#3b82f6' }}
+                          />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                )}
 
                 {/* Recent matches for this game */}
                 {gameMatches.length > 0 && (

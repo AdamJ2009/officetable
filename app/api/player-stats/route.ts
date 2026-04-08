@@ -172,7 +172,11 @@ export async function GET(request: NextRequest) {
         longest_unbeaten_streak: longestUnbeatenStreak,
         biggest_win: biggestWin.margin ?? 0,
         biggest_loss: biggestLoss.margin ?? 0,
-      }
+      },
+      elo_history: eloHistory.map(h => ({
+        elo: h.elo_after,
+        date: h.played_at
+      }))
     });
   }
 

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import db from '@/lib/db';
-import { correctMatch, isWithinEditWindow } from '@/lib/elo';
+import { correctMatch, deleteMatchAndReplay, isWithinEditWindow } from '@/lib/elo';
 
 export async function GET(
   request: NextRequest,
@@ -131,22 +131,14 @@ export async function DELETE(
       );
     }
 
-    // Delete match participants and match
-    const deleteParticipants = db.prepare(`DELETE FROM match_participants WHERE match_id = ?`);
-    const deleteMatch = db.prepare(`DELETE FROM matches WHERE id = ?`);
-
-    const deleteTransaction = db.transaction(() => {
-      deleteParticipants.run(matchId);
-      deleteMatch.run(matchId);
-    });
-
-    deleteTransaction();
+    // Delete the match and replay subsequent matches to recalculate ratings
+    deleteMatchAndReplay(matchId);
 
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Error deleting match:', error);
     return NextResponse.json(
-      { error: 'Failed to delete match' },
+      { error: error instanceof Error ? error.message : 'Failed to delete match' },
       { status: 500 }
     );
   }

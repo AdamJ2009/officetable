@@ -465,3 +465,208 @@ export function isWithinEditWindow(playedAt: string): boolean {
   const hoursSince = (now.getTime() - matchTime.getTime()) / (1000 * 60 * 60);
   return hoursSince <= 24;
 }
+
+/**
+ * Delete a match and replay all subsequent matches to recalculate ratings.
+ */
+export function deleteMatchAndReplay(matchId: number): void {
+  // Get the match to delete
+  const matchStmt = db.prepare(`SELECT * FROM matches WHERE id = ?`);
+  const matchToDelete = matchStmt.get(matchId) as { id: number; game_id: number; played_at: string } | undefined;
+
+  if (!matchToDelete) {
+    throw new Error('Match not found');
+  }
+
+  const gameId = matchToDelete.game_id;
+  const deleteTimestamp = matchToDelete.played_at;
+
+  // Get all subsequent matches for this game (in chronological order)
+  const subsequentStmt = db.prepare(`
+    SELECT id, played_at, notes FROM matches
+    WHERE game_id = ? AND played_at > ?
+    ORDER BY played_at ASC
+  `);
+  const subsequentMatches = subsequentStmt.all(gameId, deleteTimestamp) as { id: number; played_at: string; notes: string | null }[];
+
+  // If no subsequent matches, just delete and adjust ratings based on the deleted match's effect
+  if (subsequentMatches.length === 0) {
+    // Get the ratings change from this match and reverse it
+    const participantsStmt = db.prepare(`
+      SELECT player_id, elo_before, elo_after FROM match_participants WHERE match_id = ?
+    `);
+    const participants = participantsStmt.all(matchId) as { player_id: number; elo_before: number; elo_after: number }[];
+
+    const deleteTransaction = db.transaction(() => {
+      // Reverse the rating changes
+      for (const p of participants) {
+        db.prepare(`UPDATE player_ratings SET elo = ? WHERE player_id = ? AND game_id = ?`).run(p.elo_before, p.player_id, gameId);
+      }
+
+      // Delete match participants and match
+      db.prepare(`DELETE FROM match_participants WHERE match_id = ?`).run(matchId);
+      db.prepare(`DELETE FROM matches WHERE id = ?`).run(matchId);
+    });
+
+    deleteTransaction();
+    return;
+  }
+
+  // Get all player_ids involved in subsequent matches
+  const playerIds = new Set<number>();
+  for (const m of subsequentMatches) {
+    const participants = db.prepare(`SELECT DISTINCT player_id FROM match_participants WHERE match_id = ?`).all(m.id) as { player_id: number }[];
+    for (const p of participants) {
+      playerIds.add(p.player_id);
+    }
+  }
+
+  // Get ratings before the deleted match for each player
+  const prevMatchStmt = db.prepare(`
+    SELECT id FROM matches
+    WHERE game_id = ? AND played_at < ?
+    ORDER BY played_at DESC LIMIT 1
+  `);
+  const prevMatch = prevMatchStmt.get(gameId, deleteTimestamp) as { id: number } | undefined;
+
+  const ratingsBefore: Map<number, number> = new Map();
+
+  for (const playerId of playerIds) {
+    if (prevMatch) {
+      const prevEloStmt = db.prepare(`
+        SELECT elo_after FROM match_participants
+        WHERE match_id = ? AND player_id = ?
+      `);
+      const prevElo = prevEloStmt.get(prevMatch.id, playerId) as { elo_after: number } | undefined;
+      if (prevElo) {
+        ratingsBefore.set(playerId, prevElo.elo_after);
+        continue;
+      }
+    }
+
+    // Fall back to current rating
+    const currentRating = db.prepare(`SELECT elo FROM player_ratings WHERE player_id = ? AND game_id = ?`).get(playerId, gameId) as { elo: number } | undefined;
+    ratingsBefore.set(playerId, currentRating?.elo ?? DEFAULT_ELO);
+  }
+
+  // Collect subsequent matches to replay
+  interface MatchToReplay {
+    matchId: number;
+    teams: { team: number; player_ids: number[]; score: number }[];
+    timestamp: string;
+    notes: string | null;
+  }
+
+  const matchesToReplay: MatchToReplay[] = [];
+
+  const getParticipantsStmt = db.prepare(`SELECT player_id, team, score FROM match_participants WHERE match_id = ?`);
+
+  for (const m of subsequentMatches) {
+    const participants = getParticipantsStmt.all(m.id) as { player_id: number; team: number; score: number }[];
+
+    const teams: { team: number; player_ids: number[]; score: number }[] = [];
+    for (const p of participants) {
+      let team = teams.find(t => t.team === p.team);
+      if (!team) {
+        team = { team: p.team, player_ids: [], score: p.score };
+        teams.push(team);
+      }
+      team.player_ids.push(p.player_id);
+    }
+
+    matchesToReplay.push({
+      matchId: m.id,
+      teams,
+      timestamp: m.played_at,
+      notes: m.notes
+    });
+  }
+
+  // Use transaction for atomic deletion
+  const doDelete = db.transaction(() => {
+    // Delete the match to be removed
+    db.prepare(`DELETE FROM match_participants WHERE match_id = ?`).run(matchId);
+    db.prepare(`DELETE FROM matches WHERE id = ?`).run(matchId);
+
+    // Delete match_participants for subsequent matches
+    for (const m of matchesToReplay) {
+      db.prepare(`DELETE FROM match_participants WHERE match_id = ?`).run(m.matchId);
+      db.prepare(`DELETE FROM matches WHERE id = ?`).run(m.matchId);
+    }
+
+    // Reset player ratings to their values before the deleted match
+    const resetRatingStmt = db.prepare(`UPDATE player_ratings SET elo = ? WHERE player_id = ? AND game_id = ?`);
+    for (const [playerId, elo] of ratingsBefore) {
+      resetRatingStmt.run(elo, playerId, gameId);
+    }
+
+    // Ensure all players have ratings
+    for (const playerId of playerIds) {
+      if (!ratingsBefore.has(playerId)) {
+        createPlayerRating(playerId, gameId);
+      }
+    }
+
+    // Replay all subsequent matches in order
+    for (const matchData of matchesToReplay) {
+      const matchDate = new Date(matchData.timestamp.replace(' ', 'T'));
+
+      // Create new match
+      const insertMatch = db.prepare(`INSERT INTO matches (game_id, notes, played_at) VALUES (?, ?, ?)`);
+      const playedAt = matchDate.toISOString().replace('T', ' ').replace(/\.\d+Z$/, '');
+      const result = insertMatch.run(gameId, matchData.notes ?? null, playedAt);
+      const newMatchId = result.lastInsertRowid as number;
+
+      // Calculate and apply rating changes
+      const ratingsByPlayer: Map<number, number> = new Map();
+      for (const team of matchData.teams) {
+        for (const playerId of team.player_ids) {
+          const rating = getOrCreatePlayerRating(playerId, gameId);
+          ratingsByPlayer.set(playerId, rating.elo);
+        }
+      }
+
+      const teamAverageElos = matchData.teams.map(team =>
+        averageTeamElo(team.player_ids.map(id => ratingsByPlayer.get(id)!))
+      );
+
+      const totalScore = matchData.teams.reduce((sum, t) => sum + t.score, 0);
+      const results = totalScore === 0
+        ? matchData.teams.map(() => 1 / matchData.teams.length)
+        : matchData.teams.map(t => t.score / totalScore);
+
+      const ratingChanges: number[] = [];
+      for (let i = 0; i < matchData.teams.length; i++) {
+        let opponentElo: number;
+        if (matchData.teams.length === 2) {
+          opponentElo = teamAverageElos[1 - i];
+        } else {
+          const otherElos = teamAverageElos.filter((_, j) => j !== i);
+          opponentElo = averageTeamElo(otherElos);
+        }
+        const expected = expectedScore(teamAverageElos[i], opponentElo);
+        ratingChanges.push(K_FACTOR * (results[i] - expected));
+      }
+
+      const updateRatingStmt = db.prepare(`UPDATE player_ratings SET elo = ? WHERE player_id = ? AND game_id = ?`);
+      const insertParticipantStmt = db.prepare(`INSERT INTO match_participants (match_id, player_id, team, score, elo_before, elo_after) VALUES (?, ?, ?, ?, ?, ?)`);
+
+      for (let teamIndex = 0; teamIndex < matchData.teams.length; teamIndex++) {
+        const team = matchData.teams[teamIndex];
+        const change = ratingChanges[teamIndex];
+
+        for (const playerId of team.player_ids) {
+          const oldElo = ratingsByPlayer.get(playerId)!;
+          const newElo = oldElo + change;
+
+          updateRatingStmt.run(newElo, playerId, gameId);
+          insertParticipantStmt.run(newMatchId, playerId, team.team, team.score, oldElo, newElo);
+
+          ratingsByPlayer.set(playerId, newElo);
+        }
+      }
+    }
+  });
+
+  doDelete();
+}

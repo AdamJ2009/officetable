@@ -1,9 +1,9 @@
 import db from './db';
 import type { PlayerRating, LeaderboardEntry, CreateMatchInput } from './types';
 
-// Classic Elo constants
+// Elo constants
 const DEFAULT_ELO = 0;
-const K_FACTOR = 32;
+const K_FACTOR = 25;
 
 // For team games, we use average team Elo
 // This ensures all players on a team move in the same direction
@@ -91,7 +91,7 @@ export function getLeaderboard(gameId: number): LeaderboardEntry[] {
  * Returns a value between 0 and 1 representing the probability of A winning.
  */
 function expectedScore(ratingA: number, ratingB: number): number {
-  return 1 / (1 + Math.pow(10, (ratingB - ratingA) / 400));
+  return 1 / (1 + Math.pow(10, (ratingB - ratingA) / 180));
 }
 
 /**
@@ -103,21 +103,16 @@ function averageTeamElo(ratings: number[]): number {
 }
 
 /**
- * Determine match result from scores.
- * Returns array of results: 1 for win, 0.5 for draw, 0 for loss for each team.
+ * Calculate point ratio for each team.
+ * Returns array of actual results: team_score / total_score for each team.
  */
-function getResultsFromScores(teams: CreateMatchInput['teams']): number[] {
-  const scores = teams.map(t => t.score);
-  const maxScore = Math.max(...scores);
-  const minScore = Math.min(...scores);
-
-  // All scores equal = draw
-  if (maxScore === minScore) {
-    return teams.map(() => 0.5);
+function getPointRatios(teams: CreateMatchInput['teams']): number[] {
+  const totalScore = teams.reduce((sum, t) => sum + t.score, 0);
+  if (totalScore === 0) {
+    // If no points scored, distribute equally
+    return teams.map(() => 1 / teams.length);
   }
-
-  // Winners get 1, losers get 0
-  return teams.map(t => t.score === maxScore ? 1 : 0);
+  return teams.map(t => t.score / totalScore);
 }
 
 export function processMatch(input: CreateMatchInput, matchTimestamp?: Date): void {
@@ -139,8 +134,8 @@ export function processMatch(input: CreateMatchInput, matchTimestamp?: Date): vo
     averageTeamElo(team.player_ids.map(id => ratingsByPlayer.get(id)!))
   );
 
-  // Get results (1 for win, 0.5 for draw, 0 for loss)
-  const results = getResultsFromScores(teams);
+  // Get point ratios (team_score / total_score)
+  const results = getPointRatios(teams);
 
   // Calculate rating changes for each team
   const ratingChanges: number[] = [];

@@ -25,6 +25,7 @@ export default function NewMatchPage() {
   const [players, setPlayers] = useState<Player[]>([]);
   const [ratings, setRatings] = useState<PlayerRating[]>([]);
   const [selectedGame, setSelectedGame] = useState<number | null>(null);
+  const selectedGameData = games.find(g => g.id === selectedGame);
   const [team1Players, setTeam1Players] = useState<number[]>([]);
   const [team2Players, setTeam2Players] = useState<number[]>([]);
   const [team1Score, setTeam1Score] = useState<string>("0");
@@ -155,11 +156,32 @@ export default function NewMatchPage() {
     const expectedTeam1 = 1 / (1 + Math.pow(10, (team2Elo - team1Elo) / 180));
     const expectedTeam2 = 1 / (1 + Math.pow(10, (team1Elo - team2Elo) / 180));
 
+    let expectedTeam1Score, expectedTeam2Score
+    // Expected score
+    if (selectedGameData.score_type === 'best_of') {
+        // For best of, we just take the ratios of the score_value, easy!
+        expectedTeam1Score = Math.round(expectedTeam1 * selectedGameData.score_value);
+        expectedTeam2Score = Math.round(expectedTeam2 * selectedGameData.score_value);
+    } else if (selectedGameData.score_type === 'first_to') {
+        // For first_to:
+        // - Highest ratio = winner, full score
+        // - Second ratio = ratio of total score 
+        if (expectedTeam1 > 0.5) {
+            expectedTeam1Score = selectedGameData.score_value;
+            expectedTeam2Score = Math.round(expectedTeam2 * selectedGameData.score_value);
+        } else {
+            expectedTeam1Score = Math.round(expectedTeam1 * selectedGameData.score_value);
+            expectedTeam2Score = selectedGameData.score_value;
+        }
+    }
+
     return {
       team1Elo,
       team2Elo,
       expectedTeam1,
+      expectedTeam1Score,
       expectedTeam2,
+      expectedTeam2Score
     };
   }, [team1Players, team2Players, ratings]);
 
@@ -284,13 +306,13 @@ export default function NewMatchPage() {
                 <div className="flex justify-between">
                   <span className="text-blue-700">Team 1:</span>
                   <span className="font-mono">
-                    {prediction.expectedTeam1.toFixed(3)} ({prediction.team1Elo.toFixed(1)} avg)
+                    {prediction.expectedTeam1Score} (score ratio: {prediction.expectedTeam1.toFixed(3)}, team elo: {prediction.team1Elo.toFixed(1)})
                   </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-red-700">Team 2:</span>
                   <span className="font-mono">
-                    {prediction.expectedTeam2.toFixed(3)} ({prediction.team2Elo.toFixed(1)} avg)
+                    {prediction.expectedTeam2Score} (score ratio: {prediction.expectedTeam2.toFixed(3)}, team elo: {prediction.team2Elo.toFixed(1)})
                   </span>
                 </div>
               </div>

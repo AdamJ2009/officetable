@@ -10,6 +10,22 @@ interface EloHistoryPoint {
   date: string;
 }
 
+interface SkillGainRecord {
+  gain: number;
+  date: string;
+  score: number;
+  opponent_score: number;
+  opponents: string[];
+}
+
+interface SkillLossRecord {
+  loss: number;
+  date: string;
+  score: number;
+  opponent_score: number;
+  opponents: string[];
+}
+
 interface GameRecords {
   highest_elo: number;
   highest_elo_date: string | null;
@@ -24,10 +40,8 @@ interface GameRecords {
   longest_unbeaten_streak: number;
   longest_unbeaten_streak_start: string | null;
   longest_unbeaten_streak_end: string | null;
-  biggest_win: number;
-  biggest_win_date: string | null;
-  biggest_loss: number;
-  biggest_loss_date: string | null;
+  biggest_gain: SkillGainRecord | null;
+  biggest_loss: SkillLossRecord | null;
 }
 
 interface GameStat {
@@ -327,24 +341,51 @@ export default function PlayerProfilePage() {
                         </span>
                       )}
                     </div>
-                    {/* Biggest Win */}
-                    <div className="flex flex-col">
-                      <span className="text-gray-500">Biggest Win:</span>{" "}
-                      <span className="font-semibold text-green-700">+{game.records.biggest_win}</span>
-                      {game.records.biggest_win_date && (
-                        <span className="text-xs text-gray-400">{formatDate(game.records.biggest_win_date)}</span>
+                  </div>
+                </div>
+
+                {/* Skill Change Records */}
+                {(game.records.biggest_gain || game.records.biggest_loss) && (
+                  <div className="px-6 py-3 border-b border-gray-200 bg-gray-50">
+                    <div className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">Notable Matches</div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      {game.records.biggest_gain && (
+                        <div className="bg-green-50 rounded-lg p-3">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="font-semibold text-green-700">Biggest Skill Gain</span>
+                            <span className="font-mono text-green-700">+{game.records.biggest_gain.gain.toFixed(3)}</span>
+                          </div>
+                          <div className="text-sm text-gray-600">
+                            vs {game.records.biggest_gain.opponents.join(", ")}
+                          </div>
+                          <div className="text-sm">
+                            <span className="font-semibold">{game.records.biggest_gain.score}</span>
+                            <span className="text-gray-400"> - </span>
+                            <span>{game.records.biggest_gain.opponent_score}</span>
+                            <span className="text-gray-400 text-xs ml-2">{formatDate(game.records.biggest_gain.date)}</span>
+                          </div>
+                        </div>
                       )}
-                    </div>
-                    {/* Heaviest Loss */}
-                    <div className="flex flex-col">
-                      <span className="text-gray-500">Heaviest Loss:</span>{" "}
-                      <span className="font-semibold text-red-700">-{game.records.biggest_loss}</span>
-                      {game.records.biggest_loss_date && (
-                        <span className="text-xs text-gray-400">{formatDate(game.records.biggest_loss_date)}</span>
+                      {game.records.biggest_loss && (
+                        <div className="bg-red-50 rounded-lg p-3">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="font-semibold text-red-700">Biggest Skill Loss</span>
+                            <span className="font-mono text-red-700">{game.records.biggest_loss.loss.toFixed(3)}</span>
+                          </div>
+                          <div className="text-sm text-gray-600">
+                            vs {game.records.biggest_loss.opponents.join(", ")}
+                          </div>
+                          <div className="text-sm">
+                            <span className="font-semibold">{game.records.biggest_loss.score}</span>
+                            <span className="text-gray-400"> - </span>
+                            <span>{game.records.biggest_loss.opponent_score}</span>
+                            <span className="text-gray-400 text-xs ml-2">{formatDate(game.records.biggest_loss.date)}</span>
+                          </div>
+                        </div>
                       )}
                     </div>
                   </div>
-                </div>
+                )}
 
                 {/* Elo History Chart */}
                 {game.elo_history.length > 1 && (

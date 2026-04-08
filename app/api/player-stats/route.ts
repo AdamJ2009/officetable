@@ -167,61 +167,95 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Get biggest win and biggest loss with dates
-    const biggestWinStmt = db.prepare(`
-      SELECT MAX(score - opponent_score) as margin
-      FROM (
-        SELECT
-          mp.score,
-          (SELECT MAX(score) FROM match_participants mp2 WHERE mp2.match_id = mp.match_id AND mp2.team != mp.team) as opponent_score
-        FROM match_participants mp
-        JOIN matches m ON mp.match_id = m.id
-        WHERE mp.player_id = ? AND m.game_id = ? AND mp.score > (SELECT MAX(score) FROM match_participants mp3 WHERE mp3.match_id = mp.match_id AND mp3.team != mp.team)
-      )
+    // Find biggest Elo gain and loss from single matches
+    const biggestGainStmt = db.prepare(`
+      SELECT
+        mp.match_id,
+        mp.elo_before,
+        mp.elo_after,
+        mp.elo_after - mp.elo_before as gain,
+        mp.score,
+        m.played_at
+      FROM match_participants mp
+      JOIN matches m ON mp.match_id = m.id
+      WHERE mp.player_id = ? AND m.game_id = ?
+      ORDER BY gain DESC
+      LIMIT 1
     `);
-    const biggestWin = biggestWinStmt.get(parseInt(playerId), game.id) as { margin: number | null };
+    const biggestGain = biggestGainStmt.get(parseInt(playerId), game.id) as {
+      match_id: number;
+      elo_before: number;
+      elo_after: number;
+      gain: number;
+      score: number;
+      played_at: string;
+    } | undefined;
 
     const biggestLossStmt = db.prepare(`
-      SELECT MAX(opponent_score - score) as margin
-      FROM (
-        SELECT
-          mp.score,
-          (SELECT MAX(score) FROM match_participants mp2 WHERE mp2.match_id = mp.match_id AND mp2.team != mp.team) as opponent_score
-        FROM match_participants mp
-        JOIN matches m ON mp.match_id = m.id
-        WHERE mp.player_id = ? AND m.game_id = ? AND mp.score < (SELECT MAX(score) FROM match_participants mp3 WHERE mp3.match_id = mp.match_id AND mp3.team != mp.team)
-      )
+      SELECT
+        mp.match_id,
+        mp.elo_before,
+        mp.elo_after,
+        mp.elo_before - mp.elo_after as loss,
+        mp.score,
+        m.played_at
+      FROM match_participants mp
+      JOIN matches m ON mp.match_id = m.id
+      WHERE mp.player_id = ? AND m.game_id = ?
+      ORDER BY loss DESC
+      LIMIT 1
     `);
-    const biggestLoss = biggestLossStmt.get(parseInt(playerId), game.id) as { margin: number | null };
+    const biggestLoss = biggestLossStmt.get(parseInt(playerId), game.id) as {
+      match_id: number;
+      elo_before: number;
+      elo_after: number;
+      loss: number;
+      score: number;
+      played_at: string;
+    } | undefined;
 
-    // Find dates for biggest win/loss
-    let biggestWinDate: string | null = null;
-    let biggestLossDate: string | null = null;
+    // Get opponent details for biggest gain/loss matches
+    let biggestGainDetails = null;
+    let biggestLossDetails = null;
 
-    if (biggestWin.margin) {
-      const biggestWinMatchStmt = db.prepare(`
-        SELECT m.played_at
+    if (biggestGain) {
+      const opponentsStmt = db.prepare(`
+        SELECT p.name as player_name, mp.score
         FROM match_participants mp
-        JOIN matches m ON mp.match_id = m.id
-        WHERE mp.player_id = ? AND m.game_id = ?
-          AND mp.score - (SELECT MAX(score) FROM match_participants mp2 WHERE mp2.match_id = mp.match_id AND mp2.team != mp.team) = ?
-        ORDER BY m.played_at DESC LIMIT 1
+        JOIN players p ON mp.player_id = p.id
+        WHERE mp.match_id = ? AND mp.player_id != ?
       `);
-      const biggestWinMatch = biggestWinMatchStmt.get(parseInt(playerId), game.id, biggestWin.margin) as { played_at: string } | undefined;
-      biggestWinDate = biggestWinMatch?.played_at ?? null;
+      const opponents = opponentsStmt.all(biggestGain.match_id, parseInt(playerId)) as {
+        player_name: string;
+        score: number;
+      }[];
+      biggestGainDetails = {
+        gain: biggestGain.gain,
+        date: biggestGain.played_at,
+        score: biggestGain.score,
+        opponent_score: opponents[0]?.score ?? 0,
+        opponents: opponents.map(o => o.player_name)
+      };
     }
 
-    if (biggestLoss.margin) {
-      const biggestLossMatchStmt = db.prepare(`
-        SELECT m.played_at
+    if (biggestLoss) {
+      const opponentsStmt = db.prepare(`
+        SELECT p.name as player_name, mp.score
         FROM match_participants mp
-        JOIN matches m ON mp.match_id = m.id
-        WHERE mp.player_id = ? AND m.game_id = ?
-          AND (SELECT MAX(score) FROM match_participants mp2 WHERE mp2.match_id = mp.match_id AND mp2.team != mp.team) - mp.score = ?
-        ORDER BY m.played_at DESC LIMIT 1
+        JOIN players p ON mp.player_id = p.id
+        WHERE mp.match_id = ? AND mp.player_id != ?
       `);
-      const biggestLossMatch = biggestLossMatchStmt.get(parseInt(playerId), game.id, biggestLoss.margin) as { played_at: string } | undefined;
-      biggestLossDate = biggestLossMatch?.played_at ?? null;
+      const opponents = opponentsStmt.all(biggestLoss.match_id, parseInt(playerId)) as {
+        player_name: string;
+        score: number;
+      }[];
+      biggestLossDetails = {
+        loss: biggestLoss.loss,
+        date: biggestLoss.played_at,
+        score: biggestLoss.score,
+        opponent_score: opponents[0]?.score ?? 0,
+        opponents: opponents.map(o => o.player_name)
+      };
     }
 
     gameStats.push({
@@ -245,10 +279,8 @@ export async function GET(request: NextRequest) {
         longest_unbeaten_streak: longestUnbeatenStreak,
         longest_unbeaten_streak_start: matchResults[longestUnbeatenStreakStart]?.played_at ?? null,
         longest_unbeaten_streak_end: matchResults[longestUnbeatenStreakEnd]?.played_at ?? null,
-        biggest_win: biggestWin.margin ?? 0,
-        biggest_win_date: biggestWinDate,
-        biggest_loss: biggestLoss.margin ?? 0,
-        biggest_loss_date: biggestLossDate,
+        biggest_gain: biggestGainDetails,
+        biggest_loss: biggestLossDetails,
       },
       elo_history: eloHistory.map(h => ({
         elo: h.elo_after,

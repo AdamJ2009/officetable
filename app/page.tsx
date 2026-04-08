@@ -128,7 +128,7 @@ export default function Home() {
                       {entry.player_name}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {Math.round(entry.elo)}
+                      {entry.elo.toFixed(3)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       {entry.wins} / {entry.losses} / {entry.draws}

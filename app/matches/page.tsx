@@ -68,7 +68,7 @@ export default function MatchesPage() {
   const formatRatingChange = (before: number, after: number) => {
     const diff = after - before;
     const sign = diff >= 0 ? "+" : "";
-    return `${sign}${Math.round(diff)}`;
+    return `${sign}${diff.toFixed(3)}`;
   };
 
   const getTeamResult = (match: Match, team: number) => {

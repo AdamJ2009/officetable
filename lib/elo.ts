@@ -189,7 +189,7 @@ export function processMatch(input: CreateMatchInput, matchTimestamp?: Date): vo
 
       for (const playerId of team.player_ids) {
         const oldElo = ratingsByPlayer.get(playerId)!;
-        const newElo = Math.round(oldElo + change);
+        const newElo = oldElo + change;
 
         updateStmt.run(newElo, playerId, game_id);
         insertParticipant.run(

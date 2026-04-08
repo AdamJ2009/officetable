@@ -61,6 +61,18 @@ try {
   // Column already exists, ignore
 }
 
+// Migration: Add edit tracking columns to matches table
+try {
+  db.exec(`ALTER TABLE matches ADD COLUMN is_edited INTEGER DEFAULT 0`);
+} catch (e) {
+  // Column already exists, ignore
+}
+try {
+  db.exec(`ALTER TABLE matches ADD COLUMN edited_at DATETIME`);
+} catch (e) {
+  // Column already exists, ignore
+}
+
 // Migration: Add score_type and score_value columns to games table if they don't exist
 try {
   db.exec(`ALTER TABLE games ADD COLUMN score_type TEXT DEFAULT 'first_to'`);

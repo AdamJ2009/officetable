@@ -26,6 +26,8 @@ export interface Match {
   game_id: number;
   played_at: string;
   notes: string | null;
+  is_edited?: number;
+  edited_at?: string | null;
 }
 
 export interface MatchParticipant {

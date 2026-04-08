@@ -165,12 +165,16 @@ export default function NewMatchPage() {
     } else if (selectedGameData.score_type === 'first_to') {
         // For first_to:
         // - Highest ratio = winner, full score
-        // - Second ratio = ratio of total score 
+        // - Second ratio = double ratio of total score but capped at total - 1
+        //
+        // Note: Second ratio being doubled means results are closer for skill ranks that
+        // are closer. This doesn't oblige by game-specific restrictions such as Table 
+        // Tennis where are lead of 2 points is needed
         if (expectedTeam1 > 0.5) {
             expectedTeam1Score = selectedGameData.score_value;
-            expectedTeam2Score = Math.round(expectedTeam2 * selectedGameData.score_value);
+            expectedTeam2Score = Math.min((selectedGameData.score_value - 1), Math.round(expectedTeam2 * 2 * selectedGameData.score_value));
         } else {
-            expectedTeam1Score = Math.round(expectedTeam1 * selectedGameData.score_value);
+            expectedTeam1Score = Math.min((selectedGameData.score_value - 1), Math.round(expectedTeam1 * 2 * selectedGameData.score_value));
             expectedTeam2Score = selectedGameData.score_value;
         }
     }

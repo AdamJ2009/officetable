@@ -192,6 +192,7 @@ export default function PlayerProfilePage() {
             const totalGames = game.wins + game.losses + game.draws;
             const winRate = totalGames > 0 ? ((game.wins / totalGames) * 100).toFixed(1) : "0.0";
             const pointDiff = game.points_scored - game.points_conceded;
+            const pointRatio = game.points_scored / game.points_conceded;
             const gameMatches = matchesByGame[game.game_id] || [];
 
             return (
@@ -247,9 +248,9 @@ export default function PlayerProfilePage() {
                       </div>
                     </div>
                     <div>
-                      <div className="text-sm text-gray-500">Point Diff</div>
-                      <div className={`text-xl font-bold ${pointDiff >= 0 ? "text-green-600" : "text-red-600"}`}>
-                        {pointDiff >= 0 ? "+" : ""}{pointDiff}
+                      <div className="text-sm text-gray-500">Point Ratio</div>
+                      <div className={`text-xl font-bold ${pointRatio >= 1 ? "text-green-600" : "text-red-600"}`}>
+                        {pointRatio.toFixed(3)} ({pointDiff >= 1 ? "+" : ""}{pointDiff})
                       </div>
                     </div>
                   </div>

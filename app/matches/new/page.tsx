@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 interface Game {
   id: number;
   name: string;
+  score_type: 'best_of' | 'first_to';
+  score_value: number;
 }
 
 interface Player {
@@ -138,9 +140,12 @@ export default function NewMatchPage() {
   const score2 = parseInt(team2Score, 10) || 0;
   const winnerText = score1 > score2 ? "Team 1 wins" : score2 > score1 ? "Team 2 wins" : "Tie";
 
+  // K-factor for Elo calculations
+  const K_FACTOR = 25;
+
   // Calculate predicted result based on team Elo
   const prediction = useMemo(() => {
-    if (team1Players.length === 0 || team2Players.length === 0) return null;
+    if (team1Players.length === 0 || team2Players.length === 0 || !selectedGameData) return null;
 
     const team1Elo = team1Players.reduce((sum, id) => {
       const r = ratings.find((r) => r.player_id === id);
@@ -168,7 +173,7 @@ export default function NewMatchPage() {
         // - Second ratio = double ratio of total score but capped at total - 1
         //
         // Note: Second ratio being doubled means results are closer for skill ranks that
-        // are closer. This doesn't oblige by game-specific restrictions such as Table 
+        // are closer. This doesn't oblige by game-specific restrictions such as Table
         // Tennis where are lead of 2 points is needed
         if (expectedTeam1 > 0.5) {
             expectedTeam1Score = selectedGameData.score_value;
@@ -179,15 +184,24 @@ export default function NewMatchPage() {
         }
     }
 
+    // Calculate projected Elo changes based on entered scores
+    const totalScore = score1 + score2;
+    const actualTeam1 = totalScore === 0 ? 0.5 : score1 / totalScore;
+    const actualTeam2 = totalScore === 0 ? 0.5 : score2 / totalScore;
+    const projectedChange1 = K_FACTOR * (actualTeam1 - expectedTeam1);
+    const projectedChange2 = K_FACTOR * (actualTeam2 - expectedTeam2);
+
     return {
       team1Elo,
       team2Elo,
       expectedTeam1,
       expectedTeam1Score,
       expectedTeam2,
-      expectedTeam2Score
+      expectedTeam2Score,
+      projectedChange1,
+      projectedChange2,
     };
-  }, [team1Players, team2Players, ratings]);
+  }, [team1Players, team2Players, ratings, score1, score2, selectedGameData]);
 
   return (
     <div>
@@ -300,7 +314,18 @@ export default function NewMatchPage() {
             Result: <span className="font-semibold">{winnerText}</span>
           </p>
           <p className="text-xs text-gray-500 mt-1">
-            Close scores result in smaller rating changes; blowouts result in larger changes.
+            { prediction && (
+            <div>
+            <span className={`font-mono ${prediction.projectedChange1 >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+              {prediction.projectedChange1 >= 0 ? '+' : ''}{prediction.projectedChange1.toFixed(3)}
+            </span>
+            <span> / </span>
+            <span className={`font-mono ${prediction.projectedChange2 >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+              {prediction.projectedChange2 >= 0 ? '+' : ''}{prediction.projectedChange2.toFixed(3)}
+            </span>
+            </div>
+            )
+            }
           </p>
 
           {prediction && (

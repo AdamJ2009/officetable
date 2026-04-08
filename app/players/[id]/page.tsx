@@ -10,6 +10,26 @@ interface EloHistoryPoint {
   date: string;
 }
 
+interface GameRecords {
+  highest_elo: number;
+  highest_elo_date: string | null;
+  lowest_elo: number;
+  lowest_elo_date: string | null;
+  longest_win_streak: number;
+  longest_win_streak_start: string | null;
+  longest_win_streak_end: string | null;
+  longest_lose_streak: number;
+  longest_lose_streak_start: string | null;
+  longest_lose_streak_end: string | null;
+  longest_unbeaten_streak: number;
+  longest_unbeaten_streak_start: string | null;
+  longest_unbeaten_streak_end: string | null;
+  biggest_win: number;
+  biggest_win_date: string | null;
+  biggest_loss: number;
+  biggest_loss_date: string | null;
+}
+
 interface GameStat {
   game_id: number;
   game_name: string;
@@ -22,15 +42,7 @@ interface GameStat {
   draws: number;
   points_scored: number;
   points_conceded: number;
-  records: {
-    highest_elo: number;
-    lowest_elo: number;
-    longest_win_streak: number;
-    longest_lose_streak: number;
-    longest_unbeaten_streak: number;
-    biggest_win: number;
-    biggest_loss: number;
-  };
+  records: GameRecords;
   elo_history: EloHistoryPoint[];
 }
 
@@ -259,34 +271,77 @@ export default function PlayerProfilePage() {
                 {/* Records */}
                 <div className="px-6 py-3 border-b border-gray-200 bg-gray-50">
                   <div className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">Records</div>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 text-sm">
-                    <div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 text-sm">
+                    {/* Peak Rating */}
+                    <div className="flex flex-col">
                       <span className="text-gray-500">Peak Rating:</span>{" "}
                       <span className="font-semibold font-mono text-green-700">{game.records.highest_elo.toFixed(3)}</span>
+                      {game.records.highest_elo_date && (
+                        <span className="text-xs text-gray-400">{formatDate(game.records.highest_elo_date)}</span>
+                      )}
                     </div>
-                    <div>
+                    {/* Lowest Rating */}
+                    <div className="flex flex-col">
                       <span className="text-gray-500">Lowest:</span>{" "}
                       <span className="font-semibold font-mono text-red-700">{game.records.lowest_elo.toFixed(3)}</span>
+                      {game.records.lowest_elo_date && (
+                        <span className="text-xs text-gray-400">{formatDate(game.records.lowest_elo_date)}</span>
+                      )}
                     </div>
-                    <div>
+                    {/* Best Win Streak */}
+                    <div className="flex flex-col">
                       <span className="text-gray-500">Best Win Streak:</span>{" "}
-                      <span className="font-semibold text-green-700">{game.records.longest_win_streak}</span>
+                      <span className="font-semibold text-green-700">{game.records.longest_win_streak} games</span>
+                      {game.records.longest_win_streak_start && game.records.longest_win_streak_end && (
+                        <span className="text-xs text-gray-400">
+                          {formatDate(game.records.longest_win_streak_start)}
+                          {game.records.longest_win_streak_start !== game.records.longest_win_streak_end && (
+                            <> - {formatDate(game.records.longest_win_streak_end)}</>
+                          )}
+                        </span>
+                      )}
                     </div>
-                    <div>
+                    {/* Worst Lose Streak */}
+                    <div className="flex flex-col">
                       <span className="text-gray-500">Worst Lose Streak:</span>{" "}
-                      <span className="font-semibold text-red-700">{game.records.longest_lose_streak}</span>
+                      <span className="font-semibold text-red-700">{game.records.longest_lose_streak} games</span>
+                      {game.records.longest_lose_streak_start && game.records.longest_lose_streak_end && (
+                        <span className="text-xs text-gray-400">
+                          {formatDate(game.records.longest_lose_streak_start)}
+                          {game.records.longest_lose_streak_start !== game.records.longest_lose_streak_end && (
+                            <> - {formatDate(game.records.longest_lose_streak_end)}</>
+                          )}
+                        </span>
+                      )}
                     </div>
-                    <div>
+                    {/* Unbeaten Run */}
+                    <div className="flex flex-col">
                       <span className="text-gray-500">Unbeaten Run:</span>{" "}
-                      <span className="font-semibold text-blue-700">{game.records.longest_unbeaten_streak}</span>
+                      <span className="font-semibold text-blue-700">{game.records.longest_unbeaten_streak} games</span>
+                      {game.records.longest_unbeaten_streak_start && game.records.longest_unbeaten_streak_end && (
+                        <span className="text-xs text-gray-400">
+                          {formatDate(game.records.longest_unbeaten_streak_start)}
+                          {game.records.longest_unbeaten_streak_start !== game.records.longest_unbeaten_streak_end && (
+                            <> - {formatDate(game.records.longest_unbeaten_streak_end)}</>
+                          )}
+                        </span>
+                      )}
                     </div>
-                    <div>
+                    {/* Biggest Win */}
+                    <div className="flex flex-col">
                       <span className="text-gray-500">Biggest Win:</span>{" "}
                       <span className="font-semibold text-green-700">+{game.records.biggest_win}</span>
+                      {game.records.biggest_win_date && (
+                        <span className="text-xs text-gray-400">{formatDate(game.records.biggest_win_date)}</span>
+                      )}
                     </div>
-                    <div>
+                    {/* Heaviest Loss */}
+                    <div className="flex flex-col">
                       <span className="text-gray-500">Heaviest Loss:</span>{" "}
                       <span className="font-semibold text-red-700">-{game.records.biggest_loss}</span>
+                      {game.records.biggest_loss_date && (
+                        <span className="text-xs text-gray-400">{formatDate(game.records.biggest_loss_date)}</span>
+                      )}
                     </div>
                   </div>
                 </div>

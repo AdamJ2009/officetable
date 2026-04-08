@@ -99,38 +99,75 @@ export async function GET(request: NextRequest) {
       played_at: string;
     }[];
 
-    // Calculate streaks
+    // Calculate streaks with dates
     let longestWinStreak = 0;
     let longestLoseStreak = 0;
     let longestUnbeatenStreak = 0;
     let currentWinStreak = 0;
     let currentLoseStreak = 0;
     let currentUnbeatenStreak = 0;
+    let winStreakStart = 0;
+    let loseStreakStart = 0;
+    let unbeatenStreakStart = 0;
+    let longestWinStreakStart = 0;
+    let longestWinStreakEnd = 0;
+    let longestLoseStreakStart = 0;
+    let longestLoseStreakEnd = 0;
+    let longestUnbeatenStreakStart = 0;
+    let longestUnbeatenStreakEnd = 0;
 
-    for (const match of matchResults) {
+    for (let i = 0; i < matchResults.length; i++) {
+      const match = matchResults[i];
       if (match.score > match.opponent_score) {
         // Win
+        if (currentWinStreak === 0) winStreakStart = i;
         currentWinStreak++;
         currentLoseStreak = 0;
         currentUnbeatenStreak++;
+        if (currentWinStreak > longestWinStreak) {
+          longestWinStreak = currentWinStreak;
+          longestWinStreakStart = winStreakStart;
+          longestWinStreakEnd = i;
+        }
       } else if (match.score < match.opponent_score) {
         // Loss
+        if (currentLoseStreak === 0) loseStreakStart = i;
         currentWinStreak = 0;
         currentLoseStreak++;
         currentUnbeatenStreak = 0;
+        if (currentLoseStreak > longestLoseStreak) {
+          longestLoseStreak = currentLoseStreak;
+          longestLoseStreakStart = loseStreakStart;
+          longestLoseStreakEnd = i;
+        }
       } else {
         // Draw
+        if (currentUnbeatenStreak === 0) unbeatenStreakStart = i;
         currentWinStreak = 0;
         currentLoseStreak = 0;
         currentUnbeatenStreak++;
+        if (currentUnbeatenStreak > longestUnbeatenStreak) {
+          longestUnbeatenStreak = currentUnbeatenStreak;
+          longestUnbeatenStreakStart = unbeatenStreakStart;
+          longestUnbeatenStreakEnd = i;
+        }
       }
-
-      if (currentWinStreak > longestWinStreak) longestWinStreak = currentWinStreak;
-      if (currentLoseStreak > longestLoseStreak) longestLoseStreak = currentLoseStreak;
-      if (currentUnbeatenStreak > longestUnbeatenStreak) longestUnbeatenStreak = currentUnbeatenStreak;
     }
 
-    // Get biggest win and biggest loss
+    // Find when highest and lowest Elo occurred
+    let highestEloDate: string | null = null;
+    let lowestEloDate: string | null = null;
+
+    for (const record of eloHistory) {
+      if (record.elo_after === highestElo) {
+        highestEloDate = record.played_at;
+      }
+      if (record.elo_after === lowestElo) {
+        lowestEloDate = record.played_at;
+      }
+    }
+
+    // Get biggest win and biggest loss with dates
     const biggestWinStmt = db.prepare(`
       SELECT MAX(score - opponent_score) as margin
       FROM (
@@ -157,6 +194,36 @@ export async function GET(request: NextRequest) {
     `);
     const biggestLoss = biggestLossStmt.get(parseInt(playerId), game.id) as { margin: number | null };
 
+    // Find dates for biggest win/loss
+    let biggestWinDate: string | null = null;
+    let biggestLossDate: string | null = null;
+
+    if (biggestWin.margin) {
+      const biggestWinMatchStmt = db.prepare(`
+        SELECT m.played_at
+        FROM match_participants mp
+        JOIN matches m ON mp.match_id = m.id
+        WHERE mp.player_id = ? AND m.game_id = ?
+          AND mp.score - (SELECT MAX(score) FROM match_participants mp2 WHERE mp2.match_id = mp.match_id AND mp2.team != mp.team) = ?
+        ORDER BY m.played_at DESC LIMIT 1
+      `);
+      const biggestWinMatch = biggestWinMatchStmt.get(parseInt(playerId), game.id, biggestWin.margin) as { played_at: string } | undefined;
+      biggestWinDate = biggestWinMatch?.played_at ?? null;
+    }
+
+    if (biggestLoss.margin) {
+      const biggestLossMatchStmt = db.prepare(`
+        SELECT m.played_at
+        FROM match_participants mp
+        JOIN matches m ON mp.match_id = m.id
+        WHERE mp.player_id = ? AND m.game_id = ?
+          AND (SELECT MAX(score) FROM match_participants mp2 WHERE mp2.match_id = mp.match_id AND mp2.team != mp.team) - mp.score = ?
+        ORDER BY m.played_at DESC LIMIT 1
+      `);
+      const biggestLossMatch = biggestLossMatchStmt.get(parseInt(playerId), game.id, biggestLoss.margin) as { played_at: string } | undefined;
+      biggestLossDate = biggestLossMatch?.played_at ?? null;
+    }
+
     gameStats.push({
       game_id: game.id,
       game_name: game.name,
@@ -166,12 +233,22 @@ export async function GET(request: NextRequest) {
       ...stats,
       records: {
         highest_elo: highestElo,
+        highest_elo_date: highestEloDate,
         lowest_elo: lowestElo,
+        lowest_elo_date: lowestEloDate,
         longest_win_streak: longestWinStreak,
+        longest_win_streak_start: matchResults[longestWinStreakStart]?.played_at ?? null,
+        longest_win_streak_end: matchResults[longestWinStreakEnd]?.played_at ?? null,
         longest_lose_streak: longestLoseStreak,
+        longest_lose_streak_start: matchResults[longestLoseStreakStart]?.played_at ?? null,
+        longest_lose_streak_end: matchResults[longestLoseStreakEnd]?.played_at ?? null,
         longest_unbeaten_streak: longestUnbeatenStreak,
+        longest_unbeaten_streak_start: matchResults[longestUnbeatenStreakStart]?.played_at ?? null,
+        longest_unbeaten_streak_end: matchResults[longestUnbeatenStreakEnd]?.played_at ?? null,
         biggest_win: biggestWin.margin ?? 0,
+        biggest_win_date: biggestWinDate,
         biggest_loss: biggestLoss.margin ?? 0,
+        biggest_loss_date: biggestLossDate,
       },
       elo_history: eloHistory.map(h => ({
         elo: h.elo_after,

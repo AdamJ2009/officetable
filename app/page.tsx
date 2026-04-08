@@ -6,6 +6,8 @@ import Link from "next/link";
 interface Game {
   id: number;
   name: string;
+  score_type: 'best_of' | 'first_to';
+  score_value: number;
 }
 
 interface LeaderboardEntry {
@@ -18,10 +20,20 @@ interface LeaderboardEntry {
   status?: 'active' | 'retired';
 }
 
+interface GameStats {
+  total_matches: number;
+  team0_points: number;
+  team1_points: number;
+  active_players: number;
+  total_players: number;
+}
+
 export default function Home() {
   const [games, setGames] = useState<Game[]>([]);
   const [selectedGame, setSelectedGame] = useState<number | null>(null);
+  const [selectedGameData, setSelectedGameData] = useState<Game | null>(null);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
+  const [gameStats, setGameStats] = useState<GameStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [showRetired, setShowRetired] = useState(false);
 
@@ -39,14 +51,26 @@ export default function Home() {
   useEffect(() => {
     if (selectedGame) {
       setLoading(true);
-      fetch(`/api/leaderboard?game_id=${selectedGame}&include_retired=${showRetired}`)
-        .then((res) => res.json())
-        .then((data) => {
-          setLeaderboard(data);
-          setLoading(false);
-        });
+      Promise.all([
+        fetch(`/api/leaderboard?game_id=${selectedGame}&include_retired=${showRetired}`).then(res => res.json()),
+        fetch(`/api/game-stats?game_id=${selectedGame}`).then(res => res.json())
+      ]).then(([leaderboardData, statsData]) => {
+        setLeaderboard(leaderboardData);
+        setGameStats(statsData);
+        setLoading(false);
+      });
     }
   }, [selectedGame, showRetired]);
+
+  useEffect(() => {
+    if (selectedGame) {
+      setSelectedGameData(games.find(g => g.id === selectedGame) || null);
+    }
+  }, [selectedGame, games]);
+
+  const formatGameName = (name: string) => {
+    return name.charAt(0).toUpperCase() + name.slice(1).replace("-", " ");
+  };
 
   return (
     <div>
@@ -79,11 +103,35 @@ export default function Home() {
         >
           {games.map((game) => (
             <option key={game.id} value={game.id}>
-              {game.name.charAt(0).toUpperCase() + game.name.slice(1).replace("-", " ")}
+              {formatGameName(game.name)}
             </option>
           ))}
         </select>
       </div>
+
+      {gameStats && (
+        <div className="mb-6 grid grid-cols-2 sm:grid-cols-4 gap-4">
+          <div className="bg-white rounded-lg shadow p-4">
+            <div className="text-sm text-gray-500">Matches Played</div>
+            <div className="text-2xl font-bold text-gray-900">{gameStats.total_matches}</div>
+          </div>
+          <div className="bg-white rounded-lg shadow p-4">
+            <div className="text-sm text-gray-500">Active Players</div>
+            <div className="text-2xl font-bold text-gray-900">{gameStats.active_players}</div>
+            {gameStats.total_players > gameStats.active_players && (
+              <div className="text-xs text-gray-400">{gameStats.total_players} total</div>
+            )}
+          </div>
+          <div className="bg-white rounded-lg shadow p-4">
+            <div className="text-sm text-gray-500">Team 1 Points</div>
+            <div className="text-2xl font-bold text-blue-600">{gameStats.team0_points}</div>
+          </div>
+          <div className="bg-white rounded-lg shadow p-4">
+            <div className="text-sm text-gray-500">Team 2 Points</div>
+            <div className="text-2xl font-bold text-red-600">{gameStats.team1_points}</div>
+          </div>
+        </div>
+      )}
 
       <div className="mb-4">
         <label className="flex items-center gap-2 text-sm text-gray-600">

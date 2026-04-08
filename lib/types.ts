@@ -64,3 +64,12 @@ export interface CreateMatchInput {
     score: number;
   }[];
 }
+
+export interface GameStats {
+  game_id: number;
+  total_matches: number;
+  team0_points: number;
+  team1_points: number;
+  active_players: number;
+  total_players: number;
+}

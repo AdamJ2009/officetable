@@ -1,4 +1,8 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Office Table
+
+This project provides an office leaderboard table for multiple office games, tracking results and skill over time.
+
+**It is a completely insecure application that is 100000% recommended to be run on private networks only!!**
 
 ## Getting Started
 
@@ -16,17 +20,6 @@ bun dev
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
-
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Testing
-
-Run the test script to see how different results would effect skill:
-```
-npx tsx scripts/test-skill-changes.ts
-```
-
 ## Import Data
 
 This can import historical data of 1v1 games in a space-separated list of format:
@@ -40,6 +33,54 @@ Import with:
 npx tsx scripts/import-matches.ts <game_id> < your-matches.txt
 ```
 
+## Skill System
+
+This uses a modified Elo rating system. The rating change after each game uses:
+
+```
+delta = K × (actual_result - expected_result)
+```
+
+Where:
+- K-factor = 25 (controls volatility)
+- actual_result = point score ratio, not just win/loss
+- expected_result = 1 / (1 + 10^((team1Elo - team2Elo) / 180))
+
+Key Differences from Standard Elo
+
+┌─────────────────┬───────────────┬─────────────────────┐
+│     Aspect      │ Standard Elo  │     This System     │
+├─────────────────┼───────────────┼─────────────────────┤
+│ Result type     │ Win/Loss/Draw │ Score ratio         │
+├─────────────────┼───────────────┼─────────────────────┤
+│ Elo divisor     │ 400           │ 180 (more volatile) │
+├─────────────────┼───────────────┼─────────────────────┤
+│ Starting rating │ ~1200-1500    │ 0                   │
+└─────────────────┴───────────────┴─────────────────────┘
+
+How It Works
+
+1. Zero-sum: Blue gains exactly what Red loses
+2. Score matters: Winning 10-0 gives more points than winning 10-9
+3. Inactive players: Excluded from rankings after 60 days of no games
+
+Key Code Locations
+
+- Algorithm: tntfl/ladder.py:124-132 — the _calculateSkillChange() method
+- Player rating update: tntfl/player.py:34-62
+- Game model: tntfl/game.py
+
+Example
+
+Red (ELO 100) vs Blue (ELO 50), Blue wins 10-5:
+- Expected Blue score: ~34.5%
+- Actual Blue score: 66.7%
+- Delta: Blue gains ~8 ELO, Red loses ~8
+
+
+### Why? 
+
+This skill system enables skill to change at a reasonable rate with a small pool of players with varying skill levels participating in many matches. Most other systems end up so confident/stable in a player's skills that it actually demotivates players to play each other. 
 
 ## Learn More
 
@@ -50,8 +91,3 @@ To learn more about Next.js, take a look at the following resources:
 
 You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.

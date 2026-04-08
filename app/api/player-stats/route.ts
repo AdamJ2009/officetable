@@ -62,13 +62,117 @@ export async function GET(request: NextRequest) {
       points_conceded: number;
     };
 
+    // Get Elo history for this game to calculate records
+    const eloHistoryStmt = db.prepare(`
+      SELECT mp.elo_after, m.played_at
+      FROM match_participants mp
+      JOIN matches m ON mp.match_id = m.id
+      WHERE mp.player_id = ? AND m.game_id = ?
+      ORDER BY m.played_at ASC
+    `);
+    const eloHistory = eloHistoryStmt.all(parseInt(playerId), game.id) as { elo_after: number; played_at: string }[];
+
+    // Calculate highest and lowest Elo
+    let highestElo = rating.elo;
+    let lowestElo = rating.elo;
+    for (const record of eloHistory) {
+      if (record.elo_after > highestElo) highestElo = record.elo_after;
+      if (record.elo_after < lowestElo) lowestElo = record.elo_after;
+    }
+
+    // Get match results in chronological order for streak calculation
+    const matchResultsStmt = db.prepare(`
+      SELECT
+        mp.match_id,
+        mp.score,
+        (SELECT MAX(score) FROM match_participants mp2 WHERE mp2.match_id = mp.match_id AND mp2.team != mp.team) as opponent_score,
+        m.played_at
+      FROM match_participants mp
+      JOIN matches m ON mp.match_id = m.id
+      WHERE mp.player_id = ? AND m.game_id = ?
+      ORDER BY m.played_at ASC
+    `);
+    const matchResults = matchResultsStmt.all(parseInt(playerId), game.id) as {
+      match_id: number;
+      score: number;
+      opponent_score: number;
+      played_at: string;
+    }[];
+
+    // Calculate streaks
+    let longestWinStreak = 0;
+    let longestLoseStreak = 0;
+    let longestUnbeatenStreak = 0;
+    let currentWinStreak = 0;
+    let currentLoseStreak = 0;
+    let currentUnbeatenStreak = 0;
+
+    for (const match of matchResults) {
+      if (match.score > match.opponent_score) {
+        // Win
+        currentWinStreak++;
+        currentLoseStreak = 0;
+        currentUnbeatenStreak++;
+      } else if (match.score < match.opponent_score) {
+        // Loss
+        currentWinStreak = 0;
+        currentLoseStreak++;
+        currentUnbeatenStreak = 0;
+      } else {
+        // Draw
+        currentWinStreak = 0;
+        currentLoseStreak = 0;
+        currentUnbeatenStreak++;
+      }
+
+      if (currentWinStreak > longestWinStreak) longestWinStreak = currentWinStreak;
+      if (currentLoseStreak > longestLoseStreak) longestLoseStreak = currentLoseStreak;
+      if (currentUnbeatenStreak > longestUnbeatenStreak) longestUnbeatenStreak = currentUnbeatenStreak;
+    }
+
+    // Get biggest win and biggest loss
+    const biggestWinStmt = db.prepare(`
+      SELECT MAX(score - opponent_score) as margin
+      FROM (
+        SELECT
+          mp.score,
+          (SELECT MAX(score) FROM match_participants mp2 WHERE mp2.match_id = mp.match_id AND mp2.team != mp.team) as opponent_score
+        FROM match_participants mp
+        JOIN matches m ON mp.match_id = m.id
+        WHERE mp.player_id = ? AND m.game_id = ? AND mp.score > (SELECT MAX(score) FROM match_participants mp3 WHERE mp3.match_id = mp.match_id AND mp3.team != mp.team)
+      )
+    `);
+    const biggestWin = biggestWinStmt.get(parseInt(playerId), game.id) as { margin: number | null };
+
+    const biggestLossStmt = db.prepare(`
+      SELECT MAX(opponent_score - score) as margin
+      FROM (
+        SELECT
+          mp.score,
+          (SELECT MAX(score) FROM match_participants mp2 WHERE mp2.match_id = mp.match_id AND mp2.team != mp.team) as opponent_score
+        FROM match_participants mp
+        JOIN matches m ON mp.match_id = m.id
+        WHERE mp.player_id = ? AND m.game_id = ? AND mp.score < (SELECT MAX(score) FROM match_participants mp3 WHERE mp3.match_id = mp.match_id AND mp3.team != mp.team)
+      )
+    `);
+    const biggestLoss = biggestLossStmt.get(parseInt(playerId), game.id) as { margin: number | null };
+
     gameStats.push({
       game_id: game.id,
       game_name: game.name,
       score_type: game.score_type,
       score_value: game.score_value,
       elo: rating.elo,
-      ...stats
+      ...stats,
+      records: {
+        highest_elo: highestElo,
+        lowest_elo: lowestElo,
+        longest_win_streak: longestWinStreak,
+        longest_lose_streak: longestLoseStreak,
+        longest_unbeaten_streak: longestUnbeatenStreak,
+        biggest_win: biggestWin.margin ?? 0,
+        biggest_loss: biggestLoss.margin ?? 0,
+      }
     });
   }
 

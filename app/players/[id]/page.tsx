@@ -16,6 +16,15 @@ interface GameStat {
   draws: number;
   points_scored: number;
   points_conceded: number;
+  records: {
+    highest_elo: number;
+    lowest_elo: number;
+    longest_win_streak: number;
+    longest_lose_streak: number;
+    longest_unbeaten_streak: number;
+    biggest_win: number;
+    biggest_loss: number;
+  };
 }
 
 interface Opponent {
@@ -235,6 +244,41 @@ export default function PlayerProfilePage() {
                       <div className={`text-xl font-bold ${pointDiff >= 0 ? "text-green-600" : "text-red-600"}`}>
                         {pointDiff >= 0 ? "+" : ""}{pointDiff}
                       </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Records */}
+                <div className="px-6 py-3 border-b border-gray-200 bg-gray-50">
+                  <div className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">Records</div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 text-sm">
+                    <div>
+                      <span className="text-gray-500">Peak Rating:</span>{" "}
+                      <span className="font-semibold font-mono text-green-700">{game.records.highest_elo.toFixed(3)}</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-500">Lowest:</span>{" "}
+                      <span className="font-semibold font-mono text-red-700">{game.records.lowest_elo.toFixed(3)}</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-500">Best Win Streak:</span>{" "}
+                      <span className="font-semibold text-green-700">{game.records.longest_win_streak}</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-500">Worst Lose Streak:</span>{" "}
+                      <span className="font-semibold text-red-700">{game.records.longest_lose_streak}</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-500">Unbeaten Run:</span>{" "}
+                      <span className="font-semibold text-blue-700">{game.records.longest_unbeaten_streak}</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-500">Biggest Win:</span>{" "}
+                      <span className="font-semibold text-green-700">+{game.records.biggest_win}</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-500">Heaviest Loss:</span>{" "}
+                      <span className="font-semibold text-red-700">-{game.records.biggest_loss}</span>
                     </div>
                   </div>
                 </div>

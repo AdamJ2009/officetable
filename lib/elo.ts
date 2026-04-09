@@ -99,7 +99,9 @@ function expectedScore(ratingA: number, ratingB: number): number {
  */
 function averageTeamElo(ratings: number[]): number {
   if (ratings.length === 0) return DEFAULT_ELO;
-  return ratings.reduce((sum, r) => sum + r, 0) / ratings.length;
+  // We used to average the team but that wouldn't support "unfair" 
+  // line-ups (e.g. 1v2) so instead just sum them
+  return ratings.reduce((sum, r) => sum + r, 0);
 }
 
 /**

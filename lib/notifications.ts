@@ -28,28 +28,50 @@ export async function sendGoogleChatNotification(match: MatchNotification): Prom
   const winners = match.teams.filter(t => t.score === maxScore);
   const isDraw = winners.length > 1;
 
-  // Format teams for display
-  const formatTeam = (team: { players: string[]; score: number }) => {
-    return `${team.players.join(' & ')} (${team.score})`;
-  };
+  // Sort teams by score (highest first)
+  const sortedTeams = [...match.teams].sort((a, b) => b.score - a.score);
 
-  // Build the message
-  let messageText: string;
+  // Build sections for each team
+  const teamSections = sortedTeams.map((team, index) => {
+    const isFirst = index === 0;
+    const emoji = isFirst ? (isDraw ? '🤝' : '🏆') : '';
+    const resultText = isFirst
+      ? (isDraw ? 'Draw' : 'Winner')
+      : '';
 
-  if (isDraw) {
-    messageText = `🤝 **Draw** in ${match.gameName}!\n\n${match.teams.map(t => formatTeam(t)).join(' vs ')}`;
-  } else {
-    const winningTeam = match.teams.find(t => t.score === maxScore)!;
-    const losingTeams = match.teams.filter(t => t.score !== maxScore);
+    return {
+      header: `${emoji} ${team.players.join(' & ')}`.trim(),
+      widgets: [
+        {
+          textParagraph: {
+            text: `**Score:** ${team.score}${resultText ? `  —  *${resultText}*` : ''}`
+          }
+        }
+      ]
+    };
+  });
 
-    messageText = `🏆 **${winningTeam.players.join(' & ')}** defeated ${losingTeams.map(t => t.players.join(' & ')).join(' & ')} in ${match.gameName}!\n\n` +
-      `Score: ${match.teams.map(t => `${t.score}`).join(' - ')}\n` +
-      `${winningTeam.players.join(' & ')}: ${winningTeam.score}\n` +
-      `${losingTeams.map(t => `${t.players.join(' & ')}: ${t.score}`).join('\n')}`;
-  }
-
+  // Build the cards V2 payload
   const payload = {
-    text: messageText
+    cardsV2: [
+      {
+        cardId: 'match-result',
+        card: {
+          header: {
+            title: match.gameName,
+            subtitle: new Date(match.timestamp).toLocaleDateString('en-GB', {
+              day: 'numeric',
+              month: 'short',
+              hour: '2-digit',
+              minute: '2-digit'
+            }),
+            imageUrl: isDraw ? 'https://fonts.gstatic.com/s/i/short-term/release/googlesymbols/handshake/default/48px.svg' : 'https://fonts.gstatic.com/s/i/short-term/release/googlesymbols/emoji_events/default/48px.svg',
+            imageType: 'CIRCLE'
+          },
+          sections: teamSections
+        }
+      }
+    ]
   };
 
   try {

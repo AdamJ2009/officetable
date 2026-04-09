@@ -10,6 +10,7 @@ export interface Game {
   name: string;
   score_type: 'best_of' | 'first_to';
   score_value: number;
+  image_url?: string | null;
   created_at: string;
 }
 

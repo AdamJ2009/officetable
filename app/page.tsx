@@ -89,6 +89,12 @@ export default function Home() {
           >
             Record Match
           </Link>
+          <Link
+            href="/settings"
+            className="bg-gray-200 text-gray-800 px-4 py-2 rounded-lg hover:bg-gray-300 transition-colors"
+          >
+            Settings
+          </Link>
         </div>
       </div>
 

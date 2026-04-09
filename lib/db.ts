@@ -85,6 +85,13 @@ try {
   // Column already exists, ignore
 }
 
+// Migration: Add image_url column to games table for notification icons
+try {
+  db.exec(`ALTER TABLE games ADD COLUMN image_url TEXT`);
+} catch (e) {
+  // Column already exists, ignore
+}
+
 // Migration: Add elo column to player_ratings if it doesn't exist (old schema had mu/sigma)
 try {
   db.exec(`ALTER TABLE player_ratings ADD COLUMN elo REAL DEFAULT 0`);

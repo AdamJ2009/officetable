@@ -1,5 +1,6 @@
 interface MatchNotification {
   gameName: string;
+  imageUrl?: string | null;
   teams: {
     players: string[];
     score: number;
@@ -65,8 +66,15 @@ export async function sendGoogleChatNotification(match: MatchNotification): Prom
               hour: '2-digit',
               minute: '2-digit'
             }),
-            imageUrl: isDraw ? 'https://fonts.gstatic.com/s/i/short-term/release/googlesymbols/handshake/default/48px.svg' : 'https://fonts.gstatic.com/s/i/short-term/release/googlesymbols/emoji_events/default/48px.svg',
-            imageType: 'CIRCLE'
+            ...(match.imageUrl ? {
+              imageUrl: match.imageUrl,
+              imageType: 'SQUARE'
+            } : {
+              imageUrl: isDraw
+                ? 'https://fonts.gstatic.com/s/i/short-term/release/googlesymbols/handshake/default/48px.svg'
+                : 'https://fonts.gstatic.com/s/i/short-term/release/googlesymbols/emoji_events/default/48px.svg',
+              imageType: 'CIRCLE'
+            })
           },
           sections: teamSections
         }
@@ -94,7 +102,8 @@ export async function sendGoogleChatNotification(match: MatchNotification): Prom
 export function buildMatchNotification(
   gameName: string,
   teams: { player_ids: number[]; score: number }[],
-  playerNames: Map<number, string>
+  playerNames: Map<number, string>,
+  imageUrl?: string | null
 ): MatchNotification {
   const maxScore = Math.max(...teams.map(t => t.score));
   const winners = teams.filter(t => t.score === maxScore);
@@ -102,6 +111,7 @@ export function buildMatchNotification(
 
   return {
     gameName,
+    imageUrl: imageUrl,
     teams: teams.map(team => ({
       players: team.player_ids.map(id => playerNames.get(id) || `Player ${id}`),
       score: team.score,

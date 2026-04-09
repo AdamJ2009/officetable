@@ -69,8 +69,8 @@ export async function POST(request: NextRequest) {
     }
 
     // Get game name for notification
-    const gameStmt = db.prepare('SELECT name FROM games WHERE id = ?');
-    const game = gameStmt.get(game_id) as { name: string } | undefined;
+    const gameStmt = db.prepare('SELECT name, image_url FROM games WHERE id = ?');
+    const game = gameStmt.get(game_id) as { name: string; image_url?: string | null } | undefined;
 
     // Get player names for notification
     const playerIds = teams.flatMap(t => t.player_ids);
@@ -83,7 +83,7 @@ export async function POST(request: NextRequest) {
 
     // Send notification (async, don't wait for it)
     if (game) {
-      const notification = buildMatchNotification(game.name, teams, playerNameMap);
+      const notification = buildMatchNotification(game.name, teams, playerNameMap, game.image_url);
       sendGoogleChatNotification(notification).catch(err => {
         console.error('Failed to send notification:', err);
       });

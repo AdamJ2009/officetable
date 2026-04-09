@@ -115,7 +115,12 @@ function getPointRatios(teams: CreateMatchInput['teams']): number[] {
   return teams.map(t => t.score / totalScore);
 }
 
-export function processMatch(input: CreateMatchInput, matchTimestamp?: Date): void {
+export interface ProcessedMatch {
+  matchId: number;
+  skillChanges: Map<number, { before: number; after: number; change: number }>;
+}
+
+export function processMatch(input: CreateMatchInput, matchTimestamp?: Date): ProcessedMatch {
   const { game_id, notes, teams } = input;
   const matchDate = matchTimestamp || new Date();
 
@@ -175,12 +180,17 @@ export function processMatch(input: CreateMatchInput, matchTimestamp?: Date): vo
     VALUES (?, ?, ?, ?, ?, ?)
   `);
 
+  // Store skill changes for return
+  const skillChanges: Map<number, { before: number; after: number; change: number }> = new Map();
+
   // Use transaction for atomicity
+  let matchId: number = 0;
+
   const updateRatings = db.transaction(() => {
     // Create match record with timestamp
     const playedAt = matchDate.toISOString().replace('T', ' ').replace(/\.\d+Z$/, '');
     const matchResult = insertMatch.run(game_id, notes || null, playedAt);
-    const matchId = matchResult.lastInsertRowid as number;
+    matchId = matchResult.lastInsertRowid as number;
 
     // Update each team's players
     for (let teamIndex = 0; teamIndex < teams.length; teamIndex++) {
@@ -200,11 +210,15 @@ export function processMatch(input: CreateMatchInput, matchTimestamp?: Date): vo
           oldElo,
           newElo
         );
+
+        skillChanges.set(playerId, { before: oldElo, after: newElo, change });
       }
     }
   });
 
   updateRatings();
+
+  return { matchId, skillChanges };
 }
 
 /**

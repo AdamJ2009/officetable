@@ -79,11 +79,12 @@ export async function POST(request: NextRequest) {
     const players = playersStmt.all(...playerIds) as { id: number; name: string }[];
     const playerNameMap = new Map(players.map(p => [p.id, p.name]));
 
-    processMatch({ game_id, notes, teams });
+    // Process match and get skill changes
+    const result = processMatch({ game_id, notes, teams });
 
     // Send notification (async, don't wait for it)
     if (game) {
-      const notification = buildMatchNotification(game.name, teams, playerNameMap, game.image_url);
+      const notification = buildMatchNotification(game.name, result.matchId, teams, playerNameMap, result.skillChanges, game.image_url);
       sendGoogleChatNotification(notification).catch(err => {
         console.error('Failed to send notification:', err);
       });

@@ -1,23 +1,22 @@
 interface MatchNotification {
   gameName: string;
   imageUrl?: string | null;
+  matchId: number;
   teams: {
     players: string[];
     score: number;
     result: 'win' | 'loss' | 'draw';
   }[];
+  skillChanges: {
+    playerName: string;
+    change: number;
+  }[];
   timestamp: string;
-}
-
-interface TeamResult {
-  players: string[];
-  score: number;
-  isWinner: boolean;
-  isDraw: boolean;
 }
 
 export async function sendGoogleChatNotification(match: MatchNotification): Promise<void> {
   const webhookUrl = process.env.GOOGLE_CHAT_WEBHOOK_URL;
+  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL;
 
   if (!webhookUrl) {
     console.log('Google Chat webhook URL not configured, skipping notification');
@@ -29,27 +28,44 @@ export async function sendGoogleChatNotification(match: MatchNotification): Prom
   const winners = match.teams.filter(t => t.score === maxScore);
   const isDraw = winners.length > 1;
 
-  // Sort teams by score (highest first)
-  const sortedTeams = [...match.teams].sort((a, b) => b.score - a.score);
+  const scoresLine =`<b><font color='#1147D1'>${match.teams[0].players.join(' & ')} ${match.teams[0].score}</font> - <font color='#D13011'>${match.teams[1].score} ${match.teams[1].players.join(' & ')}</font></b>`
 
-  // Build sections for each team
-  const teamSections = sortedTeams.map((team, index) => {
-    const isFirst = index === 0;
-    const emoji = isFirst ? (isDraw ? '🤝' : '🏆') : '';
-    const resultText = isFirst
-      ? (isDraw ? 'Draw' : 'Winner')
-      : '';
+  // Build line 2: match link
+  const matchLink = baseUrl ? `${baseUrl}/matches` : null;
 
-    return {
-      header: `${emoji} ${team.players.join(' & ')}`.trim(),
-      widgets: [
-        {
-          textParagraph: {
-            text: `**Score:** ${team.score}${resultText ? `  —  *${resultText}*` : ''}`
-          }
-        }
-      ]
-    };
+  // Build line 3: skill shifts per player
+  const skillShiftsLine = match.skillChanges
+    .sort((a, b) => b.change - a.change) // Sort by change descending
+    .map(sc => {
+      const sign = sc.change >= 0 ? '+' : '';
+      return `${sc.playerName}: ${sign}${sc.change.toFixed(3)}`;
+    })
+    .join('  ·  ');
+
+  // Build widgets for the card
+  const widgets = [];
+
+  // Line 1: Scores
+  widgets.push({
+    textParagraph: {
+      text: scoresLine
+    }
+  });
+
+  // Line 2: Match link (if base URL configured)
+  if (matchLink) {
+    widgets.push({
+      textParagraph: {
+        text: `<a href="${matchLink}">View match details</a>`
+      }
+    });
+  }
+
+  // Line 3: Skill shifts
+  widgets.push({
+    textParagraph: {
+      text: skillShiftsLine
+    }
   });
 
   // Build the cards V2 payload
@@ -76,7 +92,11 @@ export async function sendGoogleChatNotification(match: MatchNotification): Prom
               imageType: 'CIRCLE'
             })
           },
-          sections: teamSections
+          sections: [
+            {
+              widgets: widgets
+            }
+          ]
         }
       }
     ]
@@ -101,8 +121,10 @@ export async function sendGoogleChatNotification(match: MatchNotification): Prom
 
 export function buildMatchNotification(
   gameName: string,
+  matchId: number,
   teams: { player_ids: number[]; score: number }[],
   playerNames: Map<number, string>,
+  skillChanges: Map<number, { before: number; after: number; change: number }>,
   imageUrl?: string | null
 ): MatchNotification {
   const maxScore = Math.max(...teams.map(t => t.score));
@@ -112,11 +134,18 @@ export function buildMatchNotification(
   return {
     gameName,
     imageUrl: imageUrl,
+    matchId,
     teams: teams.map(team => ({
       players: team.player_ids.map(id => playerNames.get(id) || `Player ${id}`),
       score: team.score,
       result: team.score === maxScore ? (isDraw ? 'draw' : 'win') : 'loss'
     })),
+    skillChanges: teams.flatMap(team =>
+      team.player_ids.map(id => ({
+        playerName: playerNames.get(id) || `Player ${id}`,
+        change: skillChanges.get(id)?.change ?? 0
+      }))
+    ),
     timestamp: new Date().toISOString()
   };
 }

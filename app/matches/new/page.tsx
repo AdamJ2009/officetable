@@ -147,15 +147,16 @@ export default function NewMatchPage() {
   const prediction = useMemo(() => {
     if (team1Players.length === 0 || team2Players.length === 0 || !selectedGameData) return null;
 
+    console.error(team1Players);
     const team1Elo = team1Players.reduce((sum, id) => {
       const r = ratings.find((r) => r.player_id === id);
       return sum + (r?.elo ?? 0);
-    }, 0) / team1Players.length;
+    }, 0);
 
     const team2Elo = team2Players.reduce((sum, id) => {
       const r = ratings.find((r) => r.player_id === id);
       return sum + (r?.elo ?? 0);
-    }, 0) / team2Players.length;
+    }, 0);
 
     // Expected result formula: 1 / (1 + 10^((opponentElo - teamElo) / 180))
     const expectedTeam1 = 1 / (1 + Math.pow(10, (team2Elo - team1Elo) / 180));

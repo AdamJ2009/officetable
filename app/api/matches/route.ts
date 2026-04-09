@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import db from '@/lib/db';
 import { processMatch } from '@/lib/elo';
+import { sendGoogleChatNotification, buildMatchNotification } from '@/lib/notifications';
 import type { MatchWithParticipants, CreateMatchInput } from '@/lib/types';
 
 export async function GET(request: NextRequest) {
@@ -67,7 +68,26 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Get game name for notification
+    const gameStmt = db.prepare('SELECT name FROM games WHERE id = ?');
+    const game = gameStmt.get(game_id) as { name: string } | undefined;
+
+    // Get player names for notification
+    const playerIds = teams.flatMap(t => t.player_ids);
+    const placeholders = playerIds.map(() => '?').join(',');
+    const playersStmt = db.prepare(`SELECT id, name FROM players WHERE id IN (${placeholders})`);
+    const players = playersStmt.all(...playerIds) as { id: number; name: string }[];
+    const playerNameMap = new Map(players.map(p => [p.id, p.name]));
+
     processMatch({ game_id, notes, teams });
+
+    // Send notification (async, don't wait for it)
+    if (game) {
+      const notification = buildMatchNotification(game.name, teams, playerNameMap);
+      sendGoogleChatNotification(notification).catch(err => {
+        console.error('Failed to send notification:', err);
+      });
+    }
 
     return NextResponse.json({ success: true }, { status: 201 });
   } catch (error) {

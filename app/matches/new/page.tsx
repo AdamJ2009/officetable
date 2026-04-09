@@ -313,7 +313,7 @@ export default function NewMatchPage() {
           <p className="text-sm text-gray-600 mt-2">
             Result: <span className="font-semibold">{winnerText}</span>
           </p>
-          <p className="text-xs text-gray-500 mt-1">
+          <div className="text-xs text-gray-500 mt-1">
             { prediction && (
             <div>
             <span className={`font-mono ${prediction.projectedChange1 >= 0 ? 'text-green-600' : 'text-red-600'}`}>
@@ -326,7 +326,7 @@ export default function NewMatchPage() {
             </div>
             )
             }
-          </p>
+          </div>
 
           {prediction && (
             <div className="mt-3 p-3 bg-gray-50 rounded-lg">

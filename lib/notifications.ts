@@ -10,7 +10,9 @@ interface MatchNotification {
   skillChanges: {
     playerName: string;
     change: number;
+    rankChange?: number;
   }[];
+  notes?: string | null;
   timestamp: string;
 }
 
@@ -33,12 +35,16 @@ export async function sendGoogleChatNotification(match: MatchNotification): Prom
   // Build line 2: match link
   const matchLink = baseUrl ? `${baseUrl}/matches` : null;
 
-  // Build line 3: skill shifts per player
+  // Build line 3: skill shifts per player with rank changes
   const skillShiftsLine = match.skillChanges
     .sort((a, b) => b.change - a.change) // Sort by change descending
     .map(sc => {
       const sign = sc.change >= 0 ? '+' : '';
-      return `${sc.playerName}: ${sign}${sc.change.toFixed(3)}`;
+      const eloPart = `${sc.playerName}: ${sign}${sc.change.toFixed(3)}`;
+      const rankPart = sc.rankChange !== undefined
+        ? ` (${sc.rankChange > 0 ? '+' : ''}${sc.rankChange} rank${Math.abs(sc.rankChange) !== 1 ? 's' : ''})`
+        : '';
+      return `${eloPart}${rankPart}`;
     })
     .join('  ·  ');
 
@@ -61,12 +67,21 @@ export async function sendGoogleChatNotification(match: MatchNotification): Prom
     });
   }
 
-  // Line 3: Skill shifts
+  // Line 3: Skill shifts with rank changes
   widgets.push({
     textParagraph: {
       text: skillShiftsLine
     }
   });
+
+  // Line 4: Notes (if present)
+  if (match.notes?.trim()) {
+    widgets.push({
+      textParagraph: {
+        text: `<i>💬 ${match.notes.trim()}</i>`
+      }
+    });
+  }
 
   // Build the cards V2 payload
   const payload = {
@@ -125,7 +140,9 @@ export function buildMatchNotification(
   teams: { player_ids: number[]; score: number }[],
   playerNames: Map<number, string>,
   skillChanges: Map<number, { before: number; after: number; change: number }>,
-  imageUrl?: string | null
+  imageUrl?: string | null,
+  notes?: string | null,
+  rankChanges?: Map<number, number>
 ): MatchNotification {
   const maxScore = Math.max(...teams.map(t => t.score));
   const winners = teams.filter(t => t.score === maxScore);
@@ -143,9 +160,11 @@ export function buildMatchNotification(
     skillChanges: teams.flatMap(team =>
       team.player_ids.map(id => ({
         playerName: playerNames.get(id) || `Player ${id}`,
-        change: skillChanges.get(id)?.change ?? 0
+        change: skillChanges.get(id)?.change ?? 0,
+        rankChange: rankChanges?.get(id)
       }))
     ),
+    notes: notes,
     timestamp: new Date().toISOString()
   };
 }

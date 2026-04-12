@@ -79,12 +79,41 @@ export async function POST(request: NextRequest) {
     const players = playersStmt.all(...playerIds) as { id: number; name: string }[];
     const playerNameMap = new Map(players.map(p => [p.id, p.name]));
 
+    // Get rankings BEFORE the match to calculate rank changes
+    const rankingsBefore = db.prepare(`
+      SELECT player_id, elo FROM player_ratings WHERE game_id = ? ORDER BY elo DESC
+    `).all(game_id) as { player_id: number; elo: number }[];
+
+    const rankBefore = new Map<number, number>();
+    rankingsBefore.forEach((row, index) => {
+      rankBefore.set(row.player_id, index + 1);
+    });
+
     // Process match and get skill changes
     const result = processMatch({ game_id, notes, teams });
 
+    // Get rankings AFTER the match
+    const rankingsAfter = db.prepare(`
+      SELECT player_id, elo FROM player_ratings WHERE game_id = ? ORDER BY elo DESC
+    `).all(game_id) as { player_id: number; elo: number }[];
+
+    const rankAfter = new Map<number, number>();
+    rankingsAfter.forEach((row, index) => {
+      rankAfter.set(row.player_id, index + 1);
+    });
+
+    // Calculate rank changes (positive = moved up, negative = moved down)
+    const rankChanges = new Map<number, number>();
+    for (const playerId of playerIds) {
+      const before = rankBefore.get(playerId) ?? rankingsBefore.length + 1;
+      const after = rankAfter.get(playerId) ?? rankingsAfter.length + 1;
+      // Rank change: positive means moved UP in ranking (lower number is better)
+      rankChanges.set(playerId, before - after);
+    }
+
     // Send notification (async, don't wait for it)
     if (game) {
-      const notification = buildMatchNotification(game.name, result.matchId, teams, playerNameMap, result.skillChanges, game.image_url);
+      const notification = buildMatchNotification(game.name, result.matchId, teams, playerNameMap, result.skillChanges, game.image_url, notes, rankChanges);
       sendGoogleChatNotification(notification).catch(err => {
         console.error('Failed to send notification:', err);
       });

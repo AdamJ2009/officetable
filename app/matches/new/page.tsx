@@ -147,7 +147,6 @@ export default function NewMatchPage() {
   const prediction = useMemo(() => {
     if (team1Players.length === 0 || team2Players.length === 0 || !selectedGameData) return null;
 
-    console.error(team1Players);
     const team1Elo = team1Players.reduce((sum, id) => {
       const r = ratings.find((r) => r.player_id === id);
       return sum + (r?.elo ?? 0);

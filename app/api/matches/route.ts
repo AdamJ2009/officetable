@@ -31,8 +31,24 @@ export async function GET(request: NextRequest) {
     WHERE mp.match_id = ?
   `);
 
+  // Get achievements for each match
+  const achievementsStmt = db.prepare(`
+    SELECT
+      pa.achievement_id,
+      a.name as achievement_name,
+      a.description as achievement_description,
+      pa.player_id,
+      p.name as player_name
+    FROM player_achievements pa
+    JOIN achievements a ON pa.achievement_id = a.id
+    JOIN players p ON pa.player_id = p.id
+    WHERE pa.match_id = ?
+    ORDER BY a.name, p.name
+  `);
+
   const matchesWithParticipants: MatchWithParticipants[] = matches.map((match: any) => {
     const participants = participantsStmt.all(match.id);
+    const achievements = achievementsStmt.all(match.id);
     return {
       ...match,
       participants: participants.map((p: any) => ({
@@ -40,6 +56,13 @@ export async function GET(request: NextRequest) {
         player_name: p.player_name,
       })),
       game_name: match.game_name,
+      achievements: achievements.map((a: any) => ({
+        achievement_id: a.achievement_id,
+        achievement_name: a.achievement_name,
+        achievement_description: a.achievement_description,
+        player_id: a.player_id,
+        player_name: a.player_name
+      }))
     };
   });
 

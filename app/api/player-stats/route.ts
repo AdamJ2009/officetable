@@ -258,6 +258,30 @@ export async function GET(request: NextRequest) {
       };
     }
 
+    // Get achievements for this game
+    const achievementsStmt = db.prepare(`
+      SELECT
+        a.id as achievement_id,
+        a.name as achievement_name,
+        a.description as achievement_description,
+        a.category as achievement_category,
+        COUNT(*) as count,
+        MIN(pa.earned_at) as first_earned_at
+      FROM player_achievements pa
+      JOIN achievements a ON pa.achievement_id = a.id
+      WHERE pa.player_id = ? AND pa.game_id = ?
+      GROUP BY a.id
+      ORDER BY a.category, a.name
+    `);
+    const achievements = achievementsStmt.all(parseInt(playerId), game.id) as {
+      achievement_id: number;
+      achievement_name: string;
+      achievement_description: string;
+      achievement_category: string;
+      count: number;
+      first_earned_at: string;
+    }[];
+
     gameStats.push({
       game_id: game.id,
       game_name: game.name,
@@ -285,7 +309,8 @@ export async function GET(request: NextRequest) {
       elo_history: eloHistory.map(h => ({
         elo: h.elo_after,
         date: h.played_at
-      }))
+      })),
+      achievements
     });
   }
 

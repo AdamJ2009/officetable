@@ -44,6 +44,15 @@ interface GameRecords {
   biggest_loss: SkillLossRecord | null;
 }
 
+interface Achievement {
+  achievement_id: number;
+  achievement_name: string;
+  achievement_description: string;
+  achievement_category: string;
+  count: number;
+  first_earned_at: string;
+}
+
 interface GameStat {
   game_id: number;
   game_name: string;
@@ -58,6 +67,7 @@ interface GameStat {
   points_conceded: number;
   records: GameRecords;
   elo_history: EloHistoryPoint[];
+  achievements: Achievement[];
 }
 
 interface Opponent {
@@ -383,6 +393,27 @@ export default function PlayerProfilePage() {
                           </div>
                         </div>
                       )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Achievements */}
+                {game.achievements && game.achievements.length > 0 && (
+                  <div className="px-6 py-3 border-b border-gray-200 bg-gray-50">
+                    <div className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">Achievements</div>
+                    <div className="flex flex-wrap gap-2">
+                      {game.achievements.map((achievement) => (
+                        <div
+                          key={achievement.achievement_id}
+                          className="flex items-center gap-1 bg-yellow-50 border border-yellow-200 rounded-full px-3 py-1"
+                          title={achievement.achievement_description}
+                        >
+                          <span className="font-medium text-yellow-800 text-sm">{achievement.achievement_name}</span>
+                          {achievement.count > 1 && (
+                            <span className="text-xs bg-yellow-200 text-yellow-700 rounded-full px-1.5">x{achievement.count}</span>
+                          )}
+                        </div>
+                      ))}
                     </div>
                   </div>
                 )}

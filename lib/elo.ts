@@ -1,5 +1,6 @@
 import db from './db';
 import type { PlayerRating, LeaderboardEntry, CreateMatchInput } from './types';
+import { checkAchievements, saveAchievements, deleteAchievementsForMatch, deleteAchievementsForMatches, AchievementContext } from './achievements';
 
 // Elo constants
 const DEFAULT_ELO = 0;
@@ -220,6 +221,30 @@ export function processMatch(input: CreateMatchInput, matchTimestamp?: Date): Pr
 
   updateRatings();
 
+  // Check and save achievements
+  const participants = teams.flatMap(team =>
+    team.player_ids.map(playerId => ({
+      player_id: playerId,
+      team: team.team,
+      score: team.score,
+      elo_before: skillChanges.get(playerId)?.before ?? 0,
+      elo_after: skillChanges.get(playerId)?.after ?? 0
+    }))
+  );
+
+  const achievementResults = checkAchievements({
+    matchId,
+    gameId: game_id,
+    playedAt: matchDate,
+    teams,
+    participants,
+    playerNameMap: new Map() // Will be populated by caller if needed
+  });
+
+  if (achievementResults.length > 0) {
+    saveAchievements(achievementResults, game_id);
+  }
+
   return { matchId, skillChanges };
 }
 
@@ -354,6 +379,9 @@ export function correctMatch(
   // Track the new match ID for the corrected match
   let correctedMatchNewId: number | null = null;
 
+  // Delete achievements for all matches being replayed
+  deleteAchievementsForMatches(matchesToReplay.map(m => m.matchId));
+
   const doCorrection = db.transaction(() => {
     // Delete match_participants for all matches being replayed
     const deleteParticipantsStmt = db.prepare(`DELETE FROM match_participants WHERE match_id = ?`);
@@ -465,6 +493,31 @@ export function correctMatch(
 
   doCorrection();
 
+  // Re-check achievements for all replayed matches
+  for (const matchData of matchesToReplay) {
+    const matchDate = new Date(matchData.timestamp.replace(' ', 'T'));
+    const newMatchId = matchData.matchId === matchId ? correctedMatchNewId! : matchData.matchId;
+
+    // Get participants for this match
+    const participants = db.prepare(`
+      SELECT player_id, team, score, elo_before, elo_after FROM match_participants WHERE match_id = ?
+    `).all(newMatchId) as { player_id: number; team: number; score: number; elo_before: number; elo_after: number }[];
+
+    // Build the achievement context
+    const achievementResults = checkAchievements({
+      matchId: newMatchId,
+      gameId: gameId,
+      playedAt: matchDate,
+      teams: matchData.teams,
+      participants,
+      playerNameMap: new Map()
+    });
+
+    if (achievementResults.length > 0) {
+      saveAchievements(achievementResults, gameId);
+    }
+  }
+
   // Mark the corrected match as edited (after transaction commits)
   if (correctedMatchNewId) {
     const now = new Date().toISOString().replace('T', ' ').replace(/\.\d+Z$/, '');
@@ -512,6 +565,9 @@ export function deleteMatchAndReplay(matchId: number): void {
       SELECT player_id, elo_before, elo_after FROM match_participants WHERE match_id = ?
     `);
     const participants = participantsStmt.all(matchId) as { player_id: number; elo_before: number; elo_after: number }[];
+
+    // Delete achievements for this match
+    deleteAchievementsForMatch(matchId);
 
     const deleteTransaction = db.transaction(() => {
       // Reverse the rating changes
@@ -597,6 +653,10 @@ export function deleteMatchAndReplay(matchId: number): void {
       notes: m.notes
     });
   }
+
+  // Delete achievements for the match being deleted and all subsequent matches
+  deleteAchievementsForMatch(matchId);
+  deleteAchievementsForMatches(matchesToReplay.map(m => m.matchId));
 
   // Use transaction for atomic deletion
   const doDelete = db.transaction(() => {
@@ -685,4 +745,32 @@ export function deleteMatchAndReplay(matchId: number): void {
   });
 
   doDelete();
+
+  // Re-check achievements for all replayed matches
+  for (const matchData of matchesToReplay) {
+    const matchDate = new Date(matchData.timestamp.replace(' ', 'T'));
+    // Get the new match ID (matches are re-created with new IDs)
+    const newMatch = db.prepare(`
+      SELECT id FROM matches WHERE game_id = ? AND played_at = ? ORDER BY id DESC LIMIT 1
+    `).get(gameId, matchData.timestamp.replace(' ', 'T').replace(/\.\d+Z$/, '')) as { id: number } | undefined;
+
+    if (newMatch) {
+      const participants = db.prepare(`
+        SELECT player_id, team, score, elo_before, elo_after FROM match_participants WHERE match_id = ?
+      `).all(newMatch.id) as { player_id: number; team: number; score: number; elo_before: number; elo_after: number }[];
+
+      const achievementResults = checkAchievements({
+        matchId: newMatch.id,
+        gameId: gameId,
+        playedAt: matchDate,
+        teams: matchData.teams,
+        participants,
+        playerNameMap: new Map()
+      });
+
+      if (achievementResults.length > 0) {
+        saveAchievements(achievementResults, gameId);
+      }
+    }
+  }
 }

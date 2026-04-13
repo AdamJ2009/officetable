@@ -44,6 +44,7 @@ export interface MatchParticipant {
 export interface MatchWithParticipants extends Match {
   participants: (MatchParticipant & { player_name: string })[];
   game_name: string;
+  achievements?: MatchAchievement[];
 }
 
 export interface LeaderboardEntry {
@@ -73,4 +74,40 @@ export interface GameStats {
   team1_points: number;
   active_players: number;
   total_players: number;
+}
+
+export interface Achievement {
+  id: number;
+  name: string;
+  description: string;
+  category: string;
+  icon?: string | null;
+}
+
+export interface PlayerAchievement {
+  id: number;
+  player_id: number;
+  game_id: number;
+  achievement_id: number;
+  match_id: number | null;
+  earned_at: string;
+  metadata?: string | null;
+}
+
+export interface AchievementWithCount {
+  id: number;
+  name: string;
+  description: string;
+  category: string;
+  icon?: string | null;
+  count: number;
+  first_earned_at: string;
+}
+
+export interface MatchAchievement {
+  achievement_id: number;
+  achievement_name: string;
+  achievement_description: string;
+  player_id: number;
+  player_name: string;
 }

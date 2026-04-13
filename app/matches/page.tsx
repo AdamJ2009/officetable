@@ -8,6 +8,14 @@ interface Game {
   name: string;
 }
 
+interface MatchAchievement {
+  achievement_id: number;
+  achievement_name: string;
+  achievement_description: string;
+  player_id: number;
+  player_name: string;
+}
+
 interface Match {
   id: number;
   game_id: number;
@@ -26,6 +34,7 @@ interface Match {
     elo_after: number;
     player_name: string;
   }[];
+  achievements?: MatchAchievement[];
 }
 
 export default function MatchesPage() {
@@ -331,6 +340,23 @@ export default function MatchesPage() {
                     );
                   })}
                 </div>
+
+                {match.achievements && match.achievements.length > 0 && (
+                  <div className="mt-3 pt-3 border-t border-gray-100">
+                    <div className="flex flex-wrap gap-2">
+                      {match.achievements.map((achievement, idx) => (
+                        <span
+                          key={idx}
+                          className="inline-flex items-center gap-1 text-xs bg-yellow-50 text-yellow-800 border border-yellow-200 rounded-full px-2 py-1"
+                          title={achievement.achievement_description}
+                        >
+                          <span className="font-medium">{achievement.player_name}:</span>
+                          <span>{achievement.achievement_name}</span>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {isEditing && (
                   <div className="mt-4 flex gap-2">

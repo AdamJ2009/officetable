@@ -408,8 +408,6 @@ export function correctMatch(
 
     // Replay all matches in order
     for (const matchData of matchesToReplay) {
-      const matchDate = new Date(matchData.timestamp.replace(' ', 'T'));
-
       // Delete existing match record (we'll recreate)
       if (matchData.matchId !== matchId) {
         db.prepare(`DELETE FROM matches WHERE id = ?`).run(matchData.matchId);
@@ -418,11 +416,12 @@ export function correctMatch(
         db.prepare(`DELETE FROM matches WHERE id = ?`).run(matchData.matchId);
       }
 
-      // Create new match with the same timestamp
+      // Create new match with the same timestamp (preserve original format to avoid timezone issues)
       const insertMatch = db.prepare(`
         INSERT INTO matches (game_id, notes, played_at) VALUES (?, ?, ?)
       `);
-      const playedAt = matchDate.toISOString().replace('T', ' ').replace(/\.\d+Z$/, '');
+      // Use the original timestamp string directly to preserve time
+      const playedAt = matchData.timestamp.replace('T', ' ').replace(/\.\d+Z$/, '').substring(0, 19);
       const result = insertMatch.run(gameId, matchData.notes ?? null, playedAt);
       const newMatchId = result.lastInsertRowid as number;
 
@@ -694,11 +693,9 @@ export function deleteMatchAndReplay(matchId: number): void {
 
     // Replay all subsequent matches in order
     for (const matchData of matchesToReplay) {
-      const matchDate = new Date(matchData.timestamp.replace(' ', 'T'));
-
-      // Create new match
+      // Create new match (preserve original timestamp format to avoid timezone issues)
       const insertMatch = db.prepare(`INSERT INTO matches (game_id, notes, played_at) VALUES (?, ?, ?)`);
-      const playedAt = matchDate.toISOString().replace('T', ' ').replace(/\.\d+Z$/, '');
+      const playedAt = matchData.timestamp.replace('T', ' ').replace(/\.\d+Z$/, '').substring(0, 19);
       const result = insertMatch.run(gameId, matchData.notes ?? null, playedAt);
       const newMatchId = result.lastInsertRowid as number;
 

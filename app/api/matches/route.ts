@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import db from '@/lib/db';
 import { processMatch } from '@/lib/elo';
 import { sendGoogleChatNotification, buildMatchNotification } from '@/lib/notifications';
+import { getAchievementsForMatch } from '@/lib/achievements';
 import type { MatchWithParticipants, CreateMatchInput } from '@/lib/types';
 
 export async function GET(request: NextRequest) {
@@ -136,9 +137,26 @@ export async function POST(request: NextRequest) {
       rankChanges.set(playerId, before - after);
     }
 
+    // Get achievements earned in this match
+    const matchAchievements = getAchievementsForMatch(result.matchId);
+
     // Send notification (async, don't wait for it)
     if (game) {
-      const notification = buildMatchNotification(game.name, result.matchId, teams, playerNameMap, result.skillChanges, game.image_url, notes, rankChanges);
+      const notification = buildMatchNotification(
+        game.name,
+        result.matchId,
+        teams,
+        playerNameMap,
+        result.skillChanges,
+        game.image_url,
+        notes,
+        rankChanges,
+        matchAchievements.map(a => ({
+          playerId: a.player_id,
+          achievementName: a.achievement_name,
+          achievementIcon: a.achievement_icon
+        }))
+      );
       sendGoogleChatNotification(notification).catch(err => {
         console.error('Failed to send notification:', err);
       });

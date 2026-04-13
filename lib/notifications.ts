@@ -13,6 +13,11 @@ interface MatchNotification {
     rankChange?: number;
   }[];
   notes?: string | null;
+  achievements?: {
+    playerName: string;
+    achievementName: string;
+    achievementIcon?: string | null;
+  }[];
   timestamp: string;
 }
 
@@ -83,6 +88,22 @@ export async function sendGoogleChatNotification(match: MatchNotification): Prom
     });
   }
 
+  // Line 5: Achievements (if present)
+  if (match.achievements && match.achievements.length > 0) {
+    const achievementsText = match.achievements
+      .map(a => {
+        const icon = a.achievementIcon || '🏅';
+        const name = a.achievementName.replace(/_/g, ' ');
+        return `${icon} <b>${a.playerName}</b>: ${name}`;
+      })
+      .join('  ·  ');
+    widgets.push({
+      textParagraph: {
+        text: achievementsText
+      }
+    });
+  }
+
   // Build the cards V2 payload
   const payload = {
     cardsV2: [
@@ -142,7 +163,8 @@ export function buildMatchNotification(
   skillChanges: Map<number, { before: number; after: number; change: number }>,
   imageUrl?: string | null,
   notes?: string | null,
-  rankChanges?: Map<number, number>
+  rankChanges?: Map<number, number>,
+  achievements?: { playerId: number; achievementName: string; achievementIcon?: string | null }[]
 ): MatchNotification {
   const maxScore = Math.max(...teams.map(t => t.score));
   const winners = teams.filter(t => t.score === maxScore);
@@ -165,6 +187,11 @@ export function buildMatchNotification(
       }))
     ),
     notes: notes,
+    achievements: achievements?.map(a => ({
+      playerName: playerNames.get(a.playerId) || `Player ${a.playerId}`,
+      achievementName: a.achievementName,
+      achievementIcon: a.achievementIcon
+    })),
     timestamp: new Date().toISOString()
   };
 }

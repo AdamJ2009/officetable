@@ -616,11 +616,12 @@ export function getAchievementsForPlayer(playerId: number, gameId?: number): { a
   return stmt.all(...params) as { achievement_id: number; achievement_name: string; achievement_description: string; achievement_category: string; count: number; first_earned_at: string }[];
 }
 
-export function getAchievementsForMatch(matchId: number): { achievement_name: string; achievement_description: string; player_id: number; player_name: string }[] {
+export function getAchievementsForMatch(matchId: number): { achievement_name: string; achievement_description: string; achievement_icon: string | null; player_id: number; player_name: string }[] {
   const stmt = db.prepare(`
     SELECT
       a.name as achievement_name,
       a.description as achievement_description,
+      a.icon as achievement_icon,
       pa.player_id,
       p.name as player_name
     FROM player_achievements pa
@@ -629,7 +630,7 @@ export function getAchievementsForMatch(matchId: number): { achievement_name: st
     WHERE pa.match_id = ?
     ORDER BY a.name, p.name
   `);
-  return stmt.all(matchId) as { achievement_name: string; achievement_description: string; player_id: number; player_name: string }[];
+  return stmt.all(matchId) as { achievement_name: string; achievement_description: string; achievement_icon: string | null; player_id: number; player_name: string }[];
 }
 
 /**

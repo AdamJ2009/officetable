@@ -617,3 +617,90 @@ export function getAchievementsForMatch(matchId: number): { achievement_name: st
   `);
   return stmt.all(matchId) as { achievement_name: string; achievement_description: string; player_id: number; player_name: string }[];
 }
+
+/**
+ * Recalculate all achievements for a game.
+ * This deletes all existing achievements for the game and replays them from match history.
+ * Returns the number of achievements awarded.
+ */
+export function recalculateAchievementsForGame(gameId: number): { matchesProcessed: number; achievementsAwarded: number } {
+  // Delete all existing achievements for this game
+  db.prepare('DELETE FROM player_achievements WHERE game_id = ?').run(gameId);
+
+  // Get all matches for this game in chronological order
+  const matches = db.prepare(`
+    SELECT m.id, m.played_at, m.notes
+    FROM matches m
+    WHERE m.game_id = ?
+    ORDER BY m.played_at ASC
+  `).all(gameId) as { id: number; played_at: string; notes: string | null }[];
+
+  // Get player name map
+  const players = db.prepare('SELECT id, name FROM players').all() as { id: number; name: string }[];
+  const playerNameMap = new Map(players.map(p => [p.id, p.name]));
+
+  let achievementsAwarded = 0;
+
+  for (const match of matches) {
+    // Get participants for this match
+    const participants = db.prepare(`
+      SELECT player_id, team, score, elo_before, elo_after
+      FROM match_participants
+      WHERE match_id = ?
+    `).all(match.id) as { player_id: number; team: number; score: number; elo_before: number; elo_after: number }[];
+
+    // Group participants into teams
+    const teamMap = new Map<number, { player_ids: number[]; score: number }>();
+    for (const p of participants) {
+      if (!teamMap.has(p.team)) {
+        teamMap.set(p.team, { player_ids: [], score: p.score });
+      }
+      teamMap.get(p.team)!.player_ids.push(p.player_id);
+    }
+
+    const teams = Array.from(teamMap.values()).map((t, idx) => ({
+      team: idx,
+      player_ids: t.player_ids,
+      score: t.score
+    }));
+
+    const playedAt = new Date(match.played_at.replace(' ', 'T'));
+
+    // Check achievements
+    const achievementResults = checkAchievements({
+      matchId: match.id,
+      gameId,
+      playedAt,
+      teams,
+      participants,
+      playerNameMap
+    });
+
+    if (achievementResults.length > 0) {
+      saveAchievements(achievementResults, gameId);
+      achievementsAwarded += achievementResults.length;
+    }
+  }
+
+  return { matchesProcessed: matches.length, achievementsAwarded };
+}
+
+/**
+ * Recalculate achievements for all games.
+ * Returns summary of achievements awarded per game.
+ */
+export function recalculateAllAchievements(): { game_name: string; matches_processed: number; achievements_awarded: number }[] {
+  const games = db.prepare('SELECT id, name FROM games').all() as { id: number; name: string }[];
+
+  const results = [];
+  for (const game of games) {
+    const result = recalculateAchievementsForGame(game.id);
+    results.push({
+      game_name: game.name,
+      matches_processed: result.matchesProcessed,
+      achievements_awarded: result.achievementsAwarded
+    });
+  }
+
+  return results;
+}

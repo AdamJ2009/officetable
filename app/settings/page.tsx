@@ -16,6 +16,8 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<number | null>(null);
   const [editedUrls, setEditedUrls] = useState<Record<number, string>>({});
+  const [recalculating, setRecalculating] = useState(false);
+  const [recalcResults, setRecalcResults] = useState<{ game_name: string; matches_processed: number; achievements_awarded: number }[] | null>(null);
 
   useEffect(() => {
     fetch("/api/games")
@@ -60,6 +62,30 @@ export default function SettingsPage() {
       alert("Failed to save image URL");
     } finally {
       setSaving(null);
+    }
+  }
+
+  async function recalculateAchievements() {
+    setRecalculating(true);
+    setRecalcResults(null);
+    try {
+      const res = await fetch("/api/admin/recalculate-achievements", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({})
+      });
+
+      if (!res.ok) {
+        throw new Error("Failed to recalculate");
+      }
+
+      const data = await res.json();
+      setRecalcResults(data.games);
+    } catch (err) {
+      console.error(err);
+      alert("Failed to recalculate achievements");
+    } finally {
+      setRecalculating(false);
     }
   }
 
@@ -122,6 +148,38 @@ export default function SettingsPage() {
                 </button>
               </div>
             ))}
+          </div>
+        )}
+      </div>
+
+      <div className="bg-white rounded-lg shadow p-6 mt-6">
+        <h2 className="text-xl font-semibold mb-4">Achievements</h2>
+        <p className="text-gray-600 mb-6">
+          Recalculate achievements for all historical match data. This is useful after editing or deleting matches
+          to ensure achievement data is accurate, or when new achievements have been added.
+        </p>
+
+        <button
+          onClick={recalculateAchievements}
+          disabled={recalculating}
+          className="bg-yellow-600 text-white px-4 py-2 rounded-lg hover:bg-yellow-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {recalculating ? "Recalculating..." : "Recalculate All Achievements"}
+        </button>
+
+        {recalcResults && (
+          <div className="mt-6">
+            <h3 className="font-semibold mb-2">Results:</h3>
+            <div className="space-y-2">
+              {recalcResults.map((result) => (
+                <div key={result.game_name} className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                  <span className="font-medium">{formatGameName(result.game_name)}</span>
+                  <span className="text-sm text-gray-600">
+                    {result.matches_processed} matches processed, {result.achievements_awarded} achievements awarded
+                  </span>
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </div>

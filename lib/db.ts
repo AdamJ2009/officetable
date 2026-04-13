@@ -227,4 +227,34 @@ const seedAchievements = db.prepare(`
 `);
 seedAchievements.run();
 
+// Update icons for existing achievements (migration)
+const updateAchievementIcons = db.prepare(`
+  UPDATE achievements SET icon = CASE name
+    WHEN 'fresh_blood' THEN '🩸'
+    WHEN 'flawless_victory' THEN '💀'
+    WHEN 'mostly_harmless' THEN '🥉'
+    WHEN 'committed' THEN '🥈'
+    WHEN 'dangerous' THEN '🥇'
+    WHEN 'resident' THEN '🏅'
+    WHEN 'elite' THEN '👑'
+    WHEN 'against_the_odds' THEN '⚡'
+    WHEN 'against_all_odds' THEN '💫'
+    WHEN 'the_best' THEN '🏆'
+    WHEN 'the_worst' THEN '🔻'
+    WHEN 'improver' THEN '📈'
+    WHEN 'unstable' THEN '🎢'
+    WHEN 'comrades' THEN '🤝'
+    WHEN 'festive_cheer' THEN '🎄'
+    WHEN 'night_owl' THEN '🦉'
+    WHEN 'dedication' THEN '🔥'
+    WHEN 'early_bird' THEN '🌅'
+    WHEN 'the_dominator' THEN '💪'
+    WHEN 'nothing_if_not_consistent' THEN '🎯'
+    WHEN 'boss_fight' THEN '⚔️'
+    ELSE icon
+  END
+  WHERE icon IS NULL OR icon = ''
+`);
+updateAchievementIcons.run();
+
 export default db;

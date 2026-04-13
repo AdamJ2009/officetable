@@ -227,24 +227,30 @@ export function checkAchievements(context: AchievementContext): AchievementResul
   }
 
   // Boss Fight: Defeat the #1 ranked player
+  // Also prepare rankings before match for The Best / The Worst
+  const allEloBefore = new Map<number, number>();
+  for (const r of allPlayerRatings) {
+    allEloBefore.set(r.player_id, r.elo);
+  }
+  for (const p of participants) {
+    allEloBefore.set(p.player_id, p.elo_before);
+  }
+
+  // Sort by elo descending to get rankings before the match
+  const sortedBefore = [...allEloBefore.entries()].sort((a, b) => b[1] - a[1]);
+  const numberOneBefore = sortedBefore[0]?.[0];
+  const lastBefore = sortedBefore[sortedBefore.length - 1]?.[0];
+
+  // Create rank map for before
+  const rankBefore = new Map<number, number>();
+  sortedBefore.forEach((entry, index) => {
+    rankBefore.set(entry[0], index + 1);
+  });
+
   if (!isDraw) {
-    // Calculate rankings before the match
-    const allEloBefore = new Map<number, number>();
-    for (const r of allPlayerRatings) {
-      allEloBefore.set(r.player_id, r.elo);
-    }
-    // Update with participants' before-elo
-    for (const p of participants) {
-      allEloBefore.set(p.player_id, p.elo_before);
-    }
-
-    // Find #1 player before match
-    const sortedByElo = [...allEloBefore.entries()].sort((a, b) => b[1] - a[1]);
-    const numberOnePlayerId = sortedByElo[0]?.[0];
-
     for (const winnerId of winnerIds) {
       for (const loserId of loserIds) {
-        if (loserId === numberOnePlayerId && winnerId !== numberOnePlayerId) {
+        if (loserId === numberOneBefore && winnerId !== numberOneBefore) {
           results.push({
             achievementName: 'boss_fight',
             playerId: winnerId,
@@ -256,7 +262,7 @@ export function checkAchievements(context: AchievementContext): AchievementResul
     }
   }
 
-  // The Best / The Worst: Rankings after match
+  // The Best / The Worst: Only if rank changes into #1 or last position
   if (!isDraw) {
     // Calculate rankings after match
     const allEloAfter = new Map<number, number>();
@@ -269,11 +275,18 @@ export function checkAchievements(context: AchievementContext): AchievementResul
     }
 
     const sortedAfter = [...allEloAfter.entries()].sort((a, b) => b[1] - a[1]);
-    const newNumberOne = sortedAfter[0]?.[0];
-    const newLast = sortedAfter[sortedAfter.length - 1]?.[0];
+    const numberOneAfter = sortedAfter[0]?.[0];
+    const lastAfter = sortedAfter[sortedAfter.length - 1]?.[0];
 
+    // Create rank map for after
+    const rankAfter = new Map<number, number>();
+    sortedAfter.forEach((entry, index) => {
+      rankAfter.set(entry[0], index + 1);
+    });
+
+    // The Best: Only if player is now #1 AND wasn't #1 before
     for (const winnerId of winnerIds) {
-      if (winnerId === newNumberOne) {
+      if (winnerId === numberOneAfter && winnerId !== numberOneBefore) {
         results.push({
           achievementName: 'the_best',
           playerId: winnerId,
@@ -282,8 +295,9 @@ export function checkAchievements(context: AchievementContext): AchievementResul
       }
     }
 
+    // The Worst: Only if player is now last AND wasn't last before
     for (const loserId of loserIds) {
-      if (loserId === newLast) {
+      if (loserId === lastAfter && loserId !== lastBefore) {
         results.push({
           achievementName: 'the_worst',
           playerId: loserId,

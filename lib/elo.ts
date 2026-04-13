@@ -378,6 +378,7 @@ export function correctMatch(
   // Use transaction for atomic correction
   // Track the new match ID for the corrected match
   let correctedMatchNewId: number | null = null;
+  const oldToNewMatchIds: Map<number, number> = new Map();
 
   // Delete achievements for all matches being replayed
   deleteAchievementsForMatches(matchesToReplay.map(m => m.matchId));
@@ -429,6 +430,9 @@ export function correctMatch(
       if (matchData.matchId === matchId && correctedMatchNewId === null) {
         correctedMatchNewId = newMatchId;
       }
+
+      // Track all old to new match IDs
+      oldToNewMatchIds.set(matchData.matchId, newMatchId);
 
       // Calculate and apply rating changes
       const ratingsByPlayer: Map<number, number> = new Map();
@@ -496,7 +500,9 @@ export function correctMatch(
   // Re-check achievements for all replayed matches
   for (const matchData of matchesToReplay) {
     const matchDate = new Date(matchData.timestamp.replace(' ', 'T'));
-    const newMatchId = matchData.matchId === matchId ? correctedMatchNewId! : matchData.matchId;
+    const newMatchId = oldToNewMatchIds.get(matchData.matchId);
+
+    if (!newMatchId) continue;
 
     // Get participants for this match
     const participants = db.prepare(`
@@ -658,6 +664,9 @@ export function deleteMatchAndReplay(matchId: number): void {
   deleteAchievementsForMatch(matchId);
   deleteAchievementsForMatches(matchesToReplay.map(m => m.matchId));
 
+  // Track new match IDs for achievement recalculation
+  const oldToNewMatchIds: Map<number, number> = new Map();
+
   // Use transaction for atomic deletion
   const doDelete = db.transaction(() => {
     // Delete the match to be removed
@@ -692,6 +701,9 @@ export function deleteMatchAndReplay(matchId: number): void {
       const playedAt = matchDate.toISOString().replace('T', ' ').replace(/\.\d+Z$/, '');
       const result = insertMatch.run(gameId, matchData.notes ?? null, playedAt);
       const newMatchId = result.lastInsertRowid as number;
+
+      // Track the new match ID
+      oldToNewMatchIds.set(matchData.matchId, newMatchId);
 
       // Calculate and apply rating changes
       const ratingsByPlayer: Map<number, number> = new Map();
@@ -749,28 +761,25 @@ export function deleteMatchAndReplay(matchId: number): void {
   // Re-check achievements for all replayed matches
   for (const matchData of matchesToReplay) {
     const matchDate = new Date(matchData.timestamp.replace(' ', 'T'));
-    // Get the new match ID (matches are re-created with new IDs)
-    const newMatch = db.prepare(`
-      SELECT id FROM matches WHERE game_id = ? AND played_at = ? ORDER BY id DESC LIMIT 1
-    `).get(gameId, matchData.timestamp.replace(' ', 'T').replace(/\.\d+Z$/, '')) as { id: number } | undefined;
+    const newMatchId = oldToNewMatchIds.get(matchData.matchId);
 
-    if (newMatch) {
-      const participants = db.prepare(`
-        SELECT player_id, team, score, elo_before, elo_after FROM match_participants WHERE match_id = ?
-      `).all(newMatch.id) as { player_id: number; team: number; score: number; elo_before: number; elo_after: number }[];
+    if (!newMatchId) continue;
 
-      const achievementResults = checkAchievements({
-        matchId: newMatch.id,
-        gameId: gameId,
-        playedAt: matchDate,
-        teams: matchData.teams,
-        participants,
-        playerNameMap: new Map()
-      });
+    const participants = db.prepare(`
+      SELECT player_id, team, score, elo_before, elo_after FROM match_participants WHERE match_id = ?
+    `).all(newMatchId) as { player_id: number; team: number; score: number; elo_before: number; elo_after: number }[];
 
-      if (achievementResults.length > 0) {
-        saveAchievements(achievementResults, gameId);
-      }
+    const achievementResults = checkAchievements({
+      matchId: newMatchId,
+      gameId: gameId,
+      playedAt: matchDate,
+      teams: matchData.teams,
+      participants,
+      playerNameMap: new Map()
+    });
+
+    if (achievementResults.length > 0) {
+      saveAchievements(achievementResults, gameId);
     }
   }
 }

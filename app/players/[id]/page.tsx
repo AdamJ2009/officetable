@@ -49,6 +49,7 @@ interface Achievement {
   achievement_name: string;
   achievement_description: string;
   achievement_category: string;
+  achievement_icon: string | null;
   count: number;
   first_earned_at: string;
 }
@@ -405,12 +406,13 @@ export default function PlayerProfilePage() {
                       {game.achievements.map((achievement) => (
                         <div
                           key={achievement.achievement_id}
-                          className="flex items-center gap-1 bg-yellow-50 border border-yellow-200 rounded-full px-3 py-1"
+                          className="flex items-center gap-1.5 bg-amber-50 border border-amber-200 rounded-full px-3 py-1 hover:bg-amber-100 transition-colors cursor-default"
                           title={achievement.achievement_description}
                         >
-                          <span className="font-medium text-yellow-800 text-sm">{achievement.achievement_name}</span>
+                          <span className="text-lg">{achievement.achievement_icon || '🏅'}</span>
+                          <span className="font-medium text-amber-900 text-sm">{achievement.achievement_name.replace(/_/g, ' ')}</span>
                           {achievement.count > 1 && (
-                            <span className="text-xs bg-yellow-200 text-yellow-700 rounded-full px-1.5">x{achievement.count}</span>
+                            <span className="text-xs bg-amber-200 text-amber-800 rounded-full px-1.5 font-semibold">×{achievement.count}</span>
                           )}
                         </div>
                       ))}

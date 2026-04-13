@@ -37,6 +37,7 @@ export async function GET(request: NextRequest) {
       pa.achievement_id,
       a.name as achievement_name,
       a.description as achievement_description,
+      a.icon as achievement_icon,
       pa.player_id,
       p.name as player_name
     FROM player_achievements pa
@@ -60,6 +61,7 @@ export async function GET(request: NextRequest) {
         achievement_id: a.achievement_id,
         achievement_name: a.achievement_name,
         achievement_description: a.achievement_description,
+        achievement_icon: a.achievement_icon,
         player_id: a.player_id,
         player_name: a.player_name
       }))

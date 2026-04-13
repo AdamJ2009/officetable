@@ -202,28 +202,28 @@ db.exec(`CREATE INDEX IF NOT EXISTS idx_player_achievements_achievement ON playe
 
 // Seed achievements if not exists
 const seedAchievements = db.prepare(`
-  INSERT OR IGNORE INTO achievements (name, description, category) VALUES
-    ('fresh_blood', 'Claim points from a new player on their first game', 'special'),
-    ('flawless_victory', 'Beat an opponent without conceding a point', 'special'),
-    ('mostly_harmless', 'Play 100 games', 'milestone'),
-    ('committed', 'Play 500 games', 'milestone'),
-    ('dangerous', 'Play 1,000 games', 'milestone'),
-    ('resident', 'Play 2,000 games', 'milestone'),
-    ('elite', 'Play 10,000 games', 'milestone'),
-    ('against_the_odds', 'Beat a player 50 or more skillpoints higher than you', 'special'),
-    ('against_all_odds', 'Beat a player 100 or more skillpoints higher than you', 'special'),
-    ('the_best', 'Go first in the rankings', 'ranking'),
-    ('the_worst', 'Go last in the rankings', 'ranking'),
-    ('improver', 'Gain 100 skill points from your lowest point', 'milestone'),
-    ('unstable', 'See-saw 5 or more skill points in consecutive games', 'streak'),
-    ('comrades', 'Play 100 games against the same opponent', 'milestone'),
-    ('festive_cheer', 'Play a game on 25th December', 'time_based'),
-    ('night_owl', 'Play a game between 0000 and 0300 hours', 'time_based'),
-    ('dedication', 'Play a game at least once every 60 days for a year', 'streak'),
-    ('early_bird', 'Play and win the first game of the day', 'special'),
-    ('the_dominator', 'Defeat and obtain points from a player in 10 consecutive games', 'streak'),
-    ('nothing_if_not_consistent', 'Finish 5 consecutive games with the same score', 'streak'),
-    ('boss_fight', 'Defeat the #1 ranked player in the ladder', 'special')
+  INSERT OR IGNORE INTO achievements (name, description, category, icon) VALUES
+    ('fresh_blood', 'Claim points from a new player on their first game', 'special', '🩸'),
+    ('flawless_victory', 'Beat an opponent without conceding a point', 'special', '💀'),
+    ('mostly_harmless', 'Play 100 games', 'milestone', '🥉'),
+    ('committed', 'Play 500 games', 'milestone', '🥈'),
+    ('dangerous', 'Play 1,000 games', 'milestone', '🥇'),
+    ('resident', 'Play 2,000 games', 'milestone', '🏅'),
+    ('elite', 'Play 10,000 games', 'milestone', '👑'),
+    ('against_the_odds', 'Beat a player 50 or more skillpoints higher than you', 'special', '⚡'),
+    ('against_all_odds', 'Beat a player 100 or more skillpoints higher than you', 'special', '💫'),
+    ('the_best', 'Go first in the rankings', 'ranking', '🏆'),
+    ('the_worst', 'Go last in the rankings', 'ranking', '🔻'),
+    ('improver', 'Gain 100 skill points from your lowest point', 'milestone', '📈'),
+    ('unstable', 'See-saw 5 or more skill points in consecutive games', 'streak', '🎢'),
+    ('comrades', 'Play 100 games against the same opponent', 'milestone', '🤝'),
+    ('festive_cheer', 'Play a game on 25th December', 'time_based', '🎄'),
+    ('night_owl', 'Play a game between 0000 and 0300 hours', 'time_based', '🦉'),
+    ('dedication', 'Play a game at least once every 60 days for a year', 'streak', '🔥'),
+    ('early_bird', 'Play and win the first game of the day', 'special', '🌅'),
+    ('the_dominator', 'Defeat and obtain points from a player in 10 consecutive games', 'streak', '💪'),
+    ('nothing_if_not_consistent', 'Finish 5 consecutive games with the same score', 'streak', '🎯'),
+    ('boss_fight', 'Defeat the #1 ranked player in the ladder', 'special', '⚔️')
 `);
 seedAchievements.run();
 

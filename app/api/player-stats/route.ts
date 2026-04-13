@@ -265,19 +265,30 @@ export async function GET(request: NextRequest) {
         a.name as achievement_name,
         a.description as achievement_description,
         a.category as achievement_category,
+        a.icon as achievement_icon,
         COUNT(*) as count,
         MIN(pa.earned_at) as first_earned_at
       FROM player_achievements pa
       JOIN achievements a ON pa.achievement_id = a.id
       WHERE pa.player_id = ? AND pa.game_id = ?
       GROUP BY a.id
-      ORDER BY a.category, a.name
+      ORDER BY
+        CASE a.category
+          WHEN 'milestone' THEN 1
+          WHEN 'ranking' THEN 2
+          WHEN 'streak' THEN 3
+          WHEN 'special' THEN 4
+          WHEN 'time_based' THEN 5
+          ELSE 6
+        END,
+        a.name
     `);
     const achievements = achievementsStmt.all(parseInt(playerId), game.id) as {
       achievement_id: number;
       achievement_name: string;
       achievement_description: string;
       achievement_category: string;
+      achievement_icon: string | null;
       count: number;
       first_earned_at: string;
     }[];

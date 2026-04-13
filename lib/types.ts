@@ -108,6 +108,7 @@ export interface MatchAchievement {
   achievement_id: number;
   achievement_name: string;
   achievement_description: string;
+  achievement_icon: string | null;
   player_id: number;
   player_name: string;
 }

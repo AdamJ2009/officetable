@@ -12,6 +12,7 @@ interface MatchAchievement {
   achievement_id: number;
   achievement_name: string;
   achievement_description: string;
+  achievement_icon: string | null;
   player_id: number;
   player_name: string;
 }
@@ -347,11 +348,12 @@ export default function MatchesPage() {
                       {match.achievements.map((achievement, idx) => (
                         <span
                           key={idx}
-                          className="inline-flex items-center gap-1 text-xs bg-yellow-50 text-yellow-800 border border-yellow-200 rounded-full px-2 py-1"
+                          className="inline-flex items-center gap-1.5 text-xs bg-amber-50 text-amber-900 border border-amber-200 rounded-full px-2.5 py-1 hover:bg-amber-100 transition-colors"
                           title={achievement.achievement_description}
                         >
+                          <span className="text-sm">{achievement.achievement_icon || '🏅'}</span>
                           <span className="font-medium">{achievement.player_name}:</span>
-                          <span>{achievement.achievement_name}</span>
+                          <span>{achievement.achievement_name.replace(/_/g, ' ')}</span>
                         </span>
                       ))}
                     </div>

@@ -221,7 +221,7 @@ const seedAchievements = db.prepare(`
     ('night_owl', 'Play a game between 0000 and 0300 hours', 'time_based', '🦉'),
     ('dedication', 'Play a game at least once every 60 days for a year', 'streak', '🔥'),
     ('early_bird', 'Play and win the first game of the day', 'special', '🌅'),
-    ('the_dominator', 'Defeat and obtain points from a player in 10 consecutive games', 'streak', '💪'),
+    ('the_dominator', 'Defeat a player in 10 consecutive games', 'streak', '💪'),
     ('nothing_if_not_consistent', 'Finish 5 consecutive games with the same score', 'streak', '🎯'),
     ('boss_fight', 'Defeat the #1 ranked player in the ladder', 'special', '⚔️')
 `);

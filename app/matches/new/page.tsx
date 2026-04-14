@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 interface Game {
@@ -21,7 +21,7 @@ interface PlayerRating {
   elo: number;
 }
 
-export default function NewMatchPage() {
+function NewMatchContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [games, setGames] = useState<Game[]>([]);
@@ -436,5 +436,13 @@ export default function NewMatchPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function NewMatchPage() {
+  return (
+    <Suspense fallback={<div className="text-gray-500">Loading...</div>}>
+      <NewMatchContent />
+    </Suspense>
   );
 }

@@ -72,6 +72,41 @@ export async function GET(request: NextRequest) {
     }
   }
 
+  // Get trend data (last 10 matches rating changes for each player)
+  const trendStmt = db.prepare(`
+    SELECT
+      mp.player_id,
+      mp.elo_after - mp.elo_before as delta,
+      m.played_at
+    FROM match_participants mp
+    JOIN matches m ON mp.match_id = m.id
+    WHERE m.game_id = ?
+    ORDER BY m.played_at DESC
+  `);
+
+  const trendRows = trendStmt.all(parseInt(gameId)) as {
+    player_id: number;
+    delta: number;
+    played_at: string;
+  }[];
+
+  // Group trend data by player, taking last 10 matches
+  const playerTrends: Map<number, number[]> = new Map();
+  const playerMatchCounts: Map<number, number> = new Map();
+
+  for (const row of trendRows) {
+    if (!playerTrends.has(row.player_id)) {
+      playerTrends.set(row.player_id, []);
+      playerMatchCounts.set(row.player_id, 0);
+    }
+    const trends = playerTrends.get(row.player_id)!;
+    const count = playerMatchCounts.get(row.player_id)!;
+    if (count < 10) {
+      trends.unshift(row.delta); // unshift to get chronological order
+      playerMatchCounts.set(row.player_id, count + 1);
+    }
+  }
+
   // Get base player data
   const statusFilter = includeRetired
     ? ''
@@ -95,9 +130,10 @@ export async function GET(request: NextRequest) {
     status: string | null;
   }[];
 
-  // Combine with stats
+  // Combine with stats and trend
   const leaderboard: LeaderboardEntry[] = rows.map(row => {
     const stats = playerStats.get(row.player_id) || { wins: 0, losses: 0, draws: 0 };
+    const trend = playerTrends.get(row.player_id) || [];
     return {
       player_id: row.player_id,
       player_name: row.player_name,
@@ -106,6 +142,7 @@ export async function GET(request: NextRequest) {
       losses: stats.losses,
       draws: stats.draws,
       status: (row.status === 'retired' ? 'retired' : 'active') as 'active' | 'retired',
+      trend,
     };
   });
 

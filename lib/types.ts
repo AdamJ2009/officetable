@@ -55,6 +55,7 @@ export interface LeaderboardEntry {
   losses: number;
   draws: number;
   status?: 'active' | 'retired';
+  trend: number[];
 }
 
 export interface CreateMatchInput {

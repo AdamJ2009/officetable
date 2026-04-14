@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 interface Game {
   id: number;
@@ -23,6 +23,7 @@ interface PlayerRating {
 
 export default function NewMatchPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [games, setGames] = useState<Game[]>([]);
   const [players, setPlayers] = useState<Player[]>([]);
   const [ratings, setRatings] = useState<PlayerRating[]>([]);
@@ -43,11 +44,16 @@ export default function NewMatchPage() {
     ]).then(([gamesData, playersData]) => {
       setGames(gamesData);
       if (gamesData.length > 0) {
-        setSelectedGame(gamesData[0].id);
+        // Check if there's a game parameter in the URL
+        const gameParam = searchParams.get("game");
+        const gameIdFromParam = gameParam ? parseInt(gameParam, 10) : null;
+        // Use the game from URL if it exists, otherwise default to first game
+        const gameExists = gameIdFromParam && gamesData.some((g: Game) => g.id === gameIdFromParam);
+        setSelectedGame(gameExists ? gameIdFromParam : gamesData[0].id);
       }
       setPlayers(playersData);
     });
-  }, []);
+  }, [searchParams]);
 
   useEffect(() => {
     if (selectedGame) {

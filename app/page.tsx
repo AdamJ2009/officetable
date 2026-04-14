@@ -84,7 +84,7 @@ export default function Home() {
             Match History
           </Link>
           <Link
-            href="/matches/new"
+            href={selectedGame ? `/matches/new?game=${selectedGame}` : "/matches/new"}
             className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
           >
             Record Match

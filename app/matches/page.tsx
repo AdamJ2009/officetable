@@ -216,7 +216,7 @@ export default function MatchesPage() {
       <div className="flex items-center justify-between mb-8">
         <h1 className="text-3xl font-bold">Match History</h1>
         <Link
-          href="/matches/new"
+          href={selectedGame ? `/matches/new?game=${selectedGame}` : "/matches/new"}
           className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
         >
           Record Match
@@ -251,7 +251,7 @@ export default function MatchesPage() {
       ) : matches.length === 0 ? (
         <div className="text-gray-500">
           No matches recorded yet.{" "}
-          <Link href="/matches/new" className="text-blue-600 hover:underline">
+          <Link href={selectedGame ? `/matches/new?game=${selectedGame}` : "/matches/new"} className="text-blue-600 hover:underline">
             Record your first match
           </Link>
         </div>

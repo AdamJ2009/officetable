@@ -359,22 +359,25 @@ export async function GET(request: NextRequest) {
     elo_after: number;
   }[];
 
-  // For each match, get the opponent info
+  // For each match, get the opponent info (players on different teams)
   const matchesWithOpponents = recentMatches.map(match => {
     const opponentsStmt = db.prepare(`
       SELECT p.name as player_name, mp.score, mp.team
       FROM match_participants mp
       JOIN players p ON mp.player_id = p.id
-      WHERE mp.match_id = ? AND mp.player_id != ?
+      WHERE mp.match_id = ? AND mp.team != ?
     `);
-    const opponents = opponentsStmt.all(match.id, parseInt(playerId)) as {
+    const opponents = opponentsStmt.all(match.id, match.team) as {
       player_name: string;
       score: number;
       team: number;
     }[];
 
-    // Determine result
-    const opponentScore = opponents[0]?.score ?? 0;
+    // Determine result - opponent score is the score of the opposing team(s)
+    // For multi-team games, use the max opponent score to determine win/loss
+    const opponentScore = opponents.length > 0
+      ? Math.max(...opponents.map(o => o.score))
+      : 0;
     let result: 'win' | 'loss' | 'draw';
     if (match.score > opponentScore) result = 'win';
     else if (match.score < opponentScore) result = 'loss';

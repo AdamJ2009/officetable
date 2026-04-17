@@ -16,6 +16,7 @@ interface SkillGainRecord {
   score: number;
   opponent_score: number;
   opponents: string[];
+  teammates: string[];
 }
 
 interface SkillLossRecord {
@@ -24,6 +25,7 @@ interface SkillLossRecord {
   score: number;
   opponent_score: number;
   opponents: string[];
+  teammates: string[];
 }
 
 interface GameRecords {
@@ -88,6 +90,7 @@ interface RecentMatch {
   elo_before: number;
   elo_after: number;
   opponents: Opponent[];
+  teammates: string[];
   opponent_score: number;
   result: 'win' | 'loss' | 'draw';
 }
@@ -367,7 +370,17 @@ export default function PlayerProfilePage() {
                             <span className="font-mono text-green-700">+{game.records.biggest_gain.gain.toFixed(3)}</span>
                           </div>
                           <div className="text-sm text-gray-600">
-                            vs {game.records.biggest_gain.opponents.join(", ")}
+                            {game.records.biggest_gain.teammates && game.records.biggest_gain.teammates.length > 0 && (
+                              <>
+                                <span className="text-gray-500">with </span>
+                                <span className="font-medium">{game.records.biggest_gain.teammates.join(", ")}</span>
+                                <span className="text-gray-400 mx-1">vs</span>
+                              </>
+                            )}
+                            {(!game.records.biggest_gain.teammates || game.records.biggest_gain.teammates.length === 0) && (
+                              <span className="text-gray-400">vs </span>
+                            )}
+                            {game.records.biggest_gain.opponents.join(", ")}
                           </div>
                           <div className="text-sm">
                             <span className="font-semibold">{game.records.biggest_gain.score}</span>
@@ -384,7 +397,17 @@ export default function PlayerProfilePage() {
                             <span className="font-mono text-red-700">{game.records.biggest_loss.loss.toFixed(3)}</span>
                           </div>
                           <div className="text-sm text-gray-600">
-                            vs {game.records.biggest_loss.opponents.join(", ")}
+                            {game.records.biggest_loss.teammates && game.records.biggest_loss.teammates.length > 0 && (
+                              <>
+                                <span className="text-gray-500">with </span>
+                                <span className="font-medium">{game.records.biggest_loss.teammates.join(", ")}</span>
+                                <span className="text-gray-400 mx-1">vs</span>
+                              </>
+                            )}
+                            {(!game.records.biggest_loss.teammates || game.records.biggest_loss.teammates.length === 0) && (
+                              <span className="text-gray-400">vs </span>
+                            )}
+                            {game.records.biggest_loss.opponents.join(", ")}
                           </div>
                           <div className="text-sm">
                             <span className="font-semibold">{game.records.biggest_loss.score}</span>
@@ -506,7 +529,15 @@ export default function PlayerProfilePage() {
                                 <span className="font-bold">{match.opponent_score}</span>
                               </span>
                               <span className="text-gray-600 text-sm">
-                                vs {match.opponents.map(o => o.player_name).join(", ")}
+                                {match.teammates.length > 0 && (
+                                  <>
+                                    <span className="text-gray-500">with </span>
+                                    <span className="font-medium">{match.teammates.join(", ")}</span>
+                                    <span className="text-gray-400 mx-1">vs</span>
+                                  </>
+                                )}
+                                {!match.teammates.length && <span className="text-gray-400">vs </span>}
+                                {match.opponents.map(o => o.player_name).join(", ")}
                               </span>
                             </div>
                             <div className="flex items-center gap-4">

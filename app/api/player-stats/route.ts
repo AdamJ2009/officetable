@@ -214,47 +214,81 @@ export async function GET(request: NextRequest) {
       played_at: string;
     } | undefined;
 
-    // Get opponent details for biggest gain/loss matches
+    // Get opponent and teammate details for biggest gain/loss matches
     let biggestGainDetails = null;
     let biggestLossDetails = null;
 
     if (biggestGain) {
+      const teamStmt = db.prepare(`
+        SELECT team FROM match_participants WHERE match_id = ? AND player_id = ?
+      `);
+      const teamInfo = teamStmt.get(biggestGain.match_id, parseInt(playerId)) as { team: number } | undefined;
+
       const opponentsStmt = db.prepare(`
         SELECT p.name as player_name, mp.score
         FROM match_participants mp
         JOIN players p ON mp.player_id = p.id
-        WHERE mp.match_id = ? AND mp.player_id != ?
+        WHERE mp.match_id = ? AND mp.team != ?
       `);
-      const opponents = opponentsStmt.all(biggestGain.match_id, parseInt(playerId)) as {
+      const opponents = opponentsStmt.all(biggestGain.match_id, teamInfo?.team ?? 0) as {
         player_name: string;
         score: number;
       }[];
+
+      const teammatesStmt = db.prepare(`
+        SELECT p.name as player_name
+        FROM match_participants mp
+        JOIN players p ON mp.player_id = p.id
+        WHERE mp.match_id = ? AND mp.team = ? AND mp.player_id != ?
+      `);
+      const teammates = teammatesStmt.all(biggestGain.match_id, teamInfo?.team ?? 0, parseInt(playerId)) as {
+        player_name: string;
+      }[];
+
       biggestGainDetails = {
         gain: biggestGain.gain,
         date: biggestGain.played_at,
         score: biggestGain.score,
         opponent_score: opponents[0]?.score ?? 0,
-        opponents: opponents.map(o => o.player_name)
+        opponents: opponents.map(o => o.player_name),
+        teammates: teammates.map(t => t.player_name)
       };
     }
 
     if (biggestLoss) {
+      const teamStmt = db.prepare(`
+        SELECT team FROM match_participants WHERE match_id = ? AND player_id = ?
+      `);
+      const teamInfo = teamStmt.get(biggestLoss.match_id, parseInt(playerId)) as { team: number } | undefined;
+
       const opponentsStmt = db.prepare(`
         SELECT p.name as player_name, mp.score
         FROM match_participants mp
         JOIN players p ON mp.player_id = p.id
-        WHERE mp.match_id = ? AND mp.player_id != ?
+        WHERE mp.match_id = ? AND mp.team != ?
       `);
-      const opponents = opponentsStmt.all(biggestLoss.match_id, parseInt(playerId)) as {
+      const opponents = opponentsStmt.all(biggestLoss.match_id, teamInfo?.team ?? 0) as {
         player_name: string;
         score: number;
       }[];
+
+      const teammatesStmt = db.prepare(`
+        SELECT p.name as player_name
+        FROM match_participants mp
+        JOIN players p ON mp.player_id = p.id
+        WHERE mp.match_id = ? AND mp.team = ? AND mp.player_id != ?
+      `);
+      const teammates = teammatesStmt.all(biggestLoss.match_id, teamInfo?.team ?? 0, parseInt(playerId)) as {
+        player_name: string;
+      }[];
+
       biggestLossDetails = {
         loss: biggestLoss.loss,
         date: biggestLoss.played_at,
         score: biggestLoss.score,
         opponent_score: opponents[0]?.score ?? 0,
-        opponents: opponents.map(o => o.player_name)
+        opponents: opponents.map(o => o.player_name),
+        teammates: teammates.map(t => t.player_name)
       };
     }
 
@@ -359,7 +393,7 @@ export async function GET(request: NextRequest) {
     elo_after: number;
   }[];
 
-  // For each match, get the opponent info (players on different teams)
+  // For each match, get the opponent info (players on different teams) and teammates
   const matchesWithOpponents = recentMatches.map(match => {
     const opponentsStmt = db.prepare(`
       SELECT p.name as player_name, mp.score, mp.team
@@ -371,6 +405,16 @@ export async function GET(request: NextRequest) {
       player_name: string;
       score: number;
       team: number;
+    }[];
+
+    const teammatesStmt = db.prepare(`
+      SELECT p.name as player_name
+      FROM match_participants mp
+      JOIN players p ON mp.player_id = p.id
+      WHERE mp.match_id = ? AND mp.team = ? AND mp.player_id != ?
+    `);
+    const teammates = teammatesStmt.all(match.id, match.team, parseInt(playerId)) as {
+      player_name: string;
     }[];
 
     // Determine result - opponent score is the score of the opposing team(s)
@@ -386,6 +430,7 @@ export async function GET(request: NextRequest) {
     return {
       ...match,
       opponents,
+      teammates: teammates.map(t => t.player_name),
       opponent_score: opponentScore,
       result
     };

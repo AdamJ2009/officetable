@@ -439,25 +439,30 @@ export function checkAchievements(context: AchievementContext): AchievementResul
     }
   }
 
-  // Nothing if not Consistent: Finish 5 consecutive games with the same score
+  // Nothing if not Consistent: Finish 5 consecutive games with the same score (full match result)
   for (const p of participants) {
     const recentMatches = db.prepare(`
-      SELECT mp.score
+      SELECT
+        mp.score as player_score,
+        (SELECT MAX(mp2.score) FROM match_participants mp2 WHERE mp2.match_id = mp.match_id AND mp2.team != mp.team) as opponent_score
       FROM match_participants mp
       JOIN matches m ON mp.match_id = m.id
       WHERE mp.player_id = ? AND m.game_id = ?
       ORDER BY m.played_at DESC
       LIMIT 5
-    `).all(p.player_id, gameId) as { score: number }[];
+    `).all(p.player_id, gameId) as { player_score: number; opponent_score: number }[];
 
     if (recentMatches.length === 5) {
-      const allSameScore = recentMatches.every(m => m.score === recentMatches[0].score);
-      if (allSameScore) {
+      const firstMatch = recentMatches[0];
+      const allSameResult = recentMatches.every(m =>
+        m.player_score === firstMatch.player_score && m.opponent_score === firstMatch.opponent_score
+      );
+      if (allSameResult) {
         results.push({
           achievementName: 'nothing_if_not_consistent',
           playerId: p.player_id,
           matchId,
-          metadata: { consistent_score: recentMatches[0].score }
+          metadata: { player_score: firstMatch.player_score, opponent_score: firstMatch.opponent_score }
         });
       }
     }

@@ -29,12 +29,35 @@ interface GameStats {
   total_players: number;
 }
 
+interface Record {
+  player_id: number;
+  player_name: string;
+  value: number | string;
+  date?: string;
+  opponent?: string;
+}
+
+interface GameRecords {
+  highest_skill: Record | null;
+  lowest_skill: Record | null;
+  peak_skill_ever: Record | null;
+  trough_skill_ever: Record | null;
+  most_games: Record | null;
+  highest_win_rate: Record | null;
+  longest_win_streak: Record | null;
+  longest_lose_streak: Record | null;
+  longest_unbeaten_streak: Record | null;
+  biggest_skill_gain: Record | null;
+  biggest_skill_loss: Record | null;
+}
+
 export default function Home() {
   const [games, setGames] = useState<Game[]>([]);
   const [selectedGame, setSelectedGame] = useState<number | null>(null);
   const [selectedGameData, setSelectedGameData] = useState<Game | null>(null);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [gameStats, setGameStats] = useState<GameStats | null>(null);
+  const [gameRecords, setGameRecords] = useState<GameRecords | null>(null);
   const [loading, setLoading] = useState(true);
   const [showRetired, setShowRetired] = useState(false);
 
@@ -54,10 +77,12 @@ export default function Home() {
       setLoading(true);
       Promise.all([
         fetch(`/api/leaderboard?game_id=${selectedGame}&include_retired=${showRetired}`).then(res => res.json()),
-        fetch(`/api/game-stats?game_id=${selectedGame}`).then(res => res.json())
-      ]).then(([leaderboardData, statsData]) => {
+        fetch(`/api/game-stats?game_id=${selectedGame}`).then(res => res.json()),
+        fetch(`/api/game-records?game_id=${selectedGame}`).then(res => res.json())
+      ]).then(([leaderboardData, statsData, recordsData]) => {
         setLeaderboard(leaderboardData);
         setGameStats(statsData);
+        setGameRecords(recordsData);
         setLoading(false);
       });
     }
@@ -182,6 +207,128 @@ export default function Home() {
           <div className="bg-white rounded-lg shadow p-4">
             <div className="text-sm text-gray-500">Team 2 Points</div>
             <div className="text-2xl font-bold text-red-600">{gameStats.team1_points}</div>
+          </div>
+        </div>
+      )}
+
+      {gameRecords && (
+        <div className="mb-6 bg-white rounded-lg shadow overflow-hidden">
+          <div className="px-4 py-3 bg-gray-50 border-b border-gray-200">
+            <h2 className="text-sm font-medium text-gray-700 uppercase tracking-wider">Game Records</h2>
+          </div>
+          <div className="p-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              {/* Historical Extremes */}
+              {gameRecords.peak_skill_ever && (
+                <div className="flex flex-col">
+                  <span className="text-xs text-gray-500 uppercase tracking-wide">Peak Skill Ever</span>
+                  <Link href={`/players/${gameRecords.peak_skill_ever.player_id}`} className="font-semibold text-green-700 hover:underline">
+                    {gameRecords.peak_skill_ever.player_name}
+                  </Link>
+                  <span className="text-sm font-mono text-green-600">{(gameRecords.peak_skill_ever.value as number).toFixed(3)}</span>
+                  {gameRecords.peak_skill_ever.date && (
+                    <span className="text-xs text-gray-400">{gameRecords.peak_skill_ever.date.split(' ')[0]}</span>
+                  )}
+                </div>
+              )}
+              {gameRecords.trough_skill_ever && (
+                <div className="flex flex-col">
+                  <span className="text-xs text-gray-500 uppercase tracking-wide">Trough Skill Ever</span>
+                  <Link href={`/players/${gameRecords.trough_skill_ever.player_id}`} className="font-semibold text-red-700 hover:underline">
+                    {gameRecords.trough_skill_ever.player_name}
+                  </Link>
+                  <span className="text-sm font-mono text-red-600">{(gameRecords.trough_skill_ever.value as number).toFixed(3)}</span>
+                  {gameRecords.trough_skill_ever.date && (
+                    <span className="text-xs text-gray-400">{gameRecords.trough_skill_ever.date.split(' ')[0]}</span>
+                  )}
+                </div>
+              )}
+
+              {/* Volume Records */}
+              {gameRecords.most_games && (
+                <div className="flex flex-col">
+                  <span className="text-xs text-gray-500 uppercase tracking-wide">Most Games</span>
+                  <Link href={`/players/${gameRecords.most_games.player_id}`} className="font-semibold text-blue-700 hover:underline">
+                    {gameRecords.most_games.player_name}
+                  </Link>
+                  <span className="text-sm text-blue-600">{gameRecords.most_games.value} games</span>
+                </div>
+              )}
+              {gameRecords.highest_win_rate && (
+                <div className="flex flex-col">
+                  <span className="text-xs text-gray-500 uppercase tracking-wide">Highest Win Rate</span>
+                  <Link href={`/players/${gameRecords.highest_win_rate.player_id}`} className="font-semibold text-green-700 hover:underline">
+                    {gameRecords.highest_win_rate.player_name}
+                  </Link>
+                  <span className="text-sm text-green-600">{(gameRecords.highest_win_rate.value as number).toFixed(1)}%</span>
+                  <span className="text-xs text-gray-400">(min 20 games)</span>
+                </div>
+              )}
+
+              {/* Streaks */}
+              {gameRecords.longest_win_streak && (
+                <div className="flex flex-col">
+                  <span className="text-xs text-gray-500 uppercase tracking-wide">Longest Win Streak</span>
+                  <Link href={`/players/${gameRecords.longest_win_streak.player_id}`} className="font-semibold text-green-700 hover:underline">
+                    {gameRecords.longest_win_streak.player_name}
+                  </Link>
+                  <span className="text-sm text-green-600">{gameRecords.longest_win_streak.value} games</span>
+                  {gameRecords.longest_win_streak.date && (
+                    <span className="text-xs text-gray-400">{gameRecords.longest_win_streak.date}</span>
+                  )}
+                </div>
+              )}
+              {gameRecords.longest_lose_streak && (
+                <div className="flex flex-col">
+                  <span className="text-xs text-gray-500 uppercase tracking-wide">Longest Lose Streak</span>
+                  <Link href={`/players/${gameRecords.longest_lose_streak.player_id}`} className="font-semibold text-red-700 hover:underline">
+                    {gameRecords.longest_lose_streak.player_name}
+                  </Link>
+                  <span className="text-sm text-red-600">{gameRecords.longest_lose_streak.value} games</span>
+                  {gameRecords.longest_lose_streak.date && (
+                    <span className="text-xs text-gray-400">{gameRecords.longest_lose_streak.date}</span>
+                  )}
+                </div>
+              )}
+              {gameRecords.longest_unbeaten_streak && (
+                <div className="flex flex-col">
+                  <span className="text-xs text-gray-500 uppercase tracking-wide">Longest Unbeaten</span>
+                  <Link href={`/players/${gameRecords.longest_unbeaten_streak.player_id}`} className="font-semibold text-blue-700 hover:underline">
+                    {gameRecords.longest_unbeaten_streak.player_name}
+                  </Link>
+                  <span className="text-sm text-blue-600">{gameRecords.longest_unbeaten_streak.value} games</span>
+                  {gameRecords.longest_unbeaten_streak.date && (
+                    <span className="text-xs text-gray-400">{gameRecords.longest_unbeaten_streak.date}</span>
+                  )}
+                </div>
+              )}
+
+              {/* Single Match Records */}
+              {gameRecords.biggest_skill_gain && (
+                <div className="flex flex-col">
+                  <span className="text-xs text-gray-500 uppercase tracking-wide">Biggest Skill Gain</span>
+                  <Link href={`/players/${gameRecords.biggest_skill_gain.player_id}`} className="font-semibold text-green-700 hover:underline">
+                    {gameRecords.biggest_skill_gain.player_name}
+                  </Link>
+                  <span className="text-sm font-mono text-green-600">+{(gameRecords.biggest_skill_gain.value as number).toFixed(3)}</span>
+                  {gameRecords.biggest_skill_gain.date && (
+                    <span className="text-xs text-gray-400">{gameRecords.biggest_skill_gain.date.split(' ')[0]}</span>
+                  )}
+                </div>
+              )}
+              {gameRecords.biggest_skill_loss && (
+                <div className="flex flex-col">
+                  <span className="text-xs text-gray-500 uppercase tracking-wide">Biggest Skill Loss</span>
+                  <Link href={`/players/${gameRecords.biggest_skill_loss.player_id}`} className="font-semibold text-red-700 hover:underline">
+                    {gameRecords.biggest_skill_loss.player_name}
+                  </Link>
+                  <span className="text-sm font-mono text-red-600">-{(gameRecords.biggest_skill_loss.value as number).toFixed(3)}</span>
+                  {gameRecords.biggest_skill_loss.date && (
+                    <span className="text-xs text-gray-400">{gameRecords.biggest_skill_loss.date.split(' ')[0]}</span>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}

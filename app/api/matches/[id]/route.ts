@@ -33,9 +33,26 @@ export async function GET(
   `);
   const participants = participantsStmt.all(matchId);
 
+  const achievementsStmt = db.prepare(`
+    SELECT
+      a.id as achievement_id,
+      a.name as achievement_name,
+      a.description as achievement_description,
+      a.icon as achievement_icon,
+      pa.player_id,
+      p.name as player_name
+    FROM player_achievements pa
+    JOIN achievements a ON pa.achievement_id = a.id
+    JOIN players p ON pa.player_id = p.id
+    WHERE pa.match_id = ?
+    ORDER BY a.name, p.name
+  `);
+  const achievements = achievementsStmt.all(matchId);
+
   return NextResponse.json({
     ...match,
     participants,
+    achievements,
   });
 }
 

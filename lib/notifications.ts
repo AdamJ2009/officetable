@@ -38,7 +38,7 @@ export async function sendGoogleChatNotification(match: MatchNotification): Prom
   const scoresLine =`<b><font color='#1147D1'>${match.teams[0].players.join(' & ')} ${match.teams[0].score}</font> - <font color='#D13011'>${match.teams[1].score} ${match.teams[1].players.join(' & ')}</font></b>`
 
   // Build line 2: match link
-  const matchLink = baseUrl ? `${baseUrl}/matches` : null;
+  const matchLink = baseUrl ? `${baseUrl}/matches/${match.matchId}` : null;
 
   // Build line 3: skill shifts per player with rank changes
   const skillShiftsLine = match.skillChanges

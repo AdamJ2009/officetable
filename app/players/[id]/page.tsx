@@ -517,7 +517,11 @@ export default function PlayerProfilePage() {
                       const eloChange = match.elo_after - match.elo_before;
 
                       return (
-                        <div key={match.id} className={`px-6 py-3 ${resultColors[match.result]}`}>
+                        <Link
+                          key={match.id}
+                          href={`/matches/${match.id}`}
+                          className={`block px-6 py-3 ${resultColors[match.result]} hover:opacity-80 transition-opacity`}
+                        >
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-4">
                               <span className={`font-semibold ${resultText[match.result]} uppercase text-sm`}>
@@ -554,7 +558,7 @@ export default function PlayerProfilePage() {
                               {match.notes}
                             </div>
                           )}
-                        </div>
+                        </Link>
                       );
                     })}
                   </div>

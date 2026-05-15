@@ -275,10 +275,16 @@ export default function MatchesPage() {
                       </span>
                     )}
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-3">
                     {match.notes && (
                       <div className="text-sm text-gray-600 italic">{match.notes}</div>
                     )}
+                    <Link
+                      href={`/matches/${match.id}`}
+                      className="text-sm text-blue-600 hover:text-blue-800"
+                    >
+                      View
+                    </Link>
                     {editable && !isEditing && (
                       <button
                         onClick={() => startEdit(match)}

@@ -1,7 +1,11 @@
-import { NextRequest, NextResponse } from 'next/server';
-import db from '@/lib/db';
+import db from './db';
+import type { LeaderboardEntry, Game, GameStats } from './types';
+import 'server-only';
 
-interface Record {
+export type { Game };
+export type { GameStats };
+
+export interface Record {
   player_id: number;
   player_name: string;
   value: number | string;
@@ -9,7 +13,7 @@ interface Record {
   opponent?: string;
 }
 
-interface GameRecords {
+export interface GameRecords {
   highest_skill: Record | null;
   lowest_skill: Record | null;
   peak_skill_ever: Record | null;
@@ -23,14 +27,185 @@ interface GameRecords {
   biggest_skill_loss: Record | null;
 }
 
-export async function GET(request: NextRequest) {
-  const { searchParams } = new URL(request.url);
-  const gameId = searchParams.get('game_id');
+export function getGames(): Game[] {
+  return db.prepare('SELECT id, name, score_type, score_value, created_at, image_url FROM games').all() as Game[];
+}
 
-  if (!gameId) {
-    return NextResponse.json({ error: 'game_id is required' }, { status: 400 });
+export function getLeaderboard(gameId: number, includeRetired: boolean = false): LeaderboardEntry[] {
+  // Get all match results for this game, calculating wins/losses/draws from scores
+  const participations = db.prepare(`
+    SELECT
+      mp.player_id,
+      mp.match_id,
+      mp.team,
+      mp.score,
+      m.game_id
+    FROM match_participants mp
+    JOIN matches m ON mp.match_id = m.id
+    WHERE m.game_id = ?
+  `).all(gameId) as {
+    player_id: number;
+    match_id: number;
+    team: number;
+    score: number;
+    game_id: number;
+  }[];
+
+  // Group by match and calculate outcomes
+  const matchOutcomes: Map<number, { teams: Map<number, number> }> = new Map();
+
+  for (const p of participations) {
+    if (!matchOutcomes.has(p.match_id)) {
+      matchOutcomes.set(p.match_id, { teams: new Map() });
+    }
+    matchOutcomes.get(p.match_id)!.teams.set(p.team, p.score);
   }
 
+  // Calculate win/loss/draw for each player
+  const playerStats: Map<number, { wins: number; losses: number; draws: number }> = new Map();
+
+  for (const p of participations) {
+    if (!playerStats.has(p.player_id)) {
+      playerStats.set(p.player_id, { wins: 0, losses: 0, draws: 0 });
+    }
+    const stats = playerStats.get(p.player_id)!;
+    const matchData = matchOutcomes.get(p.match_id)!;
+
+    let opponentScore: number | null = null;
+    for (const [team, score] of matchData.teams) {
+      if (team !== p.team) {
+        opponentScore = score;
+        break;
+      }
+    }
+
+    if (opponentScore !== null) {
+      if (p.score > opponentScore) {
+        stats.wins++;
+      } else if (p.score < opponentScore) {
+        stats.losses++;
+      } else {
+        stats.draws++;
+      }
+    }
+  }
+
+  // Get trend data (last 10 matches rating changes for each player)
+  const trendRows = db.prepare(`
+    SELECT
+      mp.player_id,
+      mp.elo_after - mp.elo_before as delta,
+      m.played_at
+    FROM match_participants mp
+    JOIN matches m ON mp.match_id = m.id
+    WHERE m.game_id = ?
+    ORDER BY m.played_at DESC
+  `).all(gameId) as {
+    player_id: number;
+    delta: number;
+    played_at: string;
+  }[];
+
+  // Group trend data by player, taking last 10 matches
+  const playerTrends: Map<number, number[]> = new Map();
+  const playerMatchCounts: Map<number, number> = new Map();
+
+  for (const row of trendRows) {
+    if (!playerTrends.has(row.player_id)) {
+      playerTrends.set(row.player_id, []);
+      playerMatchCounts.set(row.player_id, 0);
+    }
+    const trends = playerTrends.get(row.player_id)!;
+    const count = playerMatchCounts.get(row.player_id)!;
+    if (count < 10) {
+      trends.unshift(row.delta);
+      playerMatchCounts.set(row.player_id, count + 1);
+    }
+  }
+
+  // Get base player data
+  const statusFilter = includeRetired
+    ? ''
+    : " AND (p.status IS NULL OR p.status = 'active')";
+  const rows = db.prepare(`
+    SELECT
+      pr.player_id,
+      p.name as player_name,
+      pr.elo,
+      p.status
+    FROM player_ratings pr
+    JOIN players p ON pr.player_id = p.id
+    WHERE pr.game_id = ?${statusFilter}
+    ORDER BY pr.elo DESC
+  `).all(gameId) as {
+    player_id: number;
+    player_name: string;
+    elo: number;
+    status: string | null;
+  }[];
+
+  return rows.map(row => {
+    const stats = playerStats.get(row.player_id) || { wins: 0, losses: 0, draws: 0 };
+    const trend = playerTrends.get(row.player_id) || [];
+    return {
+      player_id: row.player_id,
+      player_name: row.player_name,
+      elo: row.elo,
+      wins: stats.wins,
+      losses: stats.losses,
+      draws: stats.draws,
+      status: (row.status === 'retired' ? 'retired' : 'active') as 'active' | 'retired',
+      trend,
+    };
+  });
+}
+
+export function getGameStats(gameId: number): GameStats {
+  const matchesResult = db.prepare(`
+    SELECT COUNT(DISTINCT m.id) as count
+    FROM matches m
+    WHERE m.game_id = ?
+  `).get(gameId) as { count: number };
+
+  const pointsResult = db.prepare(`
+    SELECT mp.team, SUM(mp.score) as total_points
+    FROM match_participants mp
+    JOIN matches m ON mp.match_id = m.id
+    WHERE m.game_id = ?
+    GROUP BY mp.team
+  `).all(gameId) as { team: number; total_points: number }[];
+
+  let team0Points = 0;
+  let team1Points = 0;
+  for (const row of pointsResult) {
+    if (row.team === 0) team0Points = row.total_points;
+    else if (row.team === 1) team1Points = row.total_points;
+  }
+
+  const activePlayersResult = db.prepare(`
+    SELECT COUNT(DISTINCT pr.player_id) as count
+    FROM player_ratings pr
+    JOIN players p ON pr.player_id = p.id
+    WHERE pr.game_id = ? AND (p.status IS NULL OR p.status = 'active')
+  `).get(gameId) as { count: number };
+
+  const totalPlayersResult = db.prepare(`
+    SELECT COUNT(DISTINCT pr.player_id) as count
+    FROM player_ratings pr
+    WHERE pr.game_id = ?
+  `).get(gameId) as { count: number };
+
+  return {
+    game_id: gameId,
+    total_matches: matchesResult.count,
+    team0_points: team0Points,
+    team1_points: team1Points,
+    active_players: activePlayersResult.count,
+    total_players: totalPlayersResult.count,
+  };
+}
+
+export function getGameRecords(gameId: number): GameRecords {
   const records: GameRecords = {
     highest_skill: null,
     lowest_skill: null,
@@ -53,7 +228,7 @@ export async function GET(request: NextRequest) {
     WHERE pr.game_id = ? AND (p.status IS NULL OR p.status = 'active')
     ORDER BY pr.elo DESC
     LIMIT 1
-  `).get(parseInt(gameId)) as Record | undefined;
+  `).get(gameId) as Record | undefined;
   records.highest_skill = highestSkill || null;
 
   // Lowest current skill (active players with at least 5 games)
@@ -69,10 +244,10 @@ export async function GET(request: NextRequest) {
     ) >= 5
     ORDER BY pr.elo ASC
     LIMIT 1
-  `).get(parseInt(gameId), parseInt(gameId)) as Record | undefined;
+  `).get(gameId, gameId) as Record | undefined;
   records.lowest_skill = lowestSkill || null;
 
-  // Peak skill ever reached (historical - highest elo_after any player achieved)
+  // Peak skill ever reached
   const peakSkillEver = db.prepare(`
     SELECT
       mp.player_id,
@@ -85,10 +260,10 @@ export async function GET(request: NextRequest) {
     WHERE m.game_id = ?
     ORDER BY mp.elo_after DESC
     LIMIT 1
-  `).get(parseInt(gameId)) as Record | undefined;
+  `).get(gameId) as Record | undefined;
   records.peak_skill_ever = peakSkillEver || null;
 
-  // Trough skill ever (historical - lowest elo_after any player hit, min 5 games at that point)
+  // Trough skill ever (min 5 games at that point)
   const troughSkillEver = db.prepare(`
     SELECT
       mp.player_id,
@@ -105,7 +280,7 @@ export async function GET(request: NextRequest) {
     ) >= 5
     ORDER BY mp.elo_after ASC
     LIMIT 1
-  `).get(parseInt(gameId), parseInt(gameId)) as Record | undefined;
+  `).get(gameId, gameId) as Record | undefined;
   records.trough_skill_ever = troughSkillEver || null;
 
   // Most games played
@@ -121,7 +296,7 @@ export async function GET(request: NextRequest) {
     GROUP BY mp.player_id
     ORDER BY value DESC
     LIMIT 1
-  `).get(parseInt(gameId)) as Record | undefined;
+  `).get(gameId) as Record | undefined;
   records.most_games = mostGames || null;
 
   // Highest win rate (min 20 games)
@@ -141,7 +316,7 @@ export async function GET(request: NextRequest) {
     HAVING COUNT(*) >= 20
     ORDER BY value DESC
     LIMIT 1
-  `).get(parseInt(gameId)) as Record | undefined;
+  `).get(gameId) as Record | undefined;
   records.highest_win_rate = highestWinRate || null;
 
   // Calculate streaks - fetch all match data in a single query (avoiding N+1)
@@ -158,7 +333,7 @@ export async function GET(request: NextRequest) {
     JOIN matches m ON mp.match_id = m.id
     WHERE m.game_id = ?
     ORDER BY m.played_at ASC
-  `).all(parseInt(gameId)) as { player_id: number; player_name: string; played_at: string; score: number; team: number; match_id: number }[];
+  `).all(gameId) as { player_id: number; player_name: string; played_at: string; score: number; team: number; match_id: number }[];
 
   // Build a map of match_id -> team scores for quick lookup
   const matchTeamScores: Map<number, Map<number, number>> = new Map();
@@ -175,7 +350,6 @@ export async function GET(request: NextRequest) {
     if (!playerMatches.has(row.player_id)) {
       playerMatches.set(row.player_id, { player_name: row.player_name, matches: [] });
     }
-    // Find opponent team score
     const teamScores = matchTeamScores.get(row.match_id)!;
     let opponentScore = 0;
     for (const [team, score] of teamScores) {
@@ -196,7 +370,6 @@ export async function GET(request: NextRequest) {
   let longestUnbeatenStreak: { player_id: number; player_name: string; streak: number; start: string; end: string } | null = null;
 
   for (const [player_id, data] of playerMatches) {
-    // Matches are already sorted by played_at ASC from the query
     let currentWinStreak = 0;
     let currentLoseStreak = 0;
     let currentUnbeatenStreak = 0;
@@ -237,7 +410,6 @@ export async function GET(request: NextRequest) {
           };
         }
       } else {
-        // Draw
         if (currentUnbeatenStreak === 0) unbeatenStreakStart = match.played_at;
         currentWinStreak = 0;
         currentLoseStreak = 0;
@@ -301,7 +473,7 @@ export async function GET(request: NextRequest) {
     WHERE m.game_id = ?
     ORDER BY value DESC
     LIMIT 1
-  `).get(parseInt(gameId)) as Record | undefined;
+  `).get(gameId) as Record | undefined;
   records.biggest_skill_gain = biggestGain || null;
 
   // Biggest single game skill loss
@@ -317,8 +489,8 @@ export async function GET(request: NextRequest) {
     WHERE m.game_id = ?
     ORDER BY value DESC
     LIMIT 1
-  `).get(parseInt(gameId)) as Record | undefined;
+  `).get(gameId) as Record | undefined;
   records.biggest_skill_loss = biggestLoss || null;
 
-  return NextResponse.json(records);
+  return records;
 }

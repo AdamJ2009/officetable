@@ -200,6 +200,14 @@ db.exec(`CREATE INDEX IF NOT EXISTS idx_player_achievements_player_game ON playe
 db.exec(`CREATE INDEX IF NOT EXISTS idx_player_achievements_match ON player_achievements(match_id)`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_player_achievements_achievement ON player_achievements(achievement_id)`);
 
+// Critical performance indexes for match queries
+db.exec(`CREATE INDEX IF NOT EXISTS idx_match_participants_player ON match_participants(player_id)`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_match_participants_match ON match_participants(match_id)`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_match_participants_match_player ON match_participants(match_id, player_id)`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_matches_game_id ON matches(game_id)`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_matches_played_at ON matches(played_at)`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_player_ratings_game ON player_ratings(game_id)`);
+
 // Seed achievements if not exists
 const seedAchievements = db.prepare(`
   INSERT OR IGNORE INTO achievements (name, description, category, icon) VALUES

@@ -148,6 +148,57 @@ function getMatchesBetweenPlayersBefore(playerId1: number, playerId2: number, ga
 }
 
 /**
+ * Get biggest absolute Elo change in a match between two players before this match
+ */
+function getBiggestEloChangeBetweenPlayersBefore(playerId1: number, playerId2: number, gameId: number, beforeMatchId: number): number {
+  const result = db.prepare(`
+    SELECT MAX(ABS(mp1.elo_after - mp1.elo_before)) as biggest
+    FROM matches m
+    JOIN match_participants mp1 ON m.id = mp1.match_id
+    JOIN match_participants mp2 ON m.id = mp2.match_id
+    WHERE m.game_id = ? AND m.id < ?
+      AND mp1.player_id = ? AND mp2.player_id = ?
+      AND mp1.team != mp2.team
+  `).get(gameId, beforeMatchId, playerId1, playerId2) as { biggest: number } | null;
+  return result?.biggest ?? 0;
+}
+
+/**
+ * Get total points scored by player1 against player2 before this match
+ */
+function getPointsScoredAgainstBefore(playerId1: number, playerId2: number, gameId: number, beforeMatchId: number): number {
+  const result = db.prepare(`
+    SELECT SUM(mp1.score) as total
+    FROM matches m
+    JOIN match_participants mp1 ON m.id = mp1.match_id
+    JOIN match_participants mp2 ON m.id = mp2.match_id
+    WHERE m.game_id = ? AND m.id < ?
+      AND mp1.player_id = ? AND mp2.player_id = ?
+      AND mp1.team != mp2.team
+  `).get(gameId, beforeMatchId, playerId1, playerId2) as { total: number | null } | null;
+  return result?.total ?? 0;
+}
+
+/**
+ * Get head-to-head match results between two players before this match
+ */
+function getHeadToHeadResultsBefore(playerId1: number, playerId2: number, gameId: number, beforeMatchId: number): { match_id: number; player1_score: number; player2_score: number }[] {
+  return db.prepare(`
+    SELECT
+      m.id as match_id,
+      mp1.score as player1_score,
+      mp2.score as player2_score
+    FROM matches m
+    JOIN match_participants mp1 ON m.id = mp1.match_id
+    JOIN match_participants mp2 ON m.id = mp2.match_id
+    WHERE m.game_id = ? AND m.id < ?
+      AND mp1.player_id = ? AND mp2.player_id = ?
+      AND mp1.team != mp2.team
+    ORDER BY m.played_at ASC
+  `).all(gameId, beforeMatchId, playerId1, playerId2) as { match_id: number; player1_score: number; player2_score: number }[];
+}
+
+/**
  * Calculate punditry facts for a match
  */
 export function getPunditryForMatch(matchId: number): PunditryFact[] {
@@ -406,6 +457,165 @@ export function getPunditryForMatch(matchId: number): PunditryFact[] {
                 metadata: { opponent_id: opponentId, opponent_name: playerNameMap.get(opponentId), total_matches: totalMatches }
               });
             }
+          }
+        }
+      }
+    }
+  }
+
+  // Head-to-head punditry (between opponents on different teams)
+  for (const [teamNum, teamData] of teamMap.entries()) {
+    for (const [otherTeamNum, otherTeamData] of teamMap.entries()) {
+      if (teamNum === otherTeamNum) continue;
+
+      for (const playerId of teamData.player_ids) {
+        for (const opponentId of otherTeamData.player_ids) {
+          // Get this player's score and elo change in this match
+          const playerParticipant = participants.find(p => p.player_id === playerId);
+          const opponentParticipant = participants.find(p => p.player_id === opponentId);
+
+          if (!playerParticipant || !opponentParticipant) continue;
+
+          // Head-to-head: Most significant game between players
+          const eloChange = Math.abs(playerParticipant.elo_after - playerParticipant.elo_before);
+          const biggestBefore = getBiggestEloChangeBetweenPlayersBefore(playerId, opponentId, match.game_id, matchId);
+          if (eloChange > biggestBefore && biggestBefore > 0) {
+            const change = playerParticipant.elo_after - playerParticipant.elo_before;
+            const direction = change > 0 ? 'gain' : 'loss';
+            // Only add once per pair
+            if (playerId < opponentId) {
+              facts.push({
+                type: 'h2h_biggest_match',
+                player_id: playerId,
+                player_name: playerNameMap.get(playerId) ?? '',
+                description: `That was the most significant match between ${playerNameMap.get(playerId)} and ${playerNameMap.get(opponentId)} (${Math.abs(change).toFixed(1)} skill ${direction} for ${playerNameMap.get(playerId)})`,
+                metadata: { opponent_id: opponentId, opponent_name: playerNameMap.get(opponentId), change: eloChange }
+              });
+            }
+          }
+
+          // Head-to-head: Points scored milestone against opponent
+          const pointsBefore = getPointsScoredAgainstBefore(playerId, opponentId, match.game_id, matchId);
+          const totalPointsAgainst = pointsBefore + playerParticipant.score;
+          if (totalPointsAgainst > 0 && totalPointsAgainst % 100 === 0) {
+            facts.push({
+              type: 'h2h_points_scored_milestone',
+              player_id: playerId,
+              player_name: playerNameMap.get(playerId) ?? '',
+              description: `That match hit a points scored milestone for ${playerNameMap.get(playerId)} against ${playerNameMap.get(opponentId)} (${totalPointsAgainst} points)`,
+              metadata: { opponent_id: opponentId, opponent_name: playerNameMap.get(opponentId), total_points: totalPointsAgainst }
+            });
+          }
+
+          // Head-to-head: Points conceded milestone against opponent
+          const pointsConcededBefore = getPointsScoredAgainstBefore(opponentId, playerId, match.game_id, matchId);
+          const totalConcededAgainst = pointsConcededBefore + opponentParticipant.score;
+          if (totalConcededAgainst > 0 && totalConcededAgainst % 100 === 0) {
+            facts.push({
+              type: 'h2h_points_conceded_milestone',
+              player_id: playerId,
+              player_name: playerNameMap.get(playerId) ?? '',
+              description: `That match hit a points conceded milestone for ${playerNameMap.get(playerId)} against ${playerNameMap.get(opponentId)} (${totalConcededAgainst} points conceded)`,
+              metadata: { opponent_id: opponentId, opponent_name: playerNameMap.get(opponentId), total_conceded: totalConcededAgainst }
+            });
+          }
+
+          // Head-to-head: Streak calculations
+          const h2hResults = getHeadToHeadResultsBefore(playerId, opponentId, match.game_id, matchId);
+
+          // Calculate streaks from player's perspective
+          let h2hWinStreak = 0;
+          let h2hLoseStreak = 0;
+          let h2hUnbeatenStreak = 0;
+          let longestH2HWinStreak = 0;
+          let longestH2HLoseStreak = 0;
+          let longestH2HUnbeatenStreak = 0;
+
+          for (const r of h2hResults) {
+            if (r.player1_score > r.player2_score) {
+              h2hWinStreak++;
+              h2hLoseStreak = 0;
+              h2hUnbeatenStreak++;
+              if (h2hWinStreak > longestH2HWinStreak) longestH2HWinStreak = h2hWinStreak;
+            } else if (r.player1_score < r.player2_score) {
+              h2hWinStreak = 0;
+              h2hLoseStreak++;
+              h2hUnbeatenStreak = 0;
+              if (h2hLoseStreak > longestH2HLoseStreak) longestH2HLoseStreak = h2hLoseStreak;
+            } else {
+              h2hWinStreak = 0;
+              h2hLoseStreak = 0;
+              h2hUnbeatenStreak++;
+            }
+            if (h2hUnbeatenStreak > longestH2HUnbeatenStreak) longestH2HUnbeatenStreak = h2hUnbeatenStreak;
+          }
+
+          // Current result from player's perspective
+          const playerScore = playerParticipant.score;
+          const opponentScore = opponentParticipant.score;
+          const h2hCurrentResult = playerScore > opponentScore ? 'win' as const : playerScore < opponentScore ? 'loss' as const : 'draw' as const;
+
+          // New streak lengths
+          const newH2HWinStreak = h2hCurrentResult === 'win' ? h2hWinStreak + 1 : 0;
+          const newH2HLoseStreak = h2hCurrentResult === 'loss' ? h2hLoseStreak + 1 : 0;
+          const newH2HUnbeatenStreak = h2hCurrentResult !== 'loss' ? h2hUnbeatenStreak + 1 : 0;
+
+          // Head-to-head: Longest streak milestone (minimum 3 for win/loss, 5 for unbeaten)
+          if (newH2HWinStreak > longestH2HWinStreak && newH2HWinStreak >= 3) {
+            facts.push({
+              type: 'h2h_longest_win_streak',
+              player_id: playerId,
+              player_name: playerNameMap.get(playerId) ?? '',
+              description: `That match set a new longest winning streak for ${playerNameMap.get(playerId)} against ${playerNameMap.get(opponentId)} (${newH2HWinStreak} wins)`,
+              metadata: { opponent_id: opponentId, opponent_name: playerNameMap.get(opponentId), streak_length: newH2HWinStreak }
+            });
+          }
+          if (newH2HLoseStreak > longestH2HLoseStreak && newH2HLoseStreak >= 3) {
+            facts.push({
+              type: 'h2h_longest_lose_streak',
+              player_id: playerId,
+              player_name: playerNameMap.get(playerId) ?? '',
+              description: `That match set a new longest losing streak for ${playerNameMap.get(playerId)} against ${playerNameMap.get(opponentId)} (${newH2HLoseStreak} losses)`,
+              metadata: { opponent_id: opponentId, opponent_name: playerNameMap.get(opponentId), streak_length: newH2HLoseStreak }
+            });
+          }
+          if (newH2HUnbeatenStreak > longestH2HUnbeatenStreak && newH2HUnbeatenStreak >= 5) {
+            facts.push({
+              type: 'h2h_longest_unbeaten_streak',
+              player_id: playerId,
+              player_name: playerNameMap.get(playerId) ?? '',
+              description: `That match set a new longest unbeaten run for ${playerNameMap.get(playerId)} against ${playerNameMap.get(opponentId)} (${newH2HUnbeatenStreak} unbeaten)`,
+              metadata: { opponent_id: opponentId, opponent_name: playerNameMap.get(opponentId), streak_length: newH2HUnbeatenStreak }
+            });
+          }
+
+          // Head-to-head: Streak broken
+          if (h2hWinStreak >= 3 && h2hCurrentResult !== 'win') {
+            facts.push({
+              type: 'h2h_win_streak_broken',
+              player_id: playerId,
+              player_name: playerNameMap.get(playerId) ?? '',
+              description: `That match ended ${playerNameMap.get(playerId)}'s ${h2hWinStreak}-game winning streak against ${playerNameMap.get(opponentId)}`,
+              metadata: { opponent_id: opponentId, opponent_name: playerNameMap.get(opponentId), streak_length: h2hWinStreak }
+            });
+          }
+          if (h2hLoseStreak >= 3 && h2hCurrentResult !== 'loss') {
+            facts.push({
+              type: 'h2h_lose_streak_broken',
+              player_id: playerId,
+              player_name: playerNameMap.get(playerId) ?? '',
+              description: `That match ended ${playerNameMap.get(playerId)}'s ${h2hLoseStreak}-game losing streak against ${playerNameMap.get(opponentId)}`,
+              metadata: { opponent_id: opponentId, opponent_name: playerNameMap.get(opponentId), streak_length: h2hLoseStreak }
+            });
+          }
+          if (h2hUnbeatenStreak >= 5 && h2hCurrentResult === 'loss') {
+            facts.push({
+              type: 'h2h_unbeaten_streak_broken',
+              player_id: playerId,
+              player_name: playerNameMap.get(playerId) ?? '',
+              description: `That match ended ${playerNameMap.get(playerId)}'s ${h2hUnbeatenStreak}-game unbeaten run against ${playerNameMap.get(opponentId)}`,
+              metadata: { opponent_id: opponentId, opponent_name: playerNameMap.get(opponentId), streak_length: h2hUnbeatenStreak }
+            });
           }
         }
       }

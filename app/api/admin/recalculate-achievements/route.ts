@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { revalidatePath } from 'next/cache';
 import { recalculateAchievementsForGame, recalculateAllAchievements } from '@/lib/achievements';
 
 export async function POST(request: NextRequest) {
@@ -9,6 +10,7 @@ export async function POST(request: NextRequest) {
     if (game_id) {
       // Recalculate for a specific game
       const result = recalculateAchievementsForGame(game_id);
+      revalidatePath('/', 'layout');
       return NextResponse.json({
         success: true,
         game_id,
@@ -18,6 +20,7 @@ export async function POST(request: NextRequest) {
     } else {
       // Recalculate for all games
       const results = recalculateAllAchievements();
+      revalidatePath('/', 'layout');
       return NextResponse.json({
         success: true,
         games: results,

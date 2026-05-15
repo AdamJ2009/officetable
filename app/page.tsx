@@ -1,6 +1,9 @@
 import { getGames, getLeaderboard, getGameStats, getGameRecords } from "@/lib/data";
 import LeaderboardClient from "./LeaderboardClient";
 
+// Revalidate every 30 seconds to pick up new matches
+export const revalidate = 30;
+
 export default async function Home() {
   // Fetch all data on the server
   const games = getGames();

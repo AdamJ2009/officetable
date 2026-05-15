@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { revalidatePath } from 'next/cache';
 import db from '@/lib/db';
 import { correctMatch, deleteMatchAndReplay, isWithinEditWindow } from '@/lib/elo';
 import { getPunditryForMatch } from '@/lib/punditry';
@@ -114,6 +115,7 @@ export async function PUT(
     // Perform the correction
     correctMatch(matchId, teams);
 
+    revalidatePath('/', 'layout');
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Error updating match:', error);
@@ -155,6 +157,7 @@ export async function DELETE(
     // Delete the match and replay subsequent matches to recalculate ratings
     deleteMatchAndReplay(matchId);
 
+    revalidatePath('/', 'layout');
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Error deleting match:', error);

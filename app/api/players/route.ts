@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { revalidatePath } from 'next/cache';
 import db from '@/lib/db';
 import type { Player } from '@/lib/types';
 
@@ -30,6 +31,7 @@ export async function POST(request: NextRequest) {
     const result = stmt.run(name.trim());
     const player = db.prepare('SELECT * FROM players WHERE id = ?').get(result.lastInsertRowid) as Player;
 
+    revalidatePath('/', 'layout');
     return NextResponse.json(player, { status: 201 });
   } catch (error) {
     if (error instanceof Error && error.message.includes('UNIQUE constraint')) {
@@ -60,6 +62,7 @@ export async function PUT(request: NextRequest) {
     }
 
     const player = db.prepare('SELECT * FROM players WHERE id = ?').get(id) as Player;
+    revalidatePath('/', 'layout');
     return NextResponse.json(player);
   } catch (error) {
     return NextResponse.json({ error: 'Failed to update player' }, { status: 500 });

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { revalidatePath } from 'next/cache';
 import db from '@/lib/db';
 import { processMatch } from '@/lib/elo';
 import { sendGoogleChatNotification, buildMatchNotification } from '@/lib/notifications';
@@ -172,6 +173,9 @@ export async function POST(request: NextRequest) {
         console.error('Failed to send notification:', err);
       });
     }
+
+    // Revalidate the home page to show new data
+    revalidatePath('/', 'layout');
 
     return NextResponse.json({ success: true }, { status: 201 });
   } catch (error) {

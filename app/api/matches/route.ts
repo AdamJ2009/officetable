@@ -3,6 +3,7 @@ import db from '@/lib/db';
 import { processMatch } from '@/lib/elo';
 import { sendGoogleChatNotification, buildMatchNotification } from '@/lib/notifications';
 import { getAchievementsForMatch } from '@/lib/achievements';
+import { getPunditryForMatch } from '@/lib/punditry';
 import type { MatchWithParticipants, CreateMatchInput } from '@/lib/types';
 
 export async function GET(request: NextRequest) {
@@ -51,6 +52,7 @@ export async function GET(request: NextRequest) {
   const matchesWithParticipants: MatchWithParticipants[] = matches.map((match: any) => {
     const participants = participantsStmt.all(match.id);
     const achievements = achievementsStmt.all(match.id);
+    const punditry = getPunditryForMatch(match.id);
     return {
       ...match,
       participants: participants.map((p: any) => ({
@@ -65,7 +67,8 @@ export async function GET(request: NextRequest) {
         achievement_icon: a.achievement_icon,
         player_id: a.player_id,
         player_name: a.player_name
-      }))
+      })),
+      punditry
     };
   });
 

@@ -13,6 +13,14 @@ interface MatchAchievement {
   player_name: string;
 }
 
+interface PunditryFact {
+  type: string;
+  player_id: number;
+  player_name: string;
+  description: string;
+  metadata?: Record<string, unknown>;
+}
+
 interface Match {
   id: number;
   game_id: number;
@@ -32,6 +40,7 @@ interface Match {
     player_name: string;
   }[];
   achievements?: MatchAchievement[];
+  punditry?: PunditryFact[];
 }
 
 export default function MatchDetailsPage() {
@@ -246,6 +255,21 @@ export default function MatchDetailsPage() {
                 </div>
               ))}
             </div>
+          </div>
+        )}
+
+        {/* Punditry */}
+        {match.punditry && match.punditry.length > 0 && (
+          <div className="px-6 py-4 border-t border-gray-200">
+            <div className="text-sm text-gray-500 uppercase tracking-wide mb-3">Punditry</div>
+            <ul className="space-y-2">
+              {match.punditry.map((fact, idx) => (
+                <li key={idx} className="text-gray-700 flex items-start gap-2">
+                  <span className="text-blue-500 mt-1">•</span>
+                  <span>{fact.description}</span>
+                </li>
+              ))}
+            </ul>
           </div>
         )}
 

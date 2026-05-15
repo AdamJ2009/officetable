@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import db from '@/lib/db';
 import { correctMatch, deleteMatchAndReplay, isWithinEditWindow } from '@/lib/elo';
+import { getPunditryForMatch } from '@/lib/punditry';
 
 export async function GET(
   request: NextRequest,
@@ -49,10 +50,13 @@ export async function GET(
   `);
   const achievements = achievementsStmt.all(matchId);
 
+  const punditry = getPunditryForMatch(matchId);
+
   return NextResponse.json({
     ...match,
     participants,
     achievements,
+    punditry,
   });
 }
 

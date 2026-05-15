@@ -17,6 +17,13 @@ interface MatchAchievement {
   player_name: string;
 }
 
+interface PunditryFact {
+  type: string;
+  player_id: number;
+  player_name: string;
+  description: string;
+}
+
 interface Match {
   id: number;
   game_id: number;
@@ -36,6 +43,7 @@ interface Match {
     player_name: string;
   }[];
   achievements?: MatchAchievement[];
+  punditry?: PunditryFact[];
 }
 
 export default function MatchesPage() {
@@ -272,6 +280,11 @@ export default function MatchesPage() {
                     {match.is_edited === 1 && (
                       <span className="text-xs px-2 py-0.5 bg-yellow-100 text-yellow-800 rounded">
                         Edited
+                      </span>
+                    )}
+                    {match.punditry && match.punditry.length > 0 && (
+                      <span className="text-sm" title="This match has punditry">
+                        🎙️
                       </span>
                     )}
                   </div>

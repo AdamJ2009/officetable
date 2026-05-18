@@ -1,9 +1,15 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
+import { useSearchParams, useRouter } from "next/navigation";
 
 interface Game {
+  id: number;
+  name: string;
+}
+
+interface Player {
   id: number;
   name: string;
 }
@@ -46,38 +52,102 @@ interface Match {
   punditry?: PunditryFact[];
 }
 
-export default function MatchesPage() {
+interface PaginationMeta {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+}
+
+function MatchesPageContent() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+
+  // Get initial values from URL params
+  const initialGameId = searchParams.get('game_id');
+  const initialPage = parseInt(searchParams.get('page') || '1', 10);
+  const initialLimit = parseInt(searchParams.get('limit') || '20', 10);
+  const initialDateFrom = searchParams.get('date_from') || '';
+  const initialDateTo = searchParams.get('date_to') || '';
+  const initialPlayerIds = searchParams.get('player_ids')?.split(',').map(id => parseInt(id, 10)).filter(id => !isNaN(id)) || [];
+  const initialPlayerCount = searchParams.get('player_count') || '';
+  const initialHasAchievements = searchParams.get('has_achievements') === 'true';
+  const initialMinSkillChange = searchParams.get('min_skill_change') || '';
+
   const [games, setGames] = useState<Game[]>([]);
-  const [selectedGame, setSelectedGame] = useState<number | null>(null);
+  const [players, setPlayers] = useState<Player[]>([]);
+  const [selectedGame, setSelectedGame] = useState<number | null>(initialGameId ? parseInt(initialGameId, 10) : null);
   const [matches, setMatches] = useState<Match[]>([]);
+  const [totalMatches, setTotalMatches] = useState(0);
   const [loading, setLoading] = useState(true);
   const [editingMatch, setEditingMatch] = useState<Match | null>(null);
   const [editScores, setEditScores] = useState<{ [team: number]: string }>({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Pagination state (separate from API response)
+  const [page, setPage] = useState(initialPage);
+  const [limit, setLimit] = useState(initialLimit);
+  const totalPages = Math.ceil(totalMatches / limit);
+
+  // Filter state
+  const [dateFrom, setDateFrom] = useState(initialDateFrom);
+  const [dateTo, setDateTo] = useState(initialDateTo);
+  const [selectedPlayerIds, setSelectedPlayerIds] = useState<number[]>(initialPlayerIds);
+  const [playerCount, setPlayerCount] = useState(initialPlayerCount);
+  const [hasAchievements, setHasAchievements] = useState(initialHasAchievements);
+  const [minSkillChange, setMinSkillChange] = useState(initialMinSkillChange);
+  const [showFilters, setShowFilters] = useState(false);
+
+  // Build URL params for API call and navigation
+  const buildQueryParams = (pageArg?: number, limitArg?: number) => {
+    const params = new URLSearchParams();
+    if (selectedGame) params.set('game_id', selectedGame.toString());
+    params.set('page', (pageArg ?? page).toString());
+    params.set('limit', (limitArg ?? limit).toString());
+    if (dateFrom) params.set('date_from', dateFrom);
+    if (dateTo) params.set('date_to', dateTo);
+    if (selectedPlayerIds.length > 0) params.set('player_ids', selectedPlayerIds.join(','));
+    if (playerCount) params.set('player_count', playerCount);
+    if (hasAchievements) params.set('has_achievements', 'true');
+    if (minSkillChange) params.set('min_skill_change', minSkillChange);
+    return params;
+  };
+
+  // Update URL without triggering fetch
+  const updateUrl = (pageArg?: number, limitArg?: number) => {
+    const params = buildQueryParams(pageArg, limitArg);
+    router.push(`/matches?${params.toString()}`, { scroll: false });
+  };
+
   useEffect(() => {
     fetch("/api/games")
       .then((res) => res.json())
       .then((data: Game[]) => {
         setGames(data);
-        if (data.length > 0) {
+        if (!selectedGame && data.length > 0) {
           setSelectedGame(data[0].id);
         }
       });
+
+    fetch("/api/players")
+      .then((res) => res.json())
+      .then((data: Player[]) => setPlayers(data));
   }, []);
 
   useEffect(() => {
     if (selectedGame) {
       setLoading(true);
-      fetch(`/api/matches?game_id=${selectedGame}`)
+      const params = buildQueryParams();
+      fetch(`/api/matches?${params.toString()}`)
         .then((res) => res.json())
         .then((data) => {
-          setMatches(data);
+          setMatches(data.matches);
+          setTotalMatches(data.pagination.total);
           setLoading(false);
         });
     }
-  }, [selectedGame]);
+  }, [selectedGame, page, limit, dateFrom, dateTo, JSON.stringify(selectedPlayerIds), playerCount, hasAchievements, minSkillChange]);
 
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr);
@@ -178,9 +248,11 @@ export default function MatchesPage() {
       }
 
       // Refresh matches
-      const matchesRes = await fetch(`/api/matches?game_id=${selectedGame}`);
+      const params = buildQueryParams();
+      const matchesRes = await fetch(`/api/matches?${params.toString()}`);
       const matchesData = await matchesRes.json();
-      setMatches(matchesData);
+      setMatches(matchesData.matches);
+      setTotalMatches(matchesData.pagination.total);
       setEditingMatch(null);
       setEditScores({});
     } catch (err) {
@@ -209,14 +281,49 @@ export default function MatchesPage() {
       }
 
       // Refresh matches
-      const matchesRes = await fetch(`/api/matches?game_id=${selectedGame}`);
+      const params = buildQueryParams();
+      const matchesRes = await fetch(`/api/matches?${params.toString()}`);
       const matchesData = await matchesRes.json();
-      setMatches(matchesData);
+      setMatches(matchesData.matches);
+      setTotalMatches(matchesData.pagination.total);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete match");
     } finally {
       setSaving(false);
     }
+  };
+
+  const goToPage = (newPage: number) => {
+    const clampedPage = Math.max(1, Math.min(newPage, totalPages || 1));
+    setPage(clampedPage);
+    updateUrl(clampedPage);
+  };
+
+  const changeLimit = (newLimit: number) => {
+    setLimit(newLimit);
+    setPage(1);
+    updateUrl(1, newLimit);
+  };
+
+  const clearFilters = () => {
+    setDateFrom('');
+    setDateTo('');
+    setSelectedPlayerIds([]);
+    setPlayerCount('');
+    setHasAchievements(false);
+    setMinSkillChange('');
+    setPage(1);
+  };
+
+  const hasActiveFilters = dateFrom || dateTo || selectedPlayerIds.length > 0 || playerCount || hasAchievements || minSkillChange;
+
+  const togglePlayer = (playerId: number) => {
+    setSelectedPlayerIds(prev =>
+      prev.includes(playerId)
+        ? prev.filter(id => id !== playerId)
+        : [...prev, playerId]
+    );
+    setPage(1);
   };
 
   return (
@@ -231,21 +338,127 @@ export default function MatchesPage() {
         </Link>
       </div>
 
-      <div className="mb-6">
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          Select Game
-        </label>
-        <select
-          value={selectedGame || ""}
-          onChange={(e) => setSelectedGame(Number(e.target.value))}
-          className="block w-full max-w-xs px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-        >
-          {games.map((game) => (
-            <option key={game.id} value={game.id}>
-              {game.name.charAt(0).toUpperCase() + game.name.slice(1).replace("-", " ")}
-            </option>
-          ))}
-        </select>
+      <div className="mb-6 space-y-4">
+        <div className="flex flex-wrap items-end gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Select Game
+            </label>
+            <select
+              value={selectedGame || ""}
+              onChange={(e) => {
+                setSelectedGame(Number(e.target.value));
+                setPage(1);
+              }}
+              className="block w-full min-w-[200px] px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              {games.map((game) => (
+                <option key={game.id} value={game.id}>
+                  {game.name.charAt(0).toUpperCase() + game.name.slice(1).replace("-", " ")}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <button
+            onClick={() => setShowFilters(!showFilters)}
+            className={`px-4 py-2 rounded-lg border transition-colors ${showFilters ? 'bg-blue-50 border-blue-300 text-blue-700' : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'}`}
+          >
+            {showFilters ? 'Hide Filters' : 'Show Filters'}
+            {hasActiveFilters && !showFilters && ' (active)'}
+          </button>
+
+          {hasActiveFilters && (
+            <button
+              onClick={clearFilters}
+              className="text-sm text-red-600 hover:text-red-800"
+            >
+              Clear Filters
+            </button>
+          )}
+        </div>
+
+        {showFilters && (
+          <div className="bg-gray-50 rounded-lg p-4 space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Date From</label>
+                <input
+                  type="date"
+                  value={dateFrom}
+                  onChange={(e) => { setDateFrom(e.target.value); setPage(1); }}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Date To</label>
+                <input
+                  type="date"
+                  value={dateTo}
+                  onChange={(e) => { setDateTo(e.target.value); setPage(1); }}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Player Count</label>
+                <input
+                  type="number"
+                  min="2"
+                  max="20"
+                  value={playerCount}
+                  onChange={(e) => { setPlayerCount(e.target.value); setPage(1); }}
+                  placeholder="Any"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Min Skill Change</label>
+                <input
+                  type="number"
+                  step="0.001"
+                  min="0"
+                  value={minSkillChange}
+                  onChange={(e) => { setMinSkillChange(e.target.value); setPage(1); }}
+                  placeholder="Any"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Players (must include all selected)</label>
+              <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto p-2 bg-white rounded-lg border">
+                {players.map((player) => (
+                  <button
+                    key={player.id}
+                    onClick={() => togglePlayer(player.id)}
+                    className={`px-3 py-1 text-sm rounded-full transition-colors ${
+                      selectedPlayerIds.includes(player.id)
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
+                  >
+                    {player.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="hasAchievements"
+                checked={hasAchievements}
+                onChange={(e) => { setHasAchievements(e.target.checked); setPage(1); }}
+                className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+              />
+              <label htmlFor="hasAchievements" className="text-sm text-gray-700">Only matches with achievements</label>
+            </div>
+          </div>
+        )}
       </div>
 
       {error && (
@@ -409,6 +622,103 @@ export default function MatchesPage() {
           })}
         </div>
       )}
+
+      {/* Pagination */}
+      {totalMatches > 0 && (
+        <div className="mt-6 flex flex-wrap items-center justify-between gap-4 bg-white rounded-lg shadow p-4">
+          <div className="text-sm text-gray-600">
+            Showing {((page - 1) * limit) + 1}-{Math.min(page * limit, totalMatches)} of {totalMatches} matches
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => goToPage(page - 1)}
+              disabled={page <= 1}
+              className="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Previous
+            </button>
+
+            <div className="flex items-center gap-1">
+              {page > 2 && (
+                <>
+                  <button
+                    onClick={() => goToPage(1)}
+                    className="w-8 h-8 text-sm border border-gray-300 rounded hover:bg-gray-50"
+                  >
+                    1
+                  </button>
+                  {page > 3 && <span className="px-1">...</span>}
+                </>
+              )}
+
+              {page > 1 && (
+                <button
+                  onClick={() => goToPage(page - 1)}
+                  className="w-8 h-8 text-sm border border-gray-300 rounded hover:bg-gray-50"
+                >
+                  {page - 1}
+                </button>
+              )}
+
+              <span className="w-8 h-8 flex items-center justify-center text-sm bg-blue-600 text-white rounded">
+                {page}
+              </span>
+
+              {page < totalPages && (
+                <button
+                  onClick={() => goToPage(page + 1)}
+                  className="w-8 h-8 text-sm border border-gray-300 rounded hover:bg-gray-50"
+                >
+                  {page + 1}
+                </button>
+              )}
+
+              {page < totalPages - 1 && (
+                <>
+                  {page < totalPages - 2 && <span className="px-1">...</span>}
+                  <button
+                    onClick={() => goToPage(totalPages)}
+                    className="w-8 h-8 text-sm border border-gray-300 rounded hover:bg-gray-50"
+                  >
+                    {totalPages}
+                  </button>
+                </>
+              )}
+            </div>
+
+            <button
+              onClick={() => goToPage(page + 1)}
+              disabled={page >= totalPages}
+              className="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Next
+            </button>
+
+            <div className="flex items-center gap-2 ml-4">
+              <span className="text-sm text-gray-600">Per page:</span>
+              <select
+                value={limit}
+                onChange={(e) => changeLimit(Number(e.target.value))}
+                className="px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="10">10</option>
+                <option value="20">20</option>
+                <option value="50">50</option>
+                <option value="100">100</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
+  );
+}
+
+export default function MatchesPage() {
+  return (
+    <Suspense fallback={<div className="text-gray-500">Loading...</div>}>
+      <MatchesPageContent />
+    </Suspense>
   );
 }

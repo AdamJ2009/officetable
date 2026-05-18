@@ -113,3 +113,25 @@ export interface MatchAchievement {
   player_id: number;
   player_name: string;
 }
+
+export interface MatchFilters {
+  game_id?: number;
+  date_from?: string;
+  date_to?: string;
+  player_ids?: number[];
+  player_count?: number;
+  has_achievements?: boolean;
+  min_skill_change?: number;
+}
+
+export interface PaginationMeta {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+}
+
+export interface PaginatedMatchesResponse {
+  matches: MatchWithParticipants[];
+  pagination: PaginationMeta;
+}

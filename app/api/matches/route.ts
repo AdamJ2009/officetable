@@ -5,26 +5,103 @@ import { processMatch } from '@/lib/elo';
 import { sendGoogleChatNotification, buildMatchNotification } from '@/lib/notifications';
 import { getAchievementsForMatch } from '@/lib/achievements';
 import { getPunditryForMatch } from '@/lib/punditry';
-import type { MatchWithParticipants, CreateMatchInput } from '@/lib/types';
+import type { MatchWithParticipants, CreateMatchInput, MatchFilters, PaginationMeta } from '@/lib/types';
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
-  const gameId = searchParams.get('game_id');
 
-  let matchesQuery = `
+  // Parse pagination params
+  const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10));
+  const limit = Math.min(100, Math.max(1, parseInt(searchParams.get('limit') || '20', 10)));
+  const offset = (page - 1) * limit;
+
+  // Parse filter params
+  const gameId = searchParams.get('game_id');
+  const dateFrom = searchParams.get('date_from');
+  const dateTo = searchParams.get('date_to');
+  const playerIdsStr = searchParams.get('player_ids');
+  const playerCount = searchParams.get('player_count');
+  const hasAchievements = searchParams.get('has_achievements');
+  const minSkillChange = searchParams.get('min_skill_change');
+
+  // Parse player_ids (comma-separated)
+  const playerIds = playerIdsStr
+    ? playerIdsStr.split(',').map(id => parseInt(id, 10)).filter(id => !isNaN(id))
+    : [];
+
+  // Build WHERE conditions and params
+  const whereConditions: string[] = [];
+  const params: (string | number)[] = [];
+
+  if (gameId) {
+    whereConditions.push('m.game_id = ?');
+    params.push(parseInt(gameId, 10));
+  }
+
+  if (dateFrom) {
+    whereConditions.push('DATE(m.played_at) >= ?');
+    params.push(dateFrom);
+  }
+
+  if (dateTo) {
+    whereConditions.push('DATE(m.played_at) <= ?');
+    params.push(dateTo);
+  }
+
+  // Player filter: AND logic - match must contain ALL selected players
+  if (playerIds.length > 0) {
+    for (const playerId of playerIds) {
+      whereConditions.push('EXISTS (SELECT 1 FROM match_participants mp WHERE mp.match_id = m.id AND mp.player_id = ?)');
+      params.push(playerId);
+    }
+  }
+
+  // Player count filter
+  if (playerCount) {
+    const count = parseInt(playerCount, 10);
+    whereConditions.push('(SELECT COUNT(DISTINCT player_id) FROM match_participants WHERE match_id = m.id) = ?');
+    params.push(count);
+  }
+
+  // Achievements filter
+  if (hasAchievements === 'true') {
+    whereConditions.push('EXISTS (SELECT 1 FROM player_achievements pa WHERE pa.match_id = m.id)');
+  }
+
+  // Min skill change filter
+  if (minSkillChange) {
+    const minChange = parseFloat(minSkillChange);
+    whereConditions.push('EXISTS (SELECT 1 FROM match_participants mp WHERE mp.match_id = m.id AND ABS(mp.elo_after - mp.elo_before) >= ?)');
+    params.push(minChange);
+  }
+
+  const whereClause = whereConditions.length > 0 ? 'WHERE ' + whereConditions.join(' AND ') : '';
+
+  // Count query for pagination
+  const countQuery = `
+    SELECT COUNT(DISTINCT m.id) as total
+    FROM matches m
+    JOIN games g ON m.game_id = g.id
+    ${whereClause}
+  `;
+  const countStmt = db.prepare(countQuery);
+  const countResult = countStmt.get(...params) as { total: number };
+  const total = countResult.total;
+  const totalPages = Math.ceil(total / limit);
+
+  // Main query with pagination
+  const matchesQuery = `
     SELECT m.*, g.name as game_name
     FROM matches m
     JOIN games g ON m.game_id = g.id
+    ${whereClause}
+    ORDER BY m.played_at DESC
+    LIMIT ? OFFSET ?
   `;
-
-  if (gameId) {
-    matchesQuery += ' WHERE m.game_id = ?';
-  }
-
-  matchesQuery += ' ORDER BY m.played_at DESC LIMIT 50';
+  params.push(limit, offset);
 
   const stmt = db.prepare(matchesQuery);
-  const matches = gameId ? stmt.all(parseInt(gameId)) : stmt.all();
+  const matches = stmt.all(...params);
 
   // Get participants for each match
   const participantsStmt = db.prepare(`
@@ -73,7 +150,14 @@ export async function GET(request: NextRequest) {
     };
   });
 
-  return NextResponse.json(matchesWithParticipants);
+  const pagination: PaginationMeta = {
+    page,
+    limit,
+    total,
+    totalPages,
+  };
+
+  return NextResponse.json({ matches: matchesWithParticipants, pagination });
 }
 
 export async function POST(request: NextRequest) {

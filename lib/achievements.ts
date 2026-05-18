@@ -475,6 +475,16 @@ export function checkAchievements(context: AchievementContext): AchievementResul
 
       for (const playerId of team.player_ids) {
         for (const opponentId of otherTeam.player_ids) {
+          // Check if we already awarded this achievement for this opponent pair
+          const existingAchievement = db.prepare(`
+            SELECT COUNT(*) as count FROM player_achievements pa
+            JOIN achievements a ON pa.achievement_id = a.id
+            WHERE pa.player_id = ? AND pa.game_id = ? AND a.name = 'comrades'
+              AND JSON_EXTRACT(pa.metadata, '$.opponent') = ?
+          `).get(playerId, gameId, playerNameMap.get(opponentId) ?? '') as { count: number };
+
+          if (existingAchievement.count > 0) continue;
+
           const gamesAgainst = db.prepare(`
             SELECT COUNT(DISTINCT m.id) as count
             FROM matches m
@@ -485,7 +495,7 @@ export function checkAchievements(context: AchievementContext): AchievementResul
               AND mp1.team != mp2.team
           `).get(gameId, playerId, opponentId) as { count: number };
 
-          if (gamesAgainst.count === 100) {
+          if (gamesAgainst.count >= 100) {
             results.push({
               achievementName: 'comrades',
               playerId: playerId,

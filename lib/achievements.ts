@@ -354,14 +354,15 @@ export function checkAchievements(context: AchievementContext): AchievementResul
 
   // Unstable: See-saw 5+ skill points in consecutive games
   for (const p of participants) {
+    // Must filter to matches up to and including current match for recalculation to work correctly
     const recentMatches = db.prepare(`
       SELECT mp.elo_before, mp.elo_after, m.played_at
       FROM match_participants mp
       JOIN matches m ON mp.match_id = m.id
-      WHERE mp.player_id = ? AND m.game_id = ?
+      WHERE mp.player_id = ? AND m.game_id = ? AND m.played_at <= ?
       ORDER BY m.played_at DESC
-      LIMIT 3
-    `).all(p.player_id, gameId) as { elo_before: number; elo_after: number; played_at: string }[];
+      LIMIT 2
+    `).all(p.player_id, gameId, playedAt.toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '')) as { elo_before: number; elo_after: number; played_at: string }[];
 
     if (recentMatches.length >= 2) {
       const change1 = recentMatches[0].elo_after - recentMatches[0].elo_before;

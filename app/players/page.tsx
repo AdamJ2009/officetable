@@ -83,116 +83,148 @@ export default function PlayersPage() {
   const activePlayers = players.filter(p => p.status === 'active' || !p.status);
   const retiredPlayers = players.filter(p => p.status === 'retired');
 
+  // Generate a consistent color based on player name
+  function getPlayerColor(name: string): string {
+    const colors = [
+      'from-blue-500 to-blue-600',
+      'from-green-500 to-green-600',
+      'from-purple-500 to-purple-600',
+      'from-orange-500 to-orange-600',
+      'from-pink-500 to-pink-600',
+      'from-teal-500 to-teal-600',
+      'from-indigo-500 to-indigo-600',
+      'from-rose-500 to-rose-600',
+    ];
+    const index = name.charCodeAt(0) % colors.length;
+    return colors[index];
+  }
+
   return (
     <div>
-      <h1 className="text-3xl font-bold mb-8">Players</h1>
+      <div className="flex items-center justify-between mb-8">
+        <div>
+          <h1 className="text-3xl font-bold">Players</h1>
+          <p className="text-gray-500 mt-1">{activePlayers.length} active players</p>
+        </div>
+      </div>
 
-      <form onSubmit={handleSubmit} className="mb-8">
-        <div className="flex gap-4">
+      {/* Add Player Form */}
+      <div className="bg-white rounded-xl shadow-lg p-6 mb-8">
+        <h2 className="text-lg font-semibold mb-4">Add New Player</h2>
+        <form onSubmit={handleSubmit} className="flex gap-4">
           <input
             type="text"
             value={newPlayerName}
             onChange={(e) => setNewPlayerName(e.target.value)}
-            placeholder="Enter player name"
-            className="flex-1 max-w-xs px-3 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+            placeholder="Enter player name..."
+            className="flex-1 max-w-md px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent text-lg"
             disabled={submitting}
           />
           <button
             type="submit"
             disabled={submitting || !newPlayerName.trim()}
-            className="bg-primary text-white px-4 py-2 rounded-lg hover:bg-primary-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="px-6 py-3 bg-primary text-white rounded-xl font-semibold hover:bg-primary-hover transition-all shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {submitting ? "Adding..." : "Add Player"}
+            {submitting ? "Adding..." : "+ Add Player"}
           </button>
-        </div>
-        {error && <p className="mt-2 text-red-600 text-sm">{error}</p>}
-      </form>
+        </form>
+        {error && (
+          <p className="mt-3 text-red-600 text-sm bg-red-50 px-4 py-2 rounded-lg">{error}</p>
+        )}
+      </div>
 
+      {/* Players Grid */}
       {loading ? (
         <div className="text-gray-500">Loading...</div>
       ) : players.length === 0 ? (
-        <div className="text-gray-500">
-          No players yet. Add your first player above!
+        <div className="text-center py-12 bg-white rounded-xl shadow-lg">
+          <div className="text-6xl mb-4">👥</div>
+          <p className="text-gray-500 text-lg">No players yet</p>
+          <p className="text-gray-400">Add your first player above to get started!</p>
         </div>
       ) : (
         <>
+          {/* Active Players */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+            {activePlayers.map((player) => (
+              <Link
+                key={player.id}
+                href={`/players/${player.id}`}
+                className="group"
+              >
+                <div className="bg-white rounded-xl shadow hover:shadow-lg transition-all p-4 text-center">
+                  <div className={`w-16 h-16 mx-auto mb-3 rounded-full bg-gradient-to-br ${getPlayerColor(player.name)} flex items-center justify-center text-white text-2xl font-bold shadow-md group-hover:scale-110 transition-transform`}>
+                    {player.name.charAt(0).toUpperCase()}
+                  </div>
+                  <h3 className="font-semibold text-gray-900 group-hover:text-primary transition-colors truncate">
+                    {player.name}
+                  </h3>
+                  <p className="text-xs text-gray-400 mt-1">
+                    Added {new Date(player.created_at).toLocaleDateString()}
+                  </p>
+                </div>
+              </Link>
+            ))}
+          </div>
+
+          {/* Retired Players */}
           {retiredPlayers.length > 0 && (
-            <div className="mb-4">
+            <div className="mt-8">
               <button
                 onClick={() => setShowRetired(!showRetired)}
-                className="text-sm text-gray-600 hover:text-gray-900 underline"
+                className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-700 font-medium"
               >
+                <span className="text-lg">{showRetired ? '▼' : '▶'}</span>
                 {showRetired ? 'Hide' : 'Show'} retired players ({retiredPlayers.length})
               </button>
-            </div>
-          )}
 
-          <div className="bg-white rounded-lg shadow overflow-hidden">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Name
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Added
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {activePlayers.map((player) => (
-                  <tr key={player.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                      <Link
-                        href={`/players/${player.id}`}
-                        className="text-primary hover:underline"
-                      >
+              {showRetired && (
+                <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                  {retiredPlayers.map((player) => (
+                    <div
+                      key={player.id}
+                      className="bg-gray-50 rounded-xl p-4 text-center opacity-60"
+                    >
+                      <div className={`w-16 h-16 mx-auto mb-3 rounded-full bg-gradient-to-br ${getPlayerColor(player.name)} flex items-center justify-center text-white text-2xl font-bold grayscale`}>
+                        {player.name.charAt(0).toUpperCase()}
+                      </div>
+                      <h3 className="font-semibold text-gray-500 truncate line-through">
                         {player.name}
-                      </Link>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {new Date(player.created_at).toLocaleDateString()}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm">
+                      </h3>
+                      <span className="text-xs text-gray-400">(Retired)</span>
                       <button
                         onClick={() => togglePlayerStatus(player)}
-                        className="text-gray-600 hover:text-gray-900 underline"
-                      >
-                        Retire
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-                {showRetired && retiredPlayers.map((player) => (
-                  <tr key={player.id} className="bg-gray-50 hover:bg-gray-100">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                      <Link
-                        href={`/players/${player.id}`}
-                        className="text-gray-500 hover:underline line-through"
-                      >
-                        {player.name}
-                      </Link>
-                      <span className="ml-2 text-xs text-gray-400">(Retired)</span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">
-                      {new Date(player.created_at).toLocaleDateString()}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm">
-                      <button
-                        onClick={() => togglePlayerStatus(player)}
-                        className="text-primary hover:underline"
+                        className="block mx-auto mt-2 text-xs text-primary hover:underline"
                       >
                         Reactivate
                       </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Quick Actions */}
+          {activePlayers.length > 0 && (
+            <div className="mt-8 flex justify-center">
+              <div className="bg-gray-50 rounded-xl p-4 flex items-center gap-4">
+                <span className="text-sm text-gray-500">Quick actions:</span>
+                <Link
+                  href="/matches/new"
+                  className="px-4 py-2 bg-primary text-white rounded-lg font-medium hover:bg-primary-hover transition-colors"
+                >
+                  Record a Match
+                </Link>
+                <Link
+                  href="/"
+                  className="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg font-medium hover:bg-gray-100 transition-colors"
+                >
+                  View Leaderboard
+                </Link>
+              </div>
+            </div>
+          )}
         </>
       )}
     </div>

@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
 import { useSelectedGame } from '../lib/hooks/useSelectedGame';
 import { useTheme } from '../lib/contexts/ThemeContext';
@@ -14,6 +15,7 @@ function formatGameName(name: string): string {
 export function Nav() {
   const { settings } = useTheme();
   const { selectedGame, selectedGameId, games, setSelectedGameId, isLoading } = useSelectedGame();
+  const [showGameMenu, setShowGameMenu] = useState(false);
 
   return (
     <nav className="bg-white/80 backdrop-blur-md border-b border-gray-200/50 sticky top-0 z-50">
@@ -43,13 +45,16 @@ export function Nav() {
             {/* Game Selector */}
             <div className="flex items-center gap-2 pl-6 border-l border-gray-200">
               {isLoading ? (
-                <div className="flex items-center gap-2 px-4 py-2 bg-gray-100 rounded-full">
+                <div className="flex items-center gap-2 px-4 py-2 bg-gray-100 rounded-lg">
                   <div className="w-5 h-5 bg-gray-300 rounded animate-pulse" />
                   <span className="text-sm text-gray-500">Loading...</span>
                 </div>
               ) : (
-                <div className="flex items-center">
-                  <div className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-slate-800 to-slate-900 rounded-l-full text-white">
+                <div className="relative">
+                  <button
+                    onClick={() => setShowGameMenu(!showGameMenu)}
+                    className="flex items-center gap-2 px-3 py-2 bg-gradient-to-r from-slate-800 to-slate-900 text-white rounded-lg hover:opacity-90 transition-opacity"
+                  >
                     {selectedGame?.image_url ? (
                       <img
                         src={selectedGame.image_url}
@@ -62,19 +67,54 @@ export function Nav() {
                     <span className="text-sm font-semibold">
                       {selectedGame ? formatGameName(selectedGame.name) : 'Select Game'}
                     </span>
-                  </div>
-                  <select
-                    value={selectedGameId || ''}
-                    onChange={(e) => setSelectedGameId(Number(e.target.value))}
-                    className="px-3 py-2 text-sm font-medium bg-gray-100 border-0 rounded-r-full focus:outline-none focus:ring-2 focus:ring-primary cursor-pointer hover:bg-gray-200 transition-colors"
-                    aria-label="Select game"
-                  >
-                    {games.map((game) => (
-                      <option key={game.id} value={game.id}>
-                        {formatGameName(game.name)}
-                      </option>
-                    ))}
-                  </select>
+                    <svg
+                      className={`w-4 h-4 transition-transform ${showGameMenu ? 'rotate-180' : ''}`}
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </button>
+
+                  {showGameMenu && (
+                    <>
+                      <div
+                        className="fixed inset-0 z-10"
+                        onClick={() => setShowGameMenu(false)}
+                      />
+                      <div className="absolute top-full left-0 mt-2 w-48 bg-white rounded-lg shadow-xl border border-gray-200 py-1 z-20">
+                        {games.map((game) => (
+                          <button
+                            key={game.id}
+                            onClick={() => {
+                              setSelectedGameId(game.id);
+                              setShowGameMenu(false);
+                            }}
+                            className={`w-full flex items-center gap-2 px-4 py-2 text-left hover:bg-gray-100 transition-colors ${
+                              game.id === selectedGameId ? 'bg-gray-50' : ''
+                            }`}
+                          >
+                            {game.image_url ? (
+                              <img
+                                src={game.image_url}
+                                alt={game.name}
+                                className="w-5 h-5 rounded object-cover"
+                              />
+                            ) : (
+                              <span className="w-5 h-5 flex items-center justify-center">🎮</span>
+                            )}
+                            <span className={`text-sm ${game.id === selectedGameId ? 'font-semibold text-primary' : 'text-gray-700'}`}>
+                              {formatGameName(game.name)}
+                            </span>
+                            {game.id === selectedGameId && (
+                              <span className="ml-auto text-primary">✓</span>
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
             </div>

@@ -291,60 +291,116 @@ export default function LeaderboardClient({
           and record some matches!
         </div>
       ) : (
-        <div className="bg-white rounded-lg shadow overflow-hidden">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+        <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+          <table className="min-w-full">
+            <thead>
+              <tr className="bg-gray-50 border-b border-gray-200">
+                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
                   Rank
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
                   Player
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
                   Rating
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
                   Trend
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
                   W/L/D
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
                   Win Rate
                 </th>
               </tr>
             </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
+            <tbody className="divide-y divide-gray-100">
               {leaderboard.map((entry, index) => {
                 const totalGames = entry.wins + entry.losses + entry.draws;
-                const winRate = totalGames > 0 ? ((entry.wins / totalGames) * 100).toFixed(0) : "-";
+                const winRate = totalGames > 0 ? ((entry.wins / totalGames) * 100).toFixed(0) : "0";
                 const isRetired = entry.status === 'retired';
+                const rank = index + 1;
+
+                // Rank badge component
+                const rankBadge = () => {
+                  if (rank === 1) return <span className="text-2xl">🥇</span>;
+                  if (rank === 2) return <span className="text-2xl">🥈</span>;
+                  if (rank === 3) return <span className="text-2xl">🥉</span>;
+                  return <span className="text-sm font-bold text-gray-400">#{rank}</span>;
+                };
+
+                // Row background for top 3
+                const rowBg = rank === 1 ? 'bg-gradient-to-r from-amber-50 to-yellow-50' :
+                              rank === 2 ? 'bg-gradient-to-r from-slate-50 to-gray-50' :
+                              rank === 3 ? 'bg-gradient-to-r from-orange-50 to-amber-50' :
+                              isRetired ? 'bg-gray-50' : 'bg-white';
+
                 return (
-                  <tr key={entry.player_id} className={isRetired ? 'bg-gray-50 hover:bg-gray-100' : 'hover:bg-gray-50'}>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                      {index + 1}
+                  <tr
+                    key={entry.player_id}
+                    className={`${rowBg} hover:brightness-95 transition-all duration-150`}
+                  >
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      {rankBadge()}
                     </td>
-                    <td className={`px-6 py-4 whitespace-nowrap text-sm ${isRetired ? 'text-gray-500' : 'text-gray-900'}`}>
+                    <td className="px-6 py-4 whitespace-nowrap">
                       <Link
                         href={`/players/${entry.player_id}`}
-                        className={`hover:underline ${isRetired ? 'line-through' : ''}`}
+                        className={`group flex items-center gap-3 ${isRetired ? 'opacity-60' : ''}`}
                       >
-                        {entry.player_name}
+                        <div className={`w-10 h-10 rounded-full flex items-center justify-center text-lg font-bold ${
+                          rank === 1 ? 'bg-gradient-to-br from-amber-400 to-yellow-500 text-white shadow-md' :
+                          rank === 2 ? 'bg-gradient-to-br from-slate-300 to-slate-400 text-white shadow-md' :
+                          rank === 3 ? 'bg-gradient-to-br from-orange-400 to-amber-500 text-white shadow-md' :
+                          'bg-gray-200 text-gray-600'
+                        }`}>
+                          {entry.player_name.charAt(0).toUpperCase()}
+                        </div>
+                        <div>
+                          <span className={`font-semibold text-gray-900 group-hover:text-primary transition-colors ${isRetired ? 'line-through' : ''}`}>
+                            {entry.player_name}
+                          </span>
+                          {isRetired && (
+                            <span className="ml-2 text-xs bg-gray-200 text-gray-500 px-2 py-0.5 rounded-full">
+                              Retired
+                            </span>
+                          )}
+                        </div>
                       </Link>
-                      {isRetired && <span className="ml-2 text-xs text-gray-400">(Retired)</span>}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {entry.elo.toFixed(3)}
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="flex items-center gap-2">
+                        <span className="text-lg font-bold text-gray-900">
+                          {entry.elo.toFixed(0)}
+                        </span>
+                        <span className="text-xs text-gray-400 font-mono">
+                          .{Math.abs(entry.elo % 1).toFixed(3).slice(2)}
+                        </span>
+                      </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm">
+                    <td className="px-6 py-4 whitespace-nowrap">
                       <TrendSparkline deltas={entry.trend} />
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {entry.wins} / {entry.losses} / {entry.draws}
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="flex items-center gap-1.5 text-sm">
+                        <span className="text-green-600 font-semibold">{entry.wins}</span>
+                        <span className="text-gray-300">/</span>
+                        <span className="text-red-500 font-semibold">{entry.losses}</span>
+                        <span className="text-gray-300">/</span>
+                        <span className="text-gray-500">{entry.draws}</span>
+                      </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {totalGames > 0 ? `${winRate}%` : "-"}
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="flex items-center gap-2">
+                        <div className="w-16 h-2 bg-gray-200 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-gradient-to-r from-green-400 to-emerald-500 rounded-full"
+                            style={{ width: `${winRate}%` }}
+                          />
+                        </div>
+                        <span className="text-sm font-semibold text-gray-700">{winRate}%</span>
+                      </div>
                     </td>
                   </tr>
                 );

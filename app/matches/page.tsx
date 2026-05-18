@@ -322,57 +322,62 @@ function MatchesPageContent() {
         <h1 className="text-3xl font-bold">Match History</h1>
         <Link
           href={selectedGameId ? `/matches/new?game=${selectedGameId}` : "/matches/new"}
-          className="bg-primary text-white px-4 py-2 rounded-lg hover:bg-primary-hover transition-colors"
+          className="bg-primary text-white px-4 py-2 rounded-lg hover:bg-primary-hover transition-all shadow-sm hover:shadow-md font-medium"
         >
-          Record Match
+          + Record Match
         </Link>
       </div>
 
       <div className="mb-6 space-y-4">
-        <div className="flex flex-wrap items-end gap-4">
+        <div className="flex flex-wrap items-center gap-3">
           <button
             onClick={() => setShowFilters(!showFilters)}
-            className={`px-4 py-2 rounded-lg border transition-colors ${showFilters ? 'bg-blue-50 border-blue-300 text-blue-700' : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'}`}
+            className={`px-4 py-2 rounded-lg font-medium transition-all ${
+              showFilters
+                ? 'bg-slate-800 text-white'
+                : hasActiveFilters
+                ? 'bg-primary text-white'
+                : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'
+            }`}
           >
-            {showFilters ? 'Hide Filters' : 'Show Filters'}
-            {hasActiveFilters && !showFilters && ' (active)'}
+            {showFilters ? '✕ Hide Filters' : hasActiveFilters ? '🔍 Filters (active)' : '🔍 Filters'}
           </button>
 
           {hasActiveFilters && (
             <button
               onClick={clearFilters}
-              className="text-sm text-red-600 hover:text-red-800"
+              className="text-sm text-red-600 hover:text-red-800 font-medium"
             >
-              Clear Filters
+              Clear all
             </button>
           )}
         </div>
 
         {showFilters && (
-          <div className="bg-gray-50 rounded-lg p-4 space-y-4">
+          <div className="bg-white rounded-xl shadow-lg p-5 space-y-5">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Date From</label>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">Date From</label>
                 <input
                   type="date"
                   value={dateFrom}
                   onChange={(e) => { setDateFrom(e.target.value); setPage(1); }}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Date To</label>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">Date To</label>
                 <input
                   type="date"
                   value={dateTo}
                   onChange={(e) => { setDateTo(e.target.value); setPage(1); }}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Player Count</label>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">Player Count</label>
                 <input
                   type="number"
                   min="2"
@@ -380,12 +385,12 @@ function MatchesPageContent() {
                   value={playerCount}
                   onChange={(e) => { setPlayerCount(e.target.value); setPage(1); }}
                   placeholder="Any"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Min Skill Change</label>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">Min Skill Change</label>
                 <input
                   type="number"
                   step="0.001"
@@ -393,22 +398,22 @@ function MatchesPageContent() {
                   value={minSkillChange}
                   onChange={(e) => { setMinSkillChange(e.target.value); setPage(1); }}
                   placeholder="Any"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Players (must include all selected)</label>
-              <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto p-2 bg-white rounded-lg border">
+              <label className="block text-sm font-semibold text-gray-700 mb-2">Players (must include all selected)</label>
+              <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto p-3 bg-gray-50 rounded-lg">
                 {players.map((player) => (
                   <button
                     key={player.id}
                     onClick={() => togglePlayer(player.id)}
-                    className={`px-3 py-1 text-sm rounded-full transition-colors ${
+                    className={`px-3 py-1.5 text-sm font-medium rounded-full transition-all ${
                       selectedPlayerIds.includes(player.id)
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                        ? 'bg-primary text-white shadow-sm'
+                        : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-100'
                     }`}
                   >
                     {player.name}
@@ -417,15 +422,16 @@ function MatchesPageContent() {
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                id="hasAchievements"
-                checked={hasAchievements}
-                onChange={(e) => { setHasAchievements(e.target.checked); setPage(1); }}
-                className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-              />
-              <label htmlFor="hasAchievements" className="text-sm text-gray-700">Only matches with achievements</label>
+            <div className="flex items-center gap-3">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={hasAchievements}
+                  onChange={(e) => { setHasAchievements(e.target.checked); setPage(1); }}
+                  className="w-5 h-5 rounded border-gray-300 text-primary focus:ring-primary"
+                />
+                <span className="text-sm text-gray-700 font-medium">Only matches with achievements 🏆</span>
+              </label>
             </div>
           </div>
         )}
@@ -456,13 +462,14 @@ function MatchesPageContent() {
             const editable = canEdit(match);
 
             return (
-              <div key={match.id} className="bg-white rounded-lg shadow p-4">
-                <div className="flex justify-between items-start mb-3">
-                  <div className="flex items-center gap-2">
-                    <div className="text-sm text-gray-500">{formatDate(match.played_at)}</div>
+              <div key={match.id} className="bg-white rounded-xl shadow-lg overflow-hidden hover:shadow-xl transition-shadow">
+                {/* Match Header */}
+                <div className="flex justify-between items-center px-5 py-3 bg-gray-50 border-b border-gray-100">
+                  <div className="flex items-center gap-3">
+                    <span className="text-sm text-gray-500">{formatDate(match.played_at)}</span>
                     {match.is_edited === 1 && (
-                      <span className="text-xs px-2 py-0.5 bg-yellow-100 text-yellow-800 rounded">
-                        Edited
+                      <span className="text-xs px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full font-medium">
+                        ✏️ Edited
                       </span>
                     )}
                     {match.punditry && match.punditry.length > 0 && (
@@ -473,18 +480,18 @@ function MatchesPageContent() {
                   </div>
                   <div className="flex items-center gap-3">
                     {match.notes && (
-                      <div className="text-sm text-gray-600 italic">{match.notes}</div>
+                      <div className="text-sm text-gray-500 italic">"{match.notes}"</div>
                     )}
                     <Link
                       href={`/matches/${match.id}`}
-                      className="text-sm text-blue-600 hover:text-blue-800"
+                      className="text-sm text-gray-500 hover:text-primary transition-colors"
                     >
-                      View
+                      View →
                     </Link>
                     {editable && !isEditing && (
                       <button
                         onClick={() => startEdit(match)}
-                        className="text-sm text-blue-600 hover:text-blue-800"
+                        className="text-sm text-gray-500 hover:text-primary transition-colors"
                       >
                         Edit
                       </button>
@@ -492,96 +499,160 @@ function MatchesPageContent() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
-                  {teams.map((team) => {
-                    const teamParticipants = match.participants.filter((p) => p.team === team);
-                    const result = getTeamResult(match, team);
-                    const bgColor = result.result === "win" ? "bg-green-50" : result.result === "loss" ? "bg-red-50" : "bg-gray-50";
-                    const borderColor = result.result === "win" ? "border-green-200" : result.result === "loss" ? "border-red-200" : "border-gray-200";
-                    const resultBadge = result.result === "win" ? "bg-green-100 text-green-800" : result.result === "loss" ? "bg-red-100 text-red-800" : "bg-gray-100 text-gray-800";
-
-                    return (
-                      <div key={team} className={`rounded-lg border ${borderColor} ${bgColor} p-3`}>
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="font-semibold">Team {team + 1}</span>
-                          <div className="flex items-center gap-2">
-                            {isEditing ? (
-                              <input
-                                type="number"
-                                min="0"
-                                value={editScores[team] ?? "0"}
-                                onChange={(e) => setEditScores({ ...editScores, [team]: e.target.value })}
-                                className="w-16 px-2 py-1 text-lg font-bold text-center border border-gray-300 rounded"
-                              />
-                            ) : (
-                              <>
-                                <span className="text-lg font-bold">{result.score}</span>
-                                <span className={`text-xs px-2 py-1 rounded ${resultBadge}`}>
-                                  {result.result}
-                                </span>
-                              </>
+                {/* VS Layout */}
+                <div className="p-5">
+                  <div className="flex items-center justify-between gap-4">
+                    {/* Team 1 */}
+                    <div className={`flex-1 rounded-xl p-4 ${
+                      team0Result.result === "win"
+                        ? "bg-gradient-to-br from-blue-500 to-blue-600 text-white"
+                        : team0Result.result === "loss"
+                        ? "bg-gray-100 text-gray-700"
+                        : "bg-gray-100 text-gray-700"
+                    }`}>
+                      <div className="flex items-center justify-between mb-3">
+                        <span className={`text-xs font-semibold uppercase tracking-wide ${
+                          team0Result.result === "win" ? "text-blue-200" : "text-gray-500"
+                        }`}>
+                          {team0Result.result === "win" ? "🏆 Winner" : "Team 1"}
+                        </span>
+                        {isEditing ? (
+                          <input
+                            type="number"
+                            min="0"
+                            value={editScores[teams[0]] ?? "0"}
+                            onChange={(e) => setEditScores({ ...editScores, [teams[0]]: e.target.value })}
+                            className="w-16 px-2 py-1 text-2xl font-bold text-center border border-gray-300 rounded text-gray-900"
+                          />
+                        ) : (
+                          <span className="text-4xl font-bold">{team0Result.score}</span>
+                        )}
+                      </div>
+                      <div className="space-y-2">
+                        {match.participants.filter(p => p.team === teams[0]).map((p) => (
+                          <div key={p.player_id} className="flex items-center justify-between">
+                            <Link
+                              href={`/players/${p.player_id}`}
+                              className={`font-medium hover:underline ${team0Result.result === "win" ? "text-white" : "text-gray-900"}`}
+                            >
+                              {p.player_name}
+                            </Link>
+                            {!isEditing && (
+                              <span className={`text-sm font-mono ${
+                                p.elo_after > p.elo_before
+                                  ? team0Result.result === "win" ? "text-blue-200" : "text-green-600"
+                                  : p.elo_after < p.elo_before
+                                  ? team0Result.result === "win" ? "text-blue-200" : "text-red-500"
+                                  : team0Result.result === "win" ? "text-blue-200" : "text-gray-400"
+                              }`}>
+                                {formatRatingChange(p.elo_before, p.elo_after)}
+                              </span>
                             )}
                           </div>
-                        </div>
-                        <div className="space-y-2">
-                          {teamParticipants.map((p) => {
-                            return (
-                              <div key={p.player_id} className="text-sm">
-                                <div className="font-medium">{p.player_name}</div>
-                                {!isEditing && (
-                                  <div className="flex gap-4 text-gray-600 text-xs">
-                                    <span className={p.elo_after > p.elo_before ? "text-green-600" : p.elo_after < p.elo_before ? "text-red-600" : ""}>
-                                      Elo: {formatRatingChange(p.elo_before, p.elo_after)}
-                                    </span>
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
+                        ))}
                       </div>
-                    );
-                  })}
+                    </div>
+
+                    {/* VS */}
+                    <div className="flex-shrink-0 flex flex-col items-center">
+                      <div className="w-12 h-12 rounded-full bg-gray-200 flex items-center justify-center text-gray-500 font-bold text-sm">
+                        VS
+                      </div>
+                    </div>
+
+                    {/* Team 2 */}
+                    <div className={`flex-1 rounded-xl p-4 ${
+                      team1Result.result === "win"
+                        ? "bg-gradient-to-br from-red-500 to-red-600 text-white"
+                        : team1Result.result === "loss"
+                        ? "bg-gray-100 text-gray-700"
+                        : "bg-gray-100 text-gray-700"
+                    }`}>
+                      <div className="flex items-center justify-between mb-3">
+                        <span className={`text-xs font-semibold uppercase tracking-wide ${
+                          team1Result.result === "win" ? "text-red-200" : "text-gray-500"
+                        }`}>
+                          {team1Result.result === "win" ? "🏆 Winner" : "Team 2"}
+                        </span>
+                        {isEditing ? (
+                          <input
+                            type="number"
+                            min="0"
+                            value={editScores[teams[1]] ?? "0"}
+                            onChange={(e) => setEditScores({ ...editScores, [teams[1]]: e.target.value })}
+                            className="w-16 px-2 py-1 text-2xl font-bold text-center border border-gray-300 rounded text-gray-900"
+                          />
+                        ) : (
+                          <span className="text-4xl font-bold">{team1Result.score}</span>
+                        )}
+                      </div>
+                      <div className="space-y-2">
+                        {match.participants.filter(p => p.team === teams[1]).map((p) => (
+                          <div key={p.player_id} className="flex items-center justify-between">
+                            <Link
+                              href={`/players/${p.player_id}`}
+                              className={`font-medium hover:underline ${team1Result.result === "win" ? "text-white" : "text-gray-900"}`}
+                            >
+                              {p.player_name}
+                            </Link>
+                            {!isEditing && (
+                              <span className={`text-sm font-mono ${
+                                p.elo_after > p.elo_before
+                                  ? team1Result.result === "win" ? "text-red-200" : "text-green-600"
+                                  : p.elo_after < p.elo_before
+                                  ? team1Result.result === "win" ? "text-red-200" : "text-red-500"
+                                  : team1Result.result === "win" ? "text-red-200" : "text-gray-400"
+                              }`}>
+                                {formatRatingChange(p.elo_before, p.elo_after)}
+                              </span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
+                {/* Achievements */}
                 {match.achievements && match.achievements.length > 0 && (
-                  <div className="mt-3 pt-3 border-t border-gray-100">
+                  <div className="px-5 py-3 bg-gradient-to-r from-amber-50 to-yellow-50 border-t border-amber-200">
                     <div className="flex flex-wrap gap-2">
                       {match.achievements.map((achievement, idx) => (
                         <span
                           key={idx}
-                          className="inline-flex items-center gap-1.5 text-xs bg-amber-50 text-amber-900 border border-amber-200 rounded-full px-2.5 py-1 hover:bg-amber-100 transition-colors"
+                          className="inline-flex items-center gap-1.5 text-xs bg-white text-amber-900 border border-amber-200 rounded-full px-3 py-1.5 shadow-sm hover:shadow transition-shadow"
                           title={achievement.achievement_description}
                         >
-                          <span className="text-sm">{achievement.achievement_icon || '🏅'}</span>
-                          <span className="font-medium">{achievement.player_name}:</span>
-                          <span>{achievement.achievement_name.replace(/_/g, ' ')}</span>
+                          <span className="text-base">{achievement.achievement_icon || '🏅'}</span>
+                          <span className="font-semibold">{achievement.player_name}</span>
+                          <span className="text-amber-600">{achievement.achievement_name.replace(/_/g, ' ')}</span>
                         </span>
                       ))}
                     </div>
                   </div>
                 )}
 
+                {/* Edit Controls */}
                 {isEditing && (
-                  <div className="mt-4 flex gap-2">
+                  <div className="px-5 py-4 bg-gray-50 border-t border-gray-100 flex gap-3">
                     <button
                       onClick={() => saveEdit(match)}
                       disabled={saving}
-                      className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+                      className="bg-primary text-white px-4 py-2 rounded-lg hover:bg-primary-hover transition-colors disabled:opacity-50 font-medium"
                     >
                       {saving ? "Saving..." : "Save Changes"}
                     </button>
                     <button
                       onClick={cancelEdit}
                       disabled={saving}
-                      className="bg-gray-200 text-gray-800 px-4 py-2 rounded-lg hover:bg-gray-300 transition-colors"
+                      className="bg-gray-200 text-gray-800 px-4 py-2 rounded-lg hover:bg-gray-300 transition-colors font-medium"
                     >
                       Cancel
                     </button>
                     <button
                       onClick={() => deleteMatch(match)}
                       disabled={saving}
-                      className="ml-auto bg-red-100 text-red-700 px-4 py-2 rounded-lg hover:bg-red-200 transition-colors"
+                      className="ml-auto bg-red-100 text-red-700 px-4 py-2 rounded-lg hover:bg-red-200 transition-colors font-medium"
                     >
                       Delete Match
                     </button>
@@ -595,18 +666,22 @@ function MatchesPageContent() {
 
       {/* Pagination */}
       {totalMatches > 0 && (
-        <div className="mt-6 flex flex-wrap items-center justify-between gap-4 bg-white rounded-lg shadow p-4">
+        <div className="mt-8 flex flex-wrap items-center justify-between gap-4 bg-white rounded-xl shadow-lg p-5">
           <div className="text-sm text-gray-600">
-            Showing {((page - 1) * limit) + 1}-{Math.min(page * limit, totalMatches)} of {totalMatches} matches
+            Showing <span className="font-semibold text-gray-900">{((page - 1) * limit) + 1}</span>
+            {' '}-{' '}
+            <span className="font-semibold text-gray-900">{Math.min(page * limit, totalMatches)}</span>
+            {' '}of{' '}
+            <span className="font-semibold text-gray-900">{totalMatches}</span> matches
           </div>
 
           <div className="flex items-center gap-2">
             <button
               onClick={() => goToPage(page - 1)}
               disabled={page <= 1}
-              className="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-4 py-2 text-sm font-medium border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
-              Previous
+              ← Previous
             </button>
 
             <div className="flex items-center gap-1">
@@ -614,31 +689,31 @@ function MatchesPageContent() {
                 <>
                   <button
                     onClick={() => goToPage(1)}
-                    className="w-8 h-8 text-sm border border-gray-300 rounded hover:bg-gray-50"
+                    className="w-9 h-9 text-sm font-medium border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
                   >
                     1
                   </button>
-                  {page > 3 && <span className="px-1">...</span>}
+                  {page > 3 && <span className="px-1 text-gray-400">...</span>}
                 </>
               )}
 
               {page > 1 && (
                 <button
                   onClick={() => goToPage(page - 1)}
-                  className="w-8 h-8 text-sm border border-gray-300 rounded hover:bg-gray-50"
+                  className="w-9 h-9 text-sm font-medium border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
                 >
                   {page - 1}
                 </button>
               )}
 
-              <span className="w-8 h-8 flex items-center justify-center text-sm bg-blue-600 text-white rounded">
+              <span className="w-9 h-9 flex items-center justify-center text-sm font-bold bg-primary text-white rounded-lg">
                 {page}
               </span>
 
               {page < totalPages && (
                 <button
                   onClick={() => goToPage(page + 1)}
-                  className="w-8 h-8 text-sm border border-gray-300 rounded hover:bg-gray-50"
+                  className="w-9 h-9 text-sm font-medium border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
                 >
                   {page + 1}
                 </button>
@@ -646,10 +721,10 @@ function MatchesPageContent() {
 
               {page < totalPages - 1 && (
                 <>
-                  {page < totalPages - 2 && <span className="px-1">...</span>}
+                  {page < totalPages - 2 && <span className="px-1 text-gray-400">...</span>}
                   <button
                     onClick={() => goToPage(totalPages)}
-                    className="w-8 h-8 text-sm border border-gray-300 rounded hover:bg-gray-50"
+                    className="w-9 h-9 text-sm font-medium border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
                   >
                     {totalPages}
                   </button>
@@ -660,17 +735,17 @@ function MatchesPageContent() {
             <button
               onClick={() => goToPage(page + 1)}
               disabled={page >= totalPages}
-              className="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-4 py-2 text-sm font-medium border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
-              Next
+              Next →
             </button>
 
-            <div className="flex items-center gap-2 ml-4">
+            <div className="flex items-center gap-2 ml-4 pl-4 border-l border-gray-200">
               <span className="text-sm text-gray-600">Per page:</span>
               <select
                 value={limit}
                 onChange={(e) => changeLimit(Number(e.target.value))}
-                className="px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary font-medium"
               >
                 <option value="10">10</option>
                 <option value="20">20</option>

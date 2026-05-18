@@ -210,31 +210,46 @@ function NewMatchContent() {
   }, [team1Players, team2Players, ratings, score1, score2, selectedGameData]);
 
   return (
-    <div>
-      <h1 className="text-3xl font-bold mb-8">Record Match</h1>
+    <div className="max-w-4xl mx-auto">
+      <div className="text-center mb-8">
+        <h1 className="text-3xl font-bold mb-2">Record Match</h1>
+        {selectedGameData && (
+          <p className="text-gray-500">
+            {selectedGameData.score_type === 'best_of'
+              ? `Best of ${selectedGameData.score_value} games`
+              : `First to ${selectedGameData.score_value} points`}
+          </p>
+        )}
+      </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
-        <div className="grid grid-cols-2 gap-8">
-          <div>
-            <h2 className="text-lg font-semibold mb-4">Team 1</h2>
-            <div className="space-y-2 min-h-[100px] p-4 bg-blue-50 rounded-lg">
+        {/* Teams Section */}
+        <div className="grid grid-cols-2 gap-6">
+          {/* Team 1 */}
+          <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl p-5 text-white">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-bold">Team 1</h2>
+              <span className="text-3xl font-bold">{team1Score}</span>
+            </div>
+            <div className="space-y-2 min-h-[80px]">
               {team1Players.length === 0 ? (
-                <p className="text-gray-500 text-sm">No players selected</p>
+                <p className="text-blue-200 text-sm">Select players below</p>
               ) : (
                 team1Players.map((playerId) => {
                   const player = players.find((p) => p.id === playerId);
+                  const rating = ratings.find((r) => r.player_id === playerId);
                   return (
                     <div
                       key={playerId}
-                      className="flex items-center justify-between bg-white px-3 py-2 rounded"
+                      className="flex items-center justify-between bg-white/20 backdrop-blur px-3 py-2 rounded-lg"
                     >
-                      <span>{player?.name}</span>
+                      <span className="font-medium">{player?.name}</span>
                       <button
                         type="button"
                         onClick={() => togglePlayer(1, playerId)}
-                        className="text-red-600 hover:text-red-800 text-sm"
+                        className="text-blue-200 hover:text-white text-sm"
                       >
-                        Remove
+                        ✕
                       </button>
                     </div>
                   );
@@ -243,26 +258,30 @@ function NewMatchContent() {
             </div>
           </div>
 
-          <div>
-            <h2 className="text-lg font-semibold mb-4">Team 2</h2>
-            <div className="space-y-2 min-h-[100px] p-4 bg-red-50 rounded-lg">
+          {/* Team 2 */}
+          <div className="bg-gradient-to-br from-red-500 to-red-600 rounded-xl p-5 text-white">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-bold">Team 2</h2>
+              <span className="text-3xl font-bold">{team2Score}</span>
+            </div>
+            <div className="space-y-2 min-h-[80px]">
               {team2Players.length === 0 ? (
-                <p className="text-gray-500 text-sm">No players selected</p>
+                <p className="text-red-200 text-sm">Select players below</p>
               ) : (
                 team2Players.map((playerId) => {
                   const player = players.find((p) => p.id === playerId);
                   return (
                     <div
                       key={playerId}
-                      className="flex items-center justify-between bg-white px-3 py-2 rounded"
+                      className="flex items-center justify-between bg-white/20 backdrop-blur px-3 py-2 rounded-lg"
                     >
-                      <span>{player?.name}</span>
+                      <span className="font-medium">{player?.name}</span>
                       <button
                         type="button"
                         onClick={() => togglePlayer(2, playerId)}
-                        className="text-red-600 hover:text-red-800 text-sm"
+                        className="text-red-200 hover:text-white text-sm"
                       >
-                        Remove
+                        ✕
                       </button>
                     </div>
                   );
@@ -272,110 +291,116 @@ function NewMatchContent() {
           </div>
         </div>
 
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Score
-          </label>
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-medium text-blue-700">Team 1:</span>
+        {/* Score Input */}
+        <div className="bg-white rounded-xl shadow-lg p-6">
+          <h3 className="text-lg font-semibold mb-4 text-center">Score</h3>
+          <div className="flex items-center justify-center gap-8">
+            <div className="text-center">
+              <label className="block text-sm font-medium text-blue-600 mb-2">Team 1</label>
               <input
                 type="number"
                 value={team1Score}
                 onChange={(e) => setTeam1Score(e.target.value)}
                 min="0"
-                className="w-20 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-24 text-center text-4xl font-bold border-2 border-blue-200 rounded-xl px-3 py-2 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
               />
             </div>
-            <span className="text-gray-400 text-xl">-</span>
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-medium text-red-700">Team 2:</span>
+            <div className="text-3xl font-bold text-gray-300">VS</div>
+            <div className="text-center">
+              <label className="block text-sm font-medium text-red-600 mb-2">Team 2</label>
               <input
                 type="number"
                 value={team2Score}
                 onChange={(e) => setTeam2Score(e.target.value)}
                 min="0"
-                className="w-20 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-24 text-center text-4xl font-bold border-2 border-red-200 rounded-xl px-3 py-2 focus:outline-none focus:border-red-500 focus:ring-2 focus:ring-red-200"
               />
             </div>
           </div>
-          <p className="text-sm text-gray-600 mt-2">
-            Result: <span className="font-semibold">{winnerText}</span>
-          </p>
-          <div className="text-xs text-gray-500 mt-1">
-            { prediction && (
-            <div>
-            <span className={`font-mono ${prediction.projectedChange1 >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-              {prediction.projectedChange1 >= 0 ? '+' : ''}{prediction.projectedChange1.toFixed(3)}
+          <div className="text-center mt-4">
+            <span className={`inline-flex items-center gap-2 px-4 py-2 rounded-full text-lg font-semibold ${
+              score1 > score2
+                ? 'bg-blue-100 text-blue-700'
+                : score2 > score1
+                ? 'bg-red-100 text-red-700'
+                : 'bg-gray-100 text-gray-700'
+            }`}>
+              {score1 > score2 ? '🏆 Team 1 wins!' : score2 > score1 ? '🏆 Team 2 wins!' : '⚖️ Tie'}
             </span>
-            <span> / </span>
-            <span className={`font-mono ${prediction.projectedChange2 >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-              {prediction.projectedChange2 >= 0 ? '+' : ''}{prediction.projectedChange2.toFixed(3)}
-            </span>
-            </div>
-            )
-            }
           </div>
-
-          {prediction && (
-            <div className="mt-3 p-3 bg-gray-50 rounded-lg">
-              <p className="text-sm font-medium text-gray-700 mb-2">Expected Result (based on current Elo ratings)</p>
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-blue-700">Team 1:</span>
-                  <span className="font-mono">
-                    {prediction.expectedTeam1Score}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-red-700">Team 2:</span>
-                  <span className="font-mono">
-                    {prediction.expectedTeam2Score}
-                  </span>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-xs text-blue-700">(score ratio: {prediction.expectedTeam1.toFixed(3)}, team elo: {prediction.team1Elo.toFixed(1)})</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-xs text-red-700">(score ratio: {prediction.expectedTeam2.toFixed(3)}, team elo: {prediction.team2Elo.toFixed(1)})</span>
-                </div>
-              </div>
-            </div>
-          )}
         </div>
 
-        {availablePlayers.length > 0 && (
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Add Players
-            </label>
-            <div className="flex flex-wrap gap-2">
-              {availablePlayers.map((player) => (
-                <div key={player.id} className="flex gap-1">
-                  <button
-                    type="button"
-                    onClick={() => togglePlayer(1, player.id)}
-                    className="px-3 py-1 text-sm bg-blue-100 text-blue-800 rounded hover:bg-blue-200"
-                  >
-                    {player.name} → T1
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => togglePlayer(2, player.id)}
-                    className="px-3 py-1 text-sm bg-red-100 text-red-800 rounded hover:bg-red-200"
-                  >
-                    → T2
-                  </button>
+        {/* Predicted Changes */}
+        {prediction && (
+          <div className="bg-gradient-to-r from-slate-800 to-slate-900 rounded-xl p-5 text-white">
+            <h3 className="text-sm font-semibold mb-3 text-slate-400 uppercase tracking-wide">Projected Elo Changes</h3>
+            <div className="flex justify-around">
+              <div className="text-center">
+                <div className="text-xs text-slate-400 mb-1">Team 1</div>
+                <div className={`text-2xl font-bold font-mono ${prediction.projectedChange1 >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                  {prediction.projectedChange1 >= 0 ? '+' : ''}{prediction.projectedChange1.toFixed(1)}
                 </div>
-              ))}
+              </div>
+              <div className="text-center">
+                <div className="text-xs text-slate-400 mb-1">Team 2</div>
+                <div className={`text-2xl font-bold font-mono ${prediction.projectedChange2 >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                  {prediction.projectedChange2 >= 0 ? '+' : ''}{prediction.projectedChange2.toFixed(1)}
+                </div>
+              </div>
+            </div>
+            <div className="mt-3 pt-3 border-t border-slate-700 grid grid-cols-2 gap-4 text-xs text-slate-400">
+              <div>
+                <span className="text-blue-400">Team 1 Elo:</span> {prediction.team1Elo.toFixed(0)} | Expected: {prediction.expectedTeam1Score}
+              </div>
+              <div>
+                <span className="text-red-400">Team 2 Elo:</span> {prediction.team2Elo.toFixed(0)} | Expected: {prediction.expectedTeam2Score}
+              </div>
             </div>
           </div>
         )}
 
+        {/* Add Players */}
+        {availablePlayers.length > 0 && (
+          <div className="bg-white rounded-xl shadow-lg p-5">
+            <h3 className="text-sm font-semibold mb-3 text-gray-500 uppercase tracking-wide">Add Players</h3>
+            <div className="flex flex-wrap gap-2">
+              {availablePlayers.map((player) => {
+                const rating = ratings.find((r) => r.player_id === player.id);
+                return (
+                  <div key={player.id} className="flex rounded-lg overflow-hidden border border-gray-200">
+                    <button
+                      type="button"
+                      onClick={() => togglePlayer(1, player.id)}
+                      className="px-3 py-1.5 text-sm font-medium bg-white text-gray-700 hover:bg-blue-50 hover:text-blue-700 transition-colors"
+                    >
+                      {player.name}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => togglePlayer(1, player.id)}
+                      className="px-2 py-1.5 text-sm font-bold bg-blue-100 text-blue-700 hover:bg-blue-200 transition-colors"
+                      title="Add to Team 1"
+                    >
+                      T1
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => togglePlayer(2, player.id)}
+                      className="px-2 py-1.5 text-sm font-bold bg-red-100 text-red-700 hover:bg-red-200 transition-colors"
+                      title="Add to Team 2"
+                    >
+                      T2
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Notes */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
+          <label className="block text-sm font-semibold text-gray-700 mb-2">
             Notes (optional)
           </label>
           <input
@@ -383,24 +408,30 @@ function NewMatchContent() {
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             placeholder="e.g., Great comeback!"
-            className="block w-full max-w-md px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
           />
         </div>
 
-        {error && <p className="text-red-600 text-sm">{error}</p>}
+        {/* Error */}
+        {error && (
+          <div className="p-4 bg-red-50 border border-red-200 rounded-xl text-red-700">
+            {error}
+          </div>
+        )}
 
-        <div className="flex gap-4">
+        {/* Submit */}
+        <div className="flex gap-4 justify-center">
           <button
             type="submit"
             disabled={submitting || team1Players.length === 0 || team2Players.length === 0}
-            className="bg-primary text-white px-4 py-2 rounded-lg hover:bg-primary-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="px-8 py-3 bg-primary text-white rounded-xl font-semibold text-lg hover:bg-primary-hover transition-all shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {submitting ? "Recording..." : "Record Match"}
+            {submitting ? "Recording..." : "✓ Record Match"}
           </button>
           <button
             type="button"
             onClick={() => router.push("/")}
-            className="bg-gray-200 text-gray-800 px-4 py-2 rounded-lg hover:bg-gray-300 transition-colors"
+            className="px-6 py-3 bg-gray-200 text-gray-700 rounded-xl font-medium hover:bg-gray-300 transition-colors"
           >
             Cancel
           </button>
@@ -408,10 +439,10 @@ function NewMatchContent() {
       </form>
 
       {players.length === 0 && (
-        <div className="mt-8 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-          <p className="text-yellow-800">
+        <div className="mt-8 p-4 bg-amber-50 border border-amber-200 rounded-xl">
+          <p className="text-amber-800">
             No players available.{" "}
-            <a href="/players" className="underline">
+            <a href="/players" className="underline font-medium">
               Add players first
             </a>{" "}
             before recording a match.

@@ -118,25 +118,37 @@ export default function LeaderboardClient({
       </div>
 
       {gameStats && (
-        <div className="mb-6 grid grid-cols-2 sm:grid-cols-4 gap-4">
-          <div className="bg-white rounded-lg shadow p-4">
-            <div className="text-sm text-gray-500">Matches Played</div>
-            <div className="text-2xl font-bold text-gray-900">{gameStats.total_matches}</div>
+        <div className="mb-8 grid grid-cols-2 sm:grid-cols-4 gap-4">
+          <div className="bg-gradient-to-br from-slate-800 to-slate-900 rounded-xl p-5 text-white shadow-lg">
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-2xl">🎮</span>
+              <span className="text-sm font-medium text-slate-300 uppercase tracking-wide">Matches</span>
+            </div>
+            <div className="text-3xl font-bold">{gameStats.total_matches.toLocaleString()}</div>
           </div>
-          <div className="bg-white rounded-lg shadow p-4">
-            <div className="text-sm text-gray-500">Active Players</div>
-            <div className="text-2xl font-bold text-gray-900">{gameStats.active_players}</div>
+          <div className="bg-gradient-to-br from-emerald-600 to-emerald-700 rounded-xl p-5 text-white shadow-lg">
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-2xl">👥</span>
+              <span className="text-sm font-medium text-emerald-200 uppercase tracking-wide">Players</span>
+            </div>
+            <div className="text-3xl font-bold">{gameStats.active_players}</div>
             {gameStats.total_players > gameStats.active_players && (
-              <div className="text-xs text-gray-400">{gameStats.total_players} total</div>
+              <div className="text-xs text-emerald-200 mt-1">{gameStats.total_players} total</div>
             )}
           </div>
-          <div className="bg-white rounded-lg shadow p-4">
-            <div className="text-sm text-gray-500">Team 1 Points</div>
-            <div className="text-2xl font-bold text-blue-600">{gameStats.team0_points}</div>
+          <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl p-5 text-white shadow-lg">
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-2xl">🔵</span>
+              <span className="text-sm font-medium text-blue-200 uppercase tracking-wide">Team 1</span>
+            </div>
+            <div className="text-3xl font-bold">{gameStats.team0_points.toLocaleString()}</div>
           </div>
-          <div className="bg-white rounded-lg shadow p-4">
-            <div className="text-sm text-gray-500">Team 2 Points</div>
-            <div className="text-2xl font-bold text-red-600">{gameStats.team1_points}</div>
+          <div className="bg-gradient-to-br from-red-500 to-red-600 rounded-xl p-5 text-white shadow-lg">
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-2xl">🔴</span>
+              <span className="text-sm font-medium text-red-200 uppercase tracking-wide">Team 2</span>
+            </div>
+            <div className="text-3xl font-bold">{gameStats.team1_points.toLocaleString()}</div>
           </div>
         </div>
       )}

@@ -13,12 +13,12 @@ interface Game {
 }
 
 const COLOR_PRESETS = [
-  { name: 'Blue', primary: '#2563eb', accent: '#dc2626' },
-  { name: 'Green', primary: '#16a34a', accent: '#dc2626' },
-  { name: 'Purple', primary: '#9333ea', accent: '#f97316' },
-  { name: 'Orange', primary: '#ea580c', accent: '#0891b2' },
-  { name: 'Teal', primary: '#0d9488', accent: '#f43f5e' },
-  { name: 'Red', primary: '#dc2626', accent: '#2563eb' },
+  { name: 'Ocean Blue', primary: '#2563eb', accent: '#dc2626', emoji: '🌊' },
+  { name: 'Forest', primary: '#16a34a', accent: '#dc2626', emoji: '🌲' },
+  { name: 'Royal Purple', primary: '#9333ea', accent: '#f97316', emoji: '👑' },
+  { name: 'Sunset Orange', primary: '#ea580c', accent: '#0891b2', emoji: '🌅' },
+  { name: 'Teal Wave', primary: '#0d9488', accent: '#f43f5e', emoji: '🏄' },
+  { name: 'Cherry Red', primary: '#dc2626', accent: '#2563eb', emoji: '🍒' },
 ];
 
 export default function SettingsPage() {
@@ -141,26 +141,31 @@ export default function SettingsPage() {
   }
 
   return (
-    <div>
+    <div className="max-w-4xl mx-auto">
       <div className="flex items-center justify-between mb-8">
-        <h1 className="text-3xl font-bold">Settings</h1>
+        <div>
+          <h1 className="text-3xl font-bold">Settings</h1>
+          <p className="text-gray-500 mt-1">Customize your Office Games experience</p>
+        </div>
         <Link
           href="/"
-          className="bg-gray-200 text-gray-800 px-4 py-2 rounded-lg hover:bg-gray-300 transition-colors"
+          className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg font-medium hover:bg-gray-300 transition-colors"
         >
-          Back to Leaderboard
+          ← Back
         </Link>
       </div>
 
-      <div className="bg-white rounded-lg shadow p-6">
-        <h2 className="text-xl font-semibold mb-4">Branding</h2>
-        <p className="text-gray-600 mb-6">
-          Customize the app name and logo to match your organization.
-        </p>
-
-        <div className="space-y-4">
+      {/* Branding Section */}
+      <div className="bg-white rounded-xl shadow-lg overflow-hidden mb-6">
+        <div className="px-6 py-4 bg-gradient-to-r from-slate-800 to-slate-900">
+          <h2 className="text-lg font-bold text-white flex items-center gap-2">
+            <span className="text-xl">✏️</span> Branding
+          </h2>
+          <p className="text-slate-300 text-sm mt-1">Customize the app name and logo</p>
+        </div>
+        <div className="p-6 space-y-6">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-semibold text-gray-700 mb-2">
               App Name
             </label>
             <input
@@ -168,237 +173,275 @@ export default function SettingsPage() {
               value={companyName}
               onChange={(e) => setCompanyName(e.target.value)}
               placeholder="Office Games"
-              className="w-full max-w-md px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full max-w-md px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent text-lg"
             />
-            <p className="text-xs text-gray-500 mt-1">
+            <p className="text-xs text-gray-500 mt-2">
               This name will appear in the navigation bar.
             </p>
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-semibold text-gray-700 mb-2">
               Logo URL
             </label>
-            <input
-              type="url"
-              value={logoUrl}
-              onChange={(e) => setLogoUrl(e.target.value)}
-              placeholder="https://example.com/logo.png"
-              className="w-full max-w-md px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-            {logoUrl && (
-              <div className="mt-2 flex items-center gap-2">
-                <div className="text-xs text-gray-500">Preview:</div>
-                <img
-                  src={logoUrl}
-                  alt="Logo preview"
-                  className="h-8 w-8 object-contain rounded border"
-                  onError={(e) => {
-                    (e.target as HTMLImageElement).style.display = 'none';
-                  }}
+            <div className="flex gap-4 items-start">
+              <div className="flex-1 max-w-md">
+                <input
+                  type="url"
+                  value={logoUrl}
+                  onChange={(e) => setLogoUrl(e.target.value)}
+                  placeholder="https://example.com/logo.png"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                 />
               </div>
-            )}
+              <div className="w-16 h-16 bg-gray-100 rounded-xl flex items-center justify-center overflow-hidden">
+                {logoUrl ? (
+                  <img
+                    src={logoUrl}
+                    alt="Logo preview"
+                    className="w-12 h-12 object-contain"
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).style.display = 'none';
+                    }}
+                  />
+                ) : (
+                  <span className="text-2xl text-gray-400">🖼️</span>
+                )}
+              </div>
+            </div>
+            <p className="text-xs text-gray-500 mt-2">
+              Enter a URL to your logo image (PNG, JPG, or SVG)
+            </p>
           </div>
         </div>
       </div>
 
-      <div className="bg-white rounded-lg shadow p-6 mt-6">
-        <h2 className="text-xl font-semibold mb-4">Colors</h2>
-        <p className="text-gray-600 mb-6">
-          Choose primary and accent colors for the app. Primary color is used for buttons and links. Accent color is used for highlights and warnings.
-        </p>
-
-        <div className="space-y-6">
+      {/* Colors Section */}
+      <div className="bg-white rounded-xl shadow-lg overflow-hidden mb-6">
+        <div className="px-6 py-4 bg-gradient-to-r from-purple-600 to-pink-600">
+          <h2 className="text-lg font-bold text-white flex items-center gap-2">
+            <span className="text-xl">🎨</span> Colors
+          </h2>
+          <p className="text-purple-200 text-sm mt-1">Choose your app's color scheme</p>
+        </div>
+        <div className="p-6 space-y-6">
+          {/* Presets */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Color Presets
+            <label className="block text-sm font-semibold text-gray-700 mb-3">
+              Quick Presets
             </label>
-            <div className="flex flex-wrap gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
               {COLOR_PRESETS.map((preset) => (
                 <button
                   key={preset.name}
                   onClick={() => applyPreset(preset)}
-                  className="flex items-center gap-2 px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                  className="group relative p-3 border-2 border-gray-200 rounded-xl hover:border-primary transition-all hover:shadow-md"
                 >
-                  <div className="flex">
+                  <div className="text-2xl mb-2">{preset.emoji}</div>
+                  <div className="text-sm font-medium text-gray-700">{preset.name}</div>
+                  <div className="flex justify-center gap-1 mt-2">
                     <div
-                      className="w-4 h-4 rounded-l"
+                      className="w-4 h-4 rounded"
                       style={{ backgroundColor: preset.primary }}
                     />
                     <div
-                      className="w-4 h-4 rounded-r"
+                      className="w-4 h-4 rounded"
                       style={{ backgroundColor: preset.accent }}
                     />
                   </div>
-                  <span className="text-sm">{preset.name}</span>
                 </button>
               ))}
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Custom Colors */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-semibold text-gray-700 mb-2">
                 Primary Color
               </label>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-3">
                 <input
                   type="color"
                   value={primaryColor}
                   onChange={(e) => setPrimaryColor(e.target.value)}
-                  className="w-12 h-10 border border-gray-300 rounded cursor-pointer"
+                  className="w-14 h-14 border-2 border-gray-200 rounded-xl cursor-pointer"
                 />
-                <input
-                  type="text"
-                  value={primaryColor}
-                  onChange={(e) => setPrimaryColor(e.target.value)}
-                  className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
+                <div className="flex-1">
+                  <input
+                    type="text"
+                    value={primaryColor}
+                    onChange={(e) => setPrimaryColor(e.target.value)}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent font-mono"
+                  />
+                </div>
               </div>
+              <p className="text-xs text-gray-500 mt-2">Used for buttons, links, and primary actions</p>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-semibold text-gray-700 mb-2">
                 Accent Color
               </label>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-3">
                 <input
                   type="color"
                   value={accentColor}
                   onChange={(e) => setAccentColor(e.target.value)}
-                  className="w-12 h-10 border border-gray-300 rounded cursor-pointer"
+                  className="w-14 h-14 border-2 border-gray-200 rounded-xl cursor-pointer"
                 />
-                <input
-                  type="text"
-                  value={accentColor}
-                  onChange={(e) => setAccentColor(e.target.value)}
-                  className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
+                <div className="flex-1">
+                  <input
+                    type="text"
+                    value={accentColor}
+                    onChange={(e) => setAccentColor(e.target.value)}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent font-mono"
+                  />
+                </div>
               </div>
+              <p className="text-xs text-gray-500 mt-2">Used for highlights and warnings</p>
             </div>
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Preview
+          {/* Live Preview */}
+          <div className="p-5 bg-gray-50 rounded-xl border border-gray-200">
+            <label className="block text-sm font-semibold text-gray-500 mb-4 uppercase tracking-wide">
+              Live Preview
             </label>
-            <div className="p-4 bg-gray-50 rounded-lg">
-              <div className="flex items-center gap-4 mb-4">
+            <div className="bg-white rounded-xl shadow-lg p-4">
+              <div className="flex items-center justify-between mb-4 pb-4 border-b border-gray-100">
+                <div className="flex items-center gap-3">
+                  <div
+                    className="w-10 h-10 rounded-lg flex items-center justify-center text-white font-bold"
+                    style={{ backgroundColor: primaryColor }}
+                  >
+                    {companyName?.charAt(0) || 'O'}
+                  </div>
+                  <span className="font-bold text-lg">{companyName || 'Office Games'}</span>
+                </div>
+                <span style={{ color: primaryColor }} className="font-medium">Link</span>
+              </div>
+              <div className="flex items-center gap-3">
                 <button
-                  className="px-4 py-2 rounded-lg text-white"
+                  className="px-4 py-2 rounded-lg text-white font-medium shadow-sm"
                   style={{ backgroundColor: primaryColor }}
                 >
                   Primary Button
                 </button>
                 <button
-                  className="px-4 py-2 rounded-lg bg-gray-200 text-gray-800 hover:bg-gray-300 transition-colors"
+                  className="px-4 py-2 rounded-lg bg-gray-200 text-gray-800 font-medium"
                 >
-                  Secondary Button
+                  Secondary
                 </button>
-              </div>
-              <div className="flex items-center gap-4">
-                <span style={{ color: primaryColor }} className="font-medium">
-                  Primary Link
-                </span>
                 <span style={{ color: accentColor }} className="font-medium">
-                  Accent Text
+                  Accent
                 </span>
               </div>
             </div>
           </div>
 
-          <button
-            onClick={handleThemeSave}
-            disabled={savingTheme}
-            className="bg-primary text-white px-4 py-2 rounded-lg hover:bg-primary-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {savingTheme ? "Saving..." : "Save Theme"}
-          </button>
+          {/* Save Button */}
+          <div className="flex justify-end">
+            <button
+              onClick={handleThemeSave}
+              disabled={savingTheme}
+              className="px-6 py-3 bg-primary text-white rounded-xl font-semibold hover:bg-primary-hover transition-all shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {savingTheme ? "Saving..." : "💾 Save Theme"}
+            </button>
+          </div>
         </div>
       </div>
 
-      <div className="bg-white rounded-lg shadow p-6 mt-6">
-        <h2 className="text-xl font-semibold mb-4">Game Images</h2>
-        <p className="text-gray-600 mb-6">
-          Set an image URL for each game to be used in Google Chat notifications.
-          This can be any publicly accessible image URL (e.g., from a CDN or image hosting service).
-        </p>
-
-        {loading ? (
-          <div className="text-gray-500">Loading...</div>
-        ) : (
-          <div className="space-y-4">
-            {games.map((game) => (
-              <div key={game.id} className="flex items-center gap-4 p-4 bg-gray-50 rounded-lg">
-                <div className="flex-1">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    {formatGameName(game.name)}
-                  </label>
-                  <input
-                    type="url"
-                    value={editedUrls[game.id] || ""}
-                    onChange={(e) => setEditedUrls({ ...editedUrls, [game.id]: e.target.value })}
-                    placeholder="https://example.com/game-icon.png"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                  {game.image_url && (
-                    <div className="mt-2 flex items-center gap-2">
-                      <div className="text-xs text-gray-500">Current:</div>
-                      <img
-                        src={game.image_url}
-                        alt={`${game.name} icon`}
-                        className="w-8 h-8 object-contain rounded border"
-                        onError={(e) => {
-                          (e.target as HTMLImageElement).style.display = 'none';
-                        }}
-                      />
+      {/* Game Images Section */}
+      <div className="bg-white rounded-xl shadow-lg overflow-hidden mb-6">
+        <div className="px-6 py-4 bg-gradient-to-r from-blue-500 to-cyan-500">
+          <h2 className="text-lg font-bold text-white flex items-center gap-2">
+            <span className="text-xl">🎮</span> Game Images
+          </h2>
+          <p className="text-blue-100 text-sm mt-1">Set images for each game (used in notifications)</p>
+        </div>
+        <div className="p-6">
+          {loading ? (
+            <div className="text-gray-500">Loading...</div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {games.map((game) => (
+                <div key={game.id} className="bg-gray-50 rounded-xl p-4">
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="w-10 h-10 bg-gray-200 rounded-lg flex items-center justify-center overflow-hidden">
+                      {editedUrls[game.id] || game.image_url ? (
+                        <img
+                          src={editedUrls[game.id] || game.image_url || ''}
+                          alt={game.name}
+                          className="w-8 h-8 object-contain"
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).style.display = 'none';
+                          }}
+                        />
+                      ) : (
+                        <span className="text-xl">🎯</span>
+                      )}
                     </div>
-                  )}
+                    <span className="font-semibold text-gray-900">{formatGameName(game.name)}</span>
+                  </div>
+                  <div className="flex gap-2">
+                    <input
+                      type="url"
+                      value={editedUrls[game.id] || ""}
+                      onChange={(e) => setEditedUrls({ ...editedUrls, [game.id]: e.target.value })}
+                      placeholder="https://example.com/icon.png"
+                      className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent text-sm"
+                    />
+                    <button
+                      onClick={() => saveImageUrl(game.id)}
+                      disabled={saving === game.id}
+                      className="px-3 py-2 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary-hover transition-colors disabled:opacity-50"
+                    >
+                      {saving === game.id ? "..." : "Save"}
+                    </button>
+                  </div>
                 </div>
-                <button
-                  onClick={() => saveImageUrl(game.id)}
-                  disabled={saving === game.id}
-                  className="bg-primary text-white px-4 py-2 rounded-lg hover:bg-primary-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {saving === game.id ? "Saving..." : "Save"}
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
-      <div className="bg-white rounded-lg shadow p-6 mt-6">
-        <h2 className="text-xl font-semibold mb-4">Achievements</h2>
-        <p className="text-gray-600 mb-6">
-          Recalculate achievements for all historical match data. This is useful after editing or deleting matches
-          to ensure achievement data is accurate, or when new achievements have been added.
-        </p>
+      {/* Achievements Section */}
+      <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+        <div className="px-6 py-4 bg-gradient-to-r from-amber-500 to-orange-500">
+          <h2 className="text-lg font-bold text-white flex items-center gap-2">
+            <span className="text-xl">🏆</span> Achievements
+          </h2>
+          <p className="text-amber-100 text-sm mt-1">Recalculate achievement data</p>
+        </div>
+        <div className="p-6">
+          <p className="text-gray-600 mb-4">
+            Recalculate achievements for all historical match data. Useful after editing matches or when new achievements are added.
+          </p>
+          <button
+            onClick={recalculateAchievements}
+            disabled={recalculating}
+            className="px-4 py-2 bg-amber-500 text-white rounded-lg font-medium hover:bg-amber-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {recalculating ? "Recalculating..." : "🔄 Recalculate All Achievements"}
+          </button>
 
-        <button
-          onClick={recalculateAchievements}
-          disabled={recalculating}
-          className="bg-yellow-600 text-white px-4 py-2 rounded-lg hover:bg-yellow-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {recalculating ? "Recalculating..." : "Recalculate All Achievements"}
-        </button>
-
-        {recalcResults && (
-          <div className="mt-6">
-            <h3 className="font-semibold mb-2">Results:</h3>
-            <div className="space-y-2">
+          {recalcResults && (
+            <div className="mt-6 space-y-2">
+              <h3 className="font-semibold text-gray-900">Results:</h3>
               {recalcResults.map((result) => (
                 <div key={result.game_name} className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
                   <span className="font-medium">{formatGameName(result.game_name)}</span>
                   <span className="text-sm text-gray-600">
-                    {result.matches_processed} matches processed, {result.achievements_awarded} achievements awarded
+                    {result.matches_processed} matches • {result.achievements_awarded} achievements
                   </span>
                 </div>
               ))}
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </div>
   );

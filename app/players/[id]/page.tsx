@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area, AreaChart } from "recharts";
 
 interface EloHistoryPoint {
   elo: number;
@@ -61,6 +61,7 @@ interface GameStat {
   game_name: string;
   score_type: string;
   score_value: number;
+  image_url?: string | null;
   elo: number;
   total_matches: number;
   wins: number;
@@ -114,6 +115,22 @@ interface PlayerStats {
   recentMatches: RecentMatch[];
 }
 
+// Generate a consistent gradient based on player name
+function getPlayerGradient(name: string): string {
+  const gradients = [
+    'from-blue-500 to-indigo-600',
+    'from-emerald-500 to-teal-600',
+    'from-purple-500 to-violet-600',
+    'from-orange-500 to-amber-600',
+    'from-pink-500 to-rose-600',
+    'from-cyan-500 to-sky-600',
+    'from-fuchsia-500 to-purple-600',
+    'from-lime-500 to-green-600',
+  ];
+  const index = name.charCodeAt(0) % gradients.length;
+  return gradients[index];
+}
+
 export default function PlayerProfilePage() {
   const params = useParams();
   const router = useRouter();
@@ -121,6 +138,83 @@ export default function PlayerProfilePage() {
   const [stats, setStats] = useState<PlayerStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [expandedGames, setExpandedGames] = useState<Set<number>>(new Set());
+
+  // Calculate career highlights across all games
+  const getCareerHighlights = () => {
+    if (!stats || stats.gameStats.length === 0) return null;
+
+    const highlights: { icon: string; label: string; value: string; sublabel?: string }[] = [];
+
+    // Find highest rating across all games
+    const highestRating = stats.gameStats.reduce((max, game) =>
+      game.records.highest_elo > max.elo ? { elo: game.records.highest_elo, game: game.game_name, date: game.records.highest_elo_date } : max
+    , { elo: 0, game: '', date: null as string | null });
+
+    if (highestRating.elo > 0) {
+      highlights.push({
+        icon: '🏆',
+        label: 'Peak Rating',
+        value: highestRating.elo.toFixed(3),
+        sublabel: `in ${formatGameName(highestRating.game)}`
+      });
+    }
+
+    // Find longest win streak
+    const longestStreak = stats.gameStats.reduce((max, game) =>
+      game.records.longest_win_streak > max.streak ? { streak: game.records.longest_win_streak, game: game.game_name } : max
+    , { streak: 0, game: '' });
+
+    if (longestStreak.streak >= 3) {
+      highlights.push({
+        icon: '🔥',
+        label: 'Best Win Streak',
+        value: `${longestStreak.streak} games`,
+        sublabel: `in ${formatGameName(longestStreak.game)}`
+      });
+    }
+
+    // Find longest unbeaten run
+    const longestUnbeaten = stats.gameStats.reduce((max, game) =>
+      game.records.longest_unbeaten_streak > max.streak ? { streak: game.records.longest_unbeaten_streak, game: game.game_name } : max
+    , { streak: 0, game: '' });
+
+    if (longestUnbeaten.streak >= 5) {
+      highlights.push({
+        icon: '💪',
+        label: 'Longest Unbeaten Run',
+        value: `${longestUnbeaten.streak} games`,
+        sublabel: `in ${formatGameName(longestUnbeaten.game)}`
+      });
+    }
+
+    // Total achievements count
+    const totalAchievements = stats.gameStats.reduce((sum, game) => sum + (game.achievements?.length || 0), 0);
+    if (totalAchievements > 0) {
+      highlights.push({
+        icon: '🏅',
+        label: 'Achievements',
+        value: `${totalAchievements}`,
+        sublabel: `across ${stats.gameStats.length} ${stats.gameStats.length === 1 ? 'game' : 'games'}`
+      });
+    }
+
+    // Find biggest skill gain
+    const biggestGain = stats.gameStats.reduce((max, game) =>
+      (game.records.biggest_gain?.gain || 0) > max.gain ? { gain: game.records.biggest_gain!.gain, game: game.game_name } : max
+    , { gain: 0, game: '' });
+
+    if (biggestGain.gain > 0) {
+      highlights.push({
+        icon: '⚡',
+        label: 'Best Victory',
+        value: `+${biggestGain.gain.toFixed(3)}`,
+        sublabel: `in ${formatGameName(biggestGain.game)}`
+      });
+    }
+
+    return highlights.length > 0 ? highlights : null;
+  };
 
   useEffect(() => {
     fetch(`/api/player-stats?player_id=${playerId}`)
@@ -178,389 +272,509 @@ export default function PlayerProfilePage() {
     }
   }
 
+  const toggleGame = (gameId: number) => {
+    setExpandedGames((prev) => {
+      const next = new Set(prev);
+      if (next.has(gameId)) {
+        next.delete(gameId);
+      } else {
+        next.add(gameId);
+      }
+      return next;
+    });
+  };
+
   if (loading) {
     return (
-      <div className="text-gray-500 p-8">
-        Loading...
+      <div className="flex items-center justify-center min-h-64">
+        <div className="text-gray-500">Loading...</div>
       </div>
     );
   }
 
   if (error || !stats) {
     return (
-      <div className="p-8">
-        <div className="text-red-600 mb-4">{error || "Player not found"}</div>
-        <button
-          onClick={() => router.push("/players")}
-          className="text-blue-600 hover:underline"
-        >
-          ← Back to Players
-        </button>
+      <div className="max-w-2xl mx-auto p-8">
+        <div className="bg-red-50 border border-red-200 rounded-xl p-6 text-center">
+          <div className="text-4xl mb-3">😕</div>
+          <div className="text-red-700 font-semibold mb-2">{error || "Player not found"}</div>
+          <button
+            onClick={() => router.push("/players")}
+            className="text-primary hover:underline font-medium"
+          >
+            ← Back to Players
+          </button>
+        </div>
       </div>
     );
   }
 
   return (
     <div>
-      <button
-        onClick={() => router.push("/players")}
-        className="text-blue-600 hover:underline mb-4"
+      {/* Back link */}
+      <Link
+        href="/players"
+        className="inline-flex items-center gap-2 text-gray-500 hover:text-primary transition-colors mb-6"
       >
-        ← Back to Players
-      </button>
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+        </svg>
+        Back to Players
+      </Link>
 
-      <div className="flex items-center gap-4 mb-8">
-        <h1 className="text-3xl font-bold">
-          {stats.player.name}
-          {stats.player.status === "retired" && (
-            <span className="text-lg font-normal text-gray-500 ml-2">(Retired)</span>
-          )}
-        </h1>
-        <span className="text-sm text-gray-500">
-          Player since {formatDate(stats.player.created_at)}
-        </span>
+      {/* Player Header */}
+      <div className="bg-gradient-to-br from-slate-800 to-slate-900 rounded-2xl shadow-xl overflow-hidden mb-6">
+        <div className="px-8 py-6">
+          <div className="flex items-center gap-6">
+            {/* Avatar */}
+            <div className={`w-20 h-20 rounded-2xl bg-gradient-to-br ${getPlayerGradient(stats.player.name)} flex items-center justify-center text-white text-4xl font-bold shadow-lg`}>
+              {stats.player.name.charAt(0).toUpperCase()}
+            </div>
+
+            {/* Name and status */}
+            <div className="flex-1">
+              <div className="flex items-center gap-3">
+                <h1 className="text-3xl font-bold text-white">
+                  {stats.player.name}
+                </h1>
+                {stats.player.status === "retired" && (
+                  <span className="px-3 py-1 bg-gray-600 text-gray-200 text-sm rounded-full font-medium">
+                    Retired
+                  </span>
+                )}
+              </div>
+              <div className="text-slate-400 mt-1 flex items-center gap-2">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+                Player since {formatDate(stats.player.created_at)}
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
+
+      {/* Career Highlights */}
+      {getCareerHighlights() && (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-6">
+          {getCareerHighlights()!.map((highlight, idx) => (
+            <div key={idx} className="bg-white rounded-xl shadow-lg p-4 text-center">
+              <div className="text-2xl mb-1">{highlight.icon}</div>
+              <div className="text-2xl font-bold text-gray-900">{highlight.value}</div>
+              <div className="text-sm font-semibold text-primary">{highlight.label}</div>
+              {highlight.sublabel && (
+                <div className="text-xs text-gray-500 mt-1">{highlight.sublabel}</div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Game sections */}
       {stats.gameStats.length === 0 ? (
-        <div className="text-gray-500">
-          No games played yet.
+        <div className="text-center py-16 bg-white rounded-2xl shadow-lg">
+          <div className="text-6xl mb-4">🎮</div>
+          <p className="text-gray-500 text-lg">No games played yet</p>
+          <Link
+            href="/matches/new"
+            className="inline-block mt-4 px-6 py-3 bg-primary text-white rounded-xl font-semibold hover:bg-primary-hover transition-all shadow-lg hover:shadow-xl"
+          >
+            Record First Match
+          </Link>
         </div>
       ) : (
-        <div className="space-y-8">
+        <div className="space-y-6">
           {stats.gameStats.map((game) => {
             const totalGames = game.wins + game.losses + game.draws;
             const winRate = totalGames > 0 ? ((game.wins / totalGames) * 100).toFixed(1) : "0.0";
             const pointDiff = game.points_scored - game.points_conceded;
             const pointRatio = game.points_scored / game.points_conceded;
             const gameMatches = matchesByGame[game.game_id] || [];
+            const isExpanded = expandedGames.has(game.game_id);
 
             return (
-              <div key={game.game_id} className="bg-white rounded-lg shadow overflow-hidden">
-                {/* Game header */}
-                <div className="bg-gray-50 px-6 py-4 border-b border-gray-200">
-                  <div className="flex items-center justify-between">
-                    <h2 className="text-xl font-semibold text-gray-900">
-                      <Link
-                        href={`/?game=${game.game_id}`}
-                        className="hover:underline"
-                      >
-                        {formatGameName(game.game_name)}
-                      </Link>
+              <div key={game.game_id} className="bg-white rounded-2xl shadow-lg overflow-hidden">
+                {/* Game header - clickable */}
+                <button
+                  onClick={() => toggleGame(game.game_id)}
+                  className="w-full px-6 py-4 bg-gradient-to-r from-slate-100 to-slate-50 hover:from-slate-150 hover:to-slate-100 transition-colors flex items-center justify-between"
+                >
+                  <div className="flex items-center gap-3">
+                    {game.image_url ? (
+                      <img
+                        src={game.image_url}
+                        alt={game.game_name}
+                        className="w-8 h-8 rounded-lg object-cover"
+                      />
+                    ) : (
+                      <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-slate-400 to-slate-500 flex items-center justify-center text-white text-sm">
+                        🎮
+                      </div>
+                    )}
+                    <h2 className="text-xl font-bold text-gray-900">
+                      {formatGameName(game.game_name)}
                     </h2>
-                    <div className="text-sm text-gray-500">
-                      {game.score_type === 'best_of' ? `Best of ${game.score_value}` : `First to ${game.score_value}`} points
-                    </div>
+                    <span className="text-sm text-gray-500">
+                      {game.score_type === 'best_of' ? `Best of ${game.score_value}` : `First to ${game.score_value}`}
+                    </span>
                   </div>
-                </div>
+                  <div className="flex items-center gap-4">
+                    <div className="text-right">
+                      <div className="text-2xl font-bold font-mono text-primary">{game.elo.toFixed(3)}</div>
+                      <div className="text-xs text-gray-500">Rating</div>
+                    </div>
+                    <svg
+                      className={`w-5 h-5 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </div>
+                </button>
 
-                {/* Game stats */}
-                <div className="px-6 py-4 border-b border-gray-200">
-                  <div className="grid grid-cols-3 sm:grid-cols-6 gap-4">
-                    <div>
-                      <div className="text-sm text-gray-500">Rating</div>
-                      <div className="text-xl font-bold font-mono">{game.elo.toFixed(3)}</div>
-                    </div>
-                    <div>
-                      <div className="text-sm text-gray-500">Matches</div>
-                      <div className="text-xl font-bold">{game.total_matches}</div>
-                    </div>
-                    <div>
-                      <div className="text-sm text-gray-500">Record</div>
-                      <div className="text-xl font-bold">
-                        <span className="text-green-600">{game.wins}</span>
-                        <span className="text-gray-400">/</span>
-                        <span className="text-red-600">{game.losses}</span>
-                        <span className="text-gray-400">/</span>
-                        <span className="text-gray-600">{game.draws}</span>
+                {/* Expanded content */}
+                {isExpanded && (
+                  <div className="border-t border-gray-100">
+                    {/* Stats Grid */}
+                    <div className="grid grid-cols-3 sm:grid-cols-6 gap-px bg-gray-100">
+                      <div className="bg-white p-4 text-center">
+                        <div className="text-2xl font-bold font-mono text-primary">{game.elo.toFixed(3)}</div>
+                        <div className="text-xs text-gray-500 mt-1">Rating</div>
+                      </div>
+                      <div className="bg-white p-4 text-center">
+                        <div className="text-2xl font-bold">{game.total_matches}</div>
+                        <div className="text-xs text-gray-500 mt-1">Matches</div>
+                      </div>
+                      <div className="bg-white p-4 text-center">
+                        <div className="text-2xl font-bold">
+                          <span className="text-green-600">{game.wins}</span>
+                          <span className="text-gray-300">/</span>
+                          <span className="text-red-600">{game.losses}</span>
+                          <span className="text-gray-300">/</span>
+                          <span className="text-gray-500">{game.draws}</span>
+                        </div>
+                        <div className="text-xs text-gray-500 mt-1">W/L/D</div>
+                      </div>
+                      <div className="bg-white p-4 text-center">
+                        <div className="text-2xl font-bold">{winRate}%</div>
+                        <div className="text-xs text-gray-500 mt-1">Win Rate</div>
+                      </div>
+                      <div className="bg-white p-4 text-center">
+                        <div className="text-2xl font-bold">
+                          <span className="text-green-600">{game.points_scored}</span>
+                          <span className="text-gray-300">-</span>
+                          <span className="text-red-600">{game.points_conceded}</span>
+                        </div>
+                        <div className="text-xs text-gray-500 mt-1">Points</div>
+                      </div>
+                      <div className="bg-white p-4 text-center">
+                        <div className={`text-2xl font-bold ${pointRatio >= 1 ? "text-green-600" : "text-red-600"}`}>
+                          {pointRatio.toFixed(3)}
+                        </div>
+                        <div className="text-xs text-gray-500 mt-1">Point Ratio</div>
                       </div>
                     </div>
-                    <div>
-                      <div className="text-sm text-gray-500">Win Rate</div>
-                      <div className="text-xl font-bold">{winRate}%</div>
-                    </div>
-                    <div>
-                      <div className="text-sm text-gray-500">Points</div>
-                      <div className="text-xl font-bold">
-                        <span className="text-green-600">{game.points_scored}</span>
-                        <span className="text-gray-400">/</span>
-                        <span className="text-red-600">{game.points_conceded}</span>
+
+                    {/* Records */}
+                    <div className="px-6 py-4 bg-gradient-to-r from-amber-50 to-orange-50 border-t border-amber-100">
+                      <div className="flex items-center gap-2 mb-3">
+                        <span className="text-lg">🏆</span>
+                        <span className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Records</span>
+                      </div>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+                        {/* Peak Rating */}
+                        <div className="bg-white rounded-xl p-3 shadow-sm">
+                          <div className="text-xs text-gray-500 mb-1">Peak Rating</div>
+                          <div className="font-bold font-mono text-green-700 text-lg">{game.records.highest_elo.toFixed(3)}</div>
+                          {game.records.highest_elo_date && (
+                            <div className="text-xs text-gray-400">{formatDate(game.records.highest_elo_date)}</div>
+                          )}
+                        </div>
+                        {/* Lowest Rating */}
+                        <div className="bg-white rounded-xl p-3 shadow-sm">
+                          <div className="text-xs text-gray-500 mb-1">Lowest Rating</div>
+                          <div className="font-bold font-mono text-red-700 text-lg">{game.records.lowest_elo.toFixed(3)}</div>
+                          {game.records.lowest_elo_date && (
+                            <div className="text-xs text-gray-400">{formatDate(game.records.lowest_elo_date)}</div>
+                          )}
+                        </div>
+                        {/* Best Win Streak */}
+                        <div className="bg-white rounded-xl p-3 shadow-sm">
+                          <div className="text-xs text-gray-500 mb-1">Best Win Streak</div>
+                          <div className="font-bold text-green-700 text-lg">{game.records.longest_win_streak} 🔥</div>
+                          {game.records.longest_win_streak_start && game.records.longest_win_streak_end && (
+                            <div className="text-xs text-gray-400">
+                              {formatDate(game.records.longest_win_streak_start)}
+                              {game.records.longest_win_streak_start !== game.records.longest_win_streak_end && (
+                                <> - {formatDate(game.records.longest_win_streak_end)}</>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                        {/* Worst Lose Streak */}
+                        <div className="bg-white rounded-xl p-3 shadow-sm">
+                          <div className="text-xs text-gray-500 mb-1">Worst Lose Streak</div>
+                          <div className="font-bold text-red-700 text-lg">{game.records.longest_lose_streak} 😢</div>
+                          {game.records.longest_lose_streak_start && game.records.longest_lose_streak_end && (
+                            <div className="text-xs text-gray-400">
+                              {formatDate(game.records.longest_lose_streak_start)}
+                              {game.records.longest_lose_streak_start !== game.records.longest_lose_streak_end && (
+                                <> - {formatDate(game.records.longest_lose_streak_end)}</>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                        {/* Unbeaten Run */}
+                        <div className="bg-white rounded-xl p-3 shadow-sm">
+                          <div className="text-xs text-gray-500 mb-1">Unbeaten Run</div>
+                          <div className="font-bold text-blue-700 text-lg">{game.records.longest_unbeaten_streak} 💪</div>
+                          {game.records.longest_unbeaten_streak_start && game.records.longest_unbeaten_streak_end && (
+                            <div className="text-xs text-gray-400">
+                              {formatDate(game.records.longest_unbeaten_streak_start)}
+                              {game.records.longest_unbeaten_streak_start !== game.records.longest_unbeaten_streak_end && (
+                                <> - {formatDate(game.records.longest_unbeaten_streak_end)}</>
+                              )}
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
-                    <div>
-                      <div className="text-sm text-gray-500">Point Ratio</div>
-                      <div className={`text-xl font-bold ${pointRatio >= 1 ? "text-green-600" : "text-red-600"}`}>
-                        {pointRatio.toFixed(3)} ({pointDiff >= 1 ? "+" : ""}{pointDiff})
-                      </div>
-                    </div>
-                  </div>
-                </div>
 
-                {/* Records */}
-                <div className="px-6 py-3 border-b border-gray-200 bg-gray-50">
-                  <div className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">Records</div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 text-sm">
-                    {/* Peak Rating */}
-                    <div className="flex flex-col">
-                      <span className="text-gray-500">Peak Rating:</span>{" "}
-                      <span className="font-semibold font-mono text-green-700">{game.records.highest_elo.toFixed(3)}</span>
-                      {game.records.highest_elo_date && (
-                        <span className="text-xs text-gray-400">{formatDate(game.records.highest_elo_date)}</span>
-                      )}
-                    </div>
-                    {/* Lowest Rating */}
-                    <div className="flex flex-col">
-                      <span className="text-gray-500">Lowest:</span>{" "}
-                      <span className="font-semibold font-mono text-red-700">{game.records.lowest_elo.toFixed(3)}</span>
-                      {game.records.lowest_elo_date && (
-                        <span className="text-xs text-gray-400">{formatDate(game.records.lowest_elo_date)}</span>
-                      )}
-                    </div>
-                    {/* Best Win Streak */}
-                    <div className="flex flex-col">
-                      <span className="text-gray-500">Best Win Streak:</span>{" "}
-                      <span className="font-semibold text-green-700">{game.records.longest_win_streak} games</span>
-                      {game.records.longest_win_streak_start && game.records.longest_win_streak_end && (
-                        <span className="text-xs text-gray-400">
-                          {formatDate(game.records.longest_win_streak_start)}
-                          {game.records.longest_win_streak_start !== game.records.longest_win_streak_end && (
-                            <> - {formatDate(game.records.longest_win_streak_end)}</>
-                          )}
-                        </span>
-                      )}
-                    </div>
-                    {/* Worst Lose Streak */}
-                    <div className="flex flex-col">
-                      <span className="text-gray-500">Worst Lose Streak:</span>{" "}
-                      <span className="font-semibold text-red-700">{game.records.longest_lose_streak} games</span>
-                      {game.records.longest_lose_streak_start && game.records.longest_lose_streak_end && (
-                        <span className="text-xs text-gray-400">
-                          {formatDate(game.records.longest_lose_streak_start)}
-                          {game.records.longest_lose_streak_start !== game.records.longest_lose_streak_end && (
-                            <> - {formatDate(game.records.longest_lose_streak_end)}</>
-                          )}
-                        </span>
-                      )}
-                    </div>
-                    {/* Unbeaten Run */}
-                    <div className="flex flex-col">
-                      <span className="text-gray-500">Unbeaten Run:</span>{" "}
-                      <span className="font-semibold text-blue-700">{game.records.longest_unbeaten_streak} games</span>
-                      {game.records.longest_unbeaten_streak_start && game.records.longest_unbeaten_streak_end && (
-                        <span className="text-xs text-gray-400">
-                          {formatDate(game.records.longest_unbeaten_streak_start)}
-                          {game.records.longest_unbeaten_streak_start !== game.records.longest_unbeaten_streak_end && (
-                            <> - {formatDate(game.records.longest_unbeaten_streak_end)}</>
-                          )}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Skill Change Records */}
-                {(game.records.biggest_gain || game.records.biggest_loss) && (
-                  <div className="px-6 py-3 border-b border-gray-200 bg-gray-50">
-                    <div className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">Notable Matches</div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      {game.records.biggest_gain && (
-                        <div className="bg-green-50 rounded-lg p-3">
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className="font-semibold text-green-700">Biggest Skill Gain</span>
-                            <span className="font-mono text-green-700">+{game.records.biggest_gain.gain.toFixed(3)}</span>
-                          </div>
-                          <div className="text-sm text-gray-600">
-                            {game.records.biggest_gain.teammates && game.records.biggest_gain.teammates.length > 0 && (
-                              <>
-                                <span className="text-gray-500">with </span>
-                                <span className="font-medium">{game.records.biggest_gain.teammates.join(", ")}</span>
-                                <span className="text-gray-400 mx-1">vs</span>
-                              </>
-                            )}
-                            {(!game.records.biggest_gain.teammates || game.records.biggest_gain.teammates.length === 0) && (
-                              <span className="text-gray-400">vs </span>
-                            )}
-                            {game.records.biggest_gain.opponents.join(", ")}
-                          </div>
-                          <div className="text-sm">
-                            <span className="font-semibold">{game.records.biggest_gain.score}</span>
-                            <span className="text-gray-400"> - </span>
-                            <span>{game.records.biggest_gain.opponent_score}</span>
-                            <span className="text-gray-400 text-xs ml-2">{formatDate(game.records.biggest_gain.date)}</span>
-                          </div>
+                    {/* Notable Matches */}
+                    {(game.records.biggest_gain || game.records.biggest_loss) && (
+                      <div className="px-6 py-4 bg-gray-50 border-t border-gray-100">
+                        <div className="flex items-center gap-2 mb-3">
+                          <span className="text-lg">⚡</span>
+                          <span className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Notable Matches</span>
                         </div>
-                      )}
-                      {game.records.biggest_loss && (
-                        <div className="bg-red-50 rounded-lg p-3">
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className="font-semibold text-red-700">Biggest Skill Loss</span>
-                            <span className="font-mono text-red-700">{game.records.biggest_loss.loss.toFixed(3)}</span>
-                          </div>
-                          <div className="text-sm text-gray-600">
-                            {game.records.biggest_loss.teammates && game.records.biggest_loss.teammates.length > 0 && (
-                              <>
-                                <span className="text-gray-500">with </span>
-                                <span className="font-medium">{game.records.biggest_loss.teammates.join(", ")}</span>
-                                <span className="text-gray-400 mx-1">vs</span>
-                              </>
-                            )}
-                            {(!game.records.biggest_loss.teammates || game.records.biggest_loss.teammates.length === 0) && (
-                              <span className="text-gray-400">vs </span>
-                            )}
-                            {game.records.biggest_loss.opponents.join(", ")}
-                          </div>
-                          <div className="text-sm">
-                            <span className="font-semibold">{game.records.biggest_loss.score}</span>
-                            <span className="text-gray-400"> - </span>
-                            <span>{game.records.biggest_loss.opponent_score}</span>
-                            <span className="text-gray-400 text-xs ml-2">{formatDate(game.records.biggest_loss.date)}</span>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* Achievements */}
-                {game.achievements && game.achievements.length > 0 && (
-                  <div className="px-6 py-3 border-b border-gray-200 bg-gray-50">
-                    <div className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">Achievements</div>
-                    <div className="flex flex-wrap gap-2">
-                      {game.achievements.map((achievement) => (
-                        <div
-                          key={achievement.achievement_id}
-                          className="flex items-center gap-1.5 bg-amber-50 border border-amber-200 rounded-full px-3 py-1 hover:bg-amber-100 transition-colors cursor-default"
-                          title={achievement.achievement_description}
-                        >
-                          <span className="text-lg">{achievement.achievement_icon || '🏅'}</span>
-                          <span className="font-medium text-amber-900 text-sm">{achievement.achievement_name.replace(/_/g, ' ')}</span>
-                          {achievement.count > 1 && (
-                            <span className="text-xs bg-amber-200 text-amber-800 rounded-full px-1.5 font-semibold">×{achievement.count}</span>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Elo History Chart */}
-                {game.elo_history.length > 1 && (
-                  <div className="px-6 py-4 border-b border-gray-200">
-                    <div className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-3">Skill History</div>
-                    <div className="h-48">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <LineChart
-                          data={game.elo_history.map((point, index) => ({
-                            match: index + 1,
-                            elo: point.elo,
-                            date: new Date(point.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-                          }))}
-                          margin={{ top: 5, right: 20, left: 0, bottom: 5 }}
-                        >
-                          <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                          <XAxis
-                            dataKey="match"
-                            tick={{ fontSize: 10 }}
-                            tickLine={false}
-                            axisLine={{ stroke: '#e5e7eb' }}
-                            label={{ value: 'Match #', position: 'insideBottom', offset: -5, fontSize: 10, fill: '#6b7280' }}
-                          />
-                          <YAxis
-                            tick={{ fontSize: 10 }}
-                            tickLine={false}
-                            axisLine={{ stroke: '#e5e7eb' }}
-                            tickFormatter={(value) => value.toFixed(0)}
-                            domain={['auto', 'auto']}
-                          />
-                          <Tooltip
-                            contentStyle={{
-                              backgroundColor: 'white',
-                              border: '1px solid #e5e7eb',
-                              borderRadius: '0.375rem',
-                              fontSize: '12px'
-                            }}
-                            formatter={(value) => [(value as number).toFixed(3), 'Rating']}
-                            labelFormatter={(label) => `Match ${label}`}
-                          />
-                          <ReferenceLine y={0} stroke="#9ca3af" strokeDasharray="5 5" />
-                          <Line
-                            type="monotone"
-                            dataKey="elo"
-                            stroke="#3b82f6"
-                            strokeWidth={2}
-                            dot={false}
-                            activeDot={{ r: 4, fill: '#3b82f6' }}
-                          />
-                        </LineChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </div>
-                )}
-
-                {/* Recent matches for this game */}
-                {gameMatches.length > 0 && (
-                  <div className="divide-y divide-gray-100">
-                    <div className="px-6 py-2 bg-gray-50 text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Recent Matches
-                    </div>
-                    {gameMatches.slice(0, 5).map((match) => {
-                      const resultColors = {
-                        win: "bg-green-50 border-l-4 border-l-green-400",
-                        loss: "bg-red-50 border-l-4 border-l-red-400",
-                        draw: "bg-gray-50 border-l-4 border-l-gray-400"
-                      };
-                      const resultText = {
-                        win: "text-green-700",
-                        loss: "text-red-700",
-                        draw: "text-gray-700"
-                      };
-                      const eloChange = match.elo_after - match.elo_before;
-
-                      return (
-                        <Link
-                          key={match.id}
-                          href={`/matches/${match.id}`}
-                          className={`block px-6 py-3 ${resultColors[match.result]} hover:opacity-80 transition-opacity`}
-                        >
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-4">
-                              <span className={`font-semibold ${resultText[match.result]} uppercase text-sm`}>
-                                {match.result}
-                              </span>
-                              <span className="text-gray-900">
-                                <span className="font-bold">{match.score}</span>
-                                <span className="text-gray-400 mx-1">-</span>
-                                <span className="font-bold">{match.opponent_score}</span>
-                              </span>
-                              <span className="text-gray-600 text-sm">
-                                {match.teammates.length > 0 && (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          {game.records.biggest_gain && (
+                            <div className="bg-gradient-to-br from-green-50 to-emerald-50 border border-green-200 rounded-xl p-4">
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="font-semibold text-green-800">Biggest Gain</span>
+                                <span className="font-mono text-lg font-bold text-green-600">+{game.records.biggest_gain.gain.toFixed(3)}</span>
+                              </div>
+                              <div className="text-sm text-gray-600">
+                                {game.records.biggest_gain.teammates && game.records.biggest_gain.teammates.length > 0 && (
                                   <>
                                     <span className="text-gray-500">with </span>
-                                    <span className="font-medium">{match.teammates.join(", ")}</span>
+                                    <span className="font-medium">{game.records.biggest_gain.teammates.join(", ")}</span>
                                     <span className="text-gray-400 mx-1">vs</span>
                                   </>
                                 )}
-                                {!match.teammates.length && <span className="text-gray-400">vs </span>}
-                                {match.opponents.map(o => o.player_name).join(", ")}
-                              </span>
-                            </div>
-                            <div className="flex items-center gap-4">
-                              <div className={`font-mono text-sm ${eloChange >= 0 ? "text-green-600" : "text-red-600"}`}>
-                                {formatRatingChange(match.elo_before, match.elo_after)}
+                                {(!game.records.biggest_gain.teammates || game.records.biggest_gain.teammates.length === 0) && (
+                                  <span className="text-gray-400">vs </span>
+                                )}
+                                {game.records.biggest_gain.opponents.join(", ")}
                               </div>
-                              <div className="text-sm text-gray-500 w-24 text-right">
-                                {formatDateTime(match.played_at)}
+                              <div className="flex items-center justify-between mt-2">
+                                <span className="font-bold text-lg">
+                                  <span className="text-green-600">{game.records.biggest_gain.score}</span>
+                                  <span className="text-gray-400 mx-1">-</span>
+                                  <span>{game.records.biggest_gain.opponent_score}</span>
+                                </span>
+                                <span className="text-xs text-gray-400">{formatDate(game.records.biggest_gain.date)}</span>
                               </div>
-                            </div>
-                          </div>
-                          {match.notes && (
-                            <div className="mt-1 text-sm text-gray-500 italic">
-                              {match.notes}
                             </div>
                           )}
-                        </Link>
-                      );
-                    })}
+                          {game.records.biggest_loss && (
+                            <div className="bg-gradient-to-br from-red-50 to-rose-50 border border-red-200 rounded-xl p-4">
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="font-semibold text-red-800">Biggest Loss</span>
+                                <span className="font-mono text-lg font-bold text-red-600">{game.records.biggest_loss.loss.toFixed(3)}</span>
+                              </div>
+                              <div className="text-sm text-gray-600">
+                                {game.records.biggest_loss.teammates && game.records.biggest_loss.teammates.length > 0 && (
+                                  <>
+                                    <span className="text-gray-500">with </span>
+                                    <span className="font-medium">{game.records.biggest_loss.teammates.join(", ")}</span>
+                                    <span className="text-gray-400 mx-1">vs</span>
+                                  </>
+                                )}
+                                {(!game.records.biggest_loss.teammates || game.records.biggest_loss.teammates.length === 0) && (
+                                  <span className="text-gray-400">vs </span>
+                                )}
+                                {game.records.biggest_loss.opponents.join(", ")}
+                              </div>
+                              <div className="flex items-center justify-between mt-2">
+                                <span className="font-bold text-lg">
+                                  <span>{game.records.biggest_loss.score}</span>
+                                  <span className="text-gray-400 mx-1">-</span>
+                                  <span className="text-red-600">{game.records.biggest_loss.opponent_score}</span>
+                                </span>
+                                <span className="text-xs text-gray-400">{formatDate(game.records.biggest_loss.date)}</span>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Achievements */}
+                    {game.achievements && game.achievements.length > 0 && (
+                      <div className="px-6 py-4 bg-gradient-to-r from-amber-50 to-yellow-50 border-t border-amber-100">
+                        <div className="flex items-center gap-2 mb-3">
+                          <span className="text-lg">🏅</span>
+                          <span className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Achievements</span>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {game.achievements.map((achievement) => (
+                            <div
+                              key={achievement.achievement_id}
+                              className="flex items-center gap-2 bg-white border border-amber-200 rounded-full px-4 py-2 hover:shadow-md transition-shadow cursor-default"
+                              title={achievement.achievement_description}
+                            >
+                              <span className="text-xl">{achievement.achievement_icon || '🏅'}</span>
+                              <span className="font-medium text-amber-900">{achievement.achievement_name.replace(/_/g, ' ')}</span>
+                              {achievement.count > 1 && (
+                                <span className="text-xs bg-amber-200 text-amber-800 rounded-full px-2 py-0.5 font-semibold">×{achievement.count}</span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Elo History Chart */}
+                    {game.elo_history.length > 1 && (
+                      <div className="px-6 py-4 bg-white border-t border-gray-100">
+                        <div className="flex items-center gap-2 mb-4">
+                          <span className="text-lg">📈</span>
+                          <span className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Skill History</span>
+                        </div>
+                        <div className="h-48">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <AreaChart
+                              data={game.elo_history.map((point, index) => ({
+                                match: index + 1,
+                                elo: point.elo,
+                                date: new Date(point.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                              }))}
+                              margin={{ top: 5, right: 20, left: 0, bottom: 5 }}
+                            >
+                              <defs>
+                                <linearGradient id="eloGradient" x1="0" y1="0" x2="0" y2="1">
+                                  <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
+                                  <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                                </linearGradient>
+                              </defs>
+                              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                              <XAxis
+                                dataKey="match"
+                                tick={{ fontSize: 10, fill: '#6b7280' }}
+                                tickLine={false}
+                                axisLine={{ stroke: '#e5e7eb' }}
+                              />
+                              <YAxis
+                                tick={{ fontSize: 10, fill: '#6b7280' }}
+                                tickLine={false}
+                                axisLine={{ stroke: '#e5e7eb' }}
+                                tickFormatter={(value) => value.toFixed(0)}
+                                domain={['auto', 'auto']}
+                              />
+                              <Tooltip
+                                contentStyle={{
+                                  backgroundColor: 'white',
+                                  border: 'none',
+                                  borderRadius: '12px',
+                                  boxShadow: '0 10px 25px -5px rgba(0,0,0,0.1)',
+                                  fontSize: '12px'
+                                }}
+                                formatter={(value) => [(value as number).toFixed(3), 'Rating']}
+                                labelFormatter={(label) => `Match ${label}`}
+                              />
+                              <Area
+                                type="monotone"
+                                dataKey="elo"
+                                stroke="#3b82f6"
+                                strokeWidth={2}
+                                fill="url(#eloGradient)"
+                              />
+                            </AreaChart>
+                          </ResponsiveContainer>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Recent matches */}
+                    {gameMatches.length > 0 && (
+                      <div className="border-t border-gray-100">
+                        <div className="px-6 py-3 bg-gray-50 flex items-center gap-2">
+                          <span className="text-lg">🎮</span>
+                          <span className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Recent Matches</span>
+                        </div>
+                        <div className="divide-y divide-gray-50">
+                          {gameMatches.slice(0, 5).map((match) => {
+                            const resultStyles = {
+                              win: {
+                                bg: "bg-gradient-to-r from-green-50 to-emerald-50",
+                                border: "border-l-4 border-l-green-500",
+                                text: "text-green-700"
+                              },
+                              loss: {
+                                bg: "bg-gradient-to-r from-red-50 to-rose-50",
+                                border: "border-l-4 border-l-red-500",
+                                text: "text-red-700"
+                              },
+                              draw: {
+                                bg: "bg-gradient-to-r from-gray-50 to-slate-50",
+                                border: "border-l-4 border-l-gray-400",
+                                text: "text-gray-700"
+                              }
+                            };
+                            const style = resultStyles[match.result];
+                            const eloChange = match.elo_after - match.elo_before;
+
+                            return (
+                              <Link
+                                key={match.id}
+                                href={`/matches/${match.id}`}
+                                className={`block px-6 py-4 ${style.bg} ${style.border} hover:opacity-80 transition-opacity`}
+                              >
+                                <div className="flex items-center justify-between">
+                                  <div className="flex items-center gap-4">
+                                    <span className={`font-bold uppercase text-sm tracking-wide ${style.text}`}>
+                                      {match.result}
+                                    </span>
+                                    <span className="text-2xl font-bold text-gray-900">
+                                      {match.score}
+                                      <span className="text-gray-400 mx-1">-</span>
+                                      {match.opponent_score}
+                                    </span>
+                                    <span className="text-gray-600 text-sm">
+                                      {match.teammates.length > 0 && (
+                                        <>
+                                          <span className="text-gray-500">with </span>
+                                          <span className="font-medium">{match.teammates.join(", ")}</span>
+                                          <span className="text-gray-400 mx-1">vs</span>
+                                        </>
+                                      )}
+                                      {!match.teammates.length && <span className="text-gray-400">vs </span>}
+                                      {match.opponents.map(o => o.player_name).join(", ")}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center gap-4">
+                                    <div className={`font-mono text-sm font-bold ${eloChange >= 0 ? "text-green-600" : "text-red-600"}`}>
+                                      {formatRatingChange(match.elo_before, match.elo_after)}
+                                    </div>
+                                    <div className="text-sm text-gray-500 w-24 text-right">
+                                      {formatDateTime(match.played_at)}
+                                    </div>
+                                  </div>
+                                </div>
+                                {match.notes && (
+                                  <div className="mt-2 text-sm text-gray-500 italic">
+                                    "{match.notes}"
+                                  </div>
+                                )}
+                              </Link>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

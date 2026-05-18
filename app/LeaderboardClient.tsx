@@ -154,114 +154,166 @@ export default function LeaderboardClient({
       )}
 
       {gameRecords && (
-        <div className="mb-6 bg-white rounded-lg shadow overflow-hidden">
-          <div className="px-4 py-3 bg-gray-50 border-b border-gray-200">
-            <h2 className="text-sm font-medium text-gray-700 uppercase tracking-wider">Game Records</h2>
+        <div className="mb-8 bg-white rounded-xl shadow-lg overflow-hidden">
+          <div className="px-6 py-4 bg-gradient-to-r from-slate-800 to-slate-900">
+            <h2 className="text-lg font-bold text-white flex items-center gap-2">
+              <span>🏆</span> Game Records
+            </h2>
           </div>
-          <div className="p-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+          <div className="p-6">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
               {gameRecords.peak_skill_ever && (
-                <div className="flex flex-col">
-                  <span className="text-xs text-gray-500 uppercase tracking-wide">Peak Skill Ever</span>
-                  <Link href={`/players/${gameRecords.peak_skill_ever.player_id}`} className="font-semibold text-green-700 hover:underline">
+                <Link
+                  href={`/players/${gameRecords.peak_skill_ever.player_id}`}
+                  className="group bg-gradient-to-br from-emerald-50 to-green-50 border border-emerald-200 rounded-xl p-4 hover:shadow-lg hover:border-emerald-300 transition-all duration-200"
+                >
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-xl">📈</span>
+                    <span className="text-xs font-semibold text-emerald-700 uppercase tracking-wide">Peak Skill</span>
+                  </div>
+                  <div className="font-bold text-gray-900 group-hover:text-emerald-700 transition-colors">
                     {gameRecords.peak_skill_ever.player_name}
-                  </Link>
-                  <span className="text-sm font-mono text-green-600">{(gameRecords.peak_skill_ever.value as number).toFixed(3)}</span>
-                  {gameRecords.peak_skill_ever.date && (
-                    <span className="text-xs text-gray-400">{gameRecords.peak_skill_ever.date.split(' ')[0]}</span>
-                  )}
-                </div>
+                  </div>
+                  <div className="text-2xl font-bold text-emerald-600 mt-1">
+                    {(gameRecords.peak_skill_ever.value as number).toFixed(0)}
+                  </div>
+                </Link>
               )}
               {gameRecords.trough_skill_ever && (
-                <div className="flex flex-col">
-                  <span className="text-xs text-gray-500 uppercase tracking-wide">Trough Skill Ever</span>
-                  <Link href={`/players/${gameRecords.trough_skill_ever.player_id}`} className="font-semibold text-red-700 hover:underline">
+                <Link
+                  href={`/players/${gameRecords.trough_skill_ever.player_id}`}
+                  className="group bg-gradient-to-br from-red-50 to-orange-50 border border-red-200 rounded-xl p-4 hover:shadow-lg hover:border-red-300 transition-all duration-200"
+                >
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-xl">📉</span>
+                    <span className="text-xs font-semibold text-red-700 uppercase tracking-wide">Lowest Skill</span>
+                  </div>
+                  <div className="font-bold text-gray-900 group-hover:text-red-700 transition-colors">
                     {gameRecords.trough_skill_ever.player_name}
-                  </Link>
-                  <span className="text-sm font-mono text-red-600">{(gameRecords.trough_skill_ever.value as number).toFixed(3)}</span>
-                  {gameRecords.trough_skill_ever.date && (
-                    <span className="text-xs text-gray-400">{gameRecords.trough_skill_ever.date.split(' ')[0]}</span>
-                  )}
-                </div>
+                  </div>
+                  <div className="text-2xl font-bold text-red-600 mt-1">
+                    {(gameRecords.trough_skill_ever.value as number).toFixed(0)}
+                  </div>
+                </Link>
               )}
               {gameRecords.most_games && (
-                <div className="flex flex-col">
-                  <span className="text-xs text-gray-500 uppercase tracking-wide">Most Games</span>
-                  <Link href={`/players/${gameRecords.most_games.player_id}`} className="font-semibold text-blue-700 hover:underline">
+                <Link
+                  href={`/players/${gameRecords.most_games.player_id}`}
+                  className="group bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-4 hover:shadow-lg hover:border-blue-300 transition-all duration-200"
+                >
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-xl">🎮</span>
+                    <span className="text-xs font-semibold text-blue-700 uppercase tracking-wide">Most Games</span>
+                  </div>
+                  <div className="font-bold text-gray-900 group-hover:text-blue-700 transition-colors">
                     {gameRecords.most_games.player_name}
-                  </Link>
-                  <span className="text-sm text-blue-600">{gameRecords.most_games.value} games</span>
-                </div>
+                  </div>
+                  <div className="text-2xl font-bold text-blue-600 mt-1">
+                    {gameRecords.most_games.value}
+                  </div>
+                </Link>
               )}
               {gameRecords.highest_win_rate && (
-                <div className="flex flex-col">
-                  <span className="text-xs text-gray-500 uppercase tracking-wide">Highest Win Rate</span>
-                  <Link href={`/players/${gameRecords.highest_win_rate.player_id}`} className="font-semibold text-green-700 hover:underline">
+                <Link
+                  href={`/players/${gameRecords.highest_win_rate.player_id}`}
+                  className="group bg-gradient-to-br from-amber-50 to-yellow-50 border border-amber-200 rounded-xl p-4 hover:shadow-lg hover:border-amber-300 transition-all duration-200"
+                >
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-xl">👑</span>
+                    <span className="text-xs font-semibold text-amber-700 uppercase tracking-wide">Best Win %</span>
+                  </div>
+                  <div className="font-bold text-gray-900 group-hover:text-amber-700 transition-colors">
                     {gameRecords.highest_win_rate.player_name}
-                  </Link>
-                  <span className="text-sm text-green-600">{(gameRecords.highest_win_rate.value as number).toFixed(1)}%</span>
-                  <span className="text-xs text-gray-400">(min 20 games)</span>
-                </div>
+                  </div>
+                  <div className="text-2xl font-bold text-amber-600 mt-1">
+                    {(gameRecords.highest_win_rate.value as number).toFixed(0)}%
+                  </div>
+                </Link>
               )}
               {gameRecords.longest_win_streak && (
-                <div className="flex flex-col">
-                  <span className="text-xs text-gray-500 uppercase tracking-wide">Longest Win Streak</span>
-                  <Link href={`/players/${gameRecords.longest_win_streak.player_id}`} className="font-semibold text-green-700 hover:underline">
+                <Link
+                  href={`/players/${gameRecords.longest_win_streak.player_id}`}
+                  className="group bg-gradient-to-br from-green-50 to-emerald-50 border border-green-200 rounded-xl p-4 hover:shadow-lg hover:border-green-300 transition-all duration-200"
+                >
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-xl">🔥</span>
+                    <span className="text-xs font-semibold text-green-700 uppercase tracking-wide">Win Streak</span>
+                  </div>
+                  <div className="font-bold text-gray-900 group-hover:text-green-700 transition-colors">
                     {gameRecords.longest_win_streak.player_name}
-                  </Link>
-                  <span className="text-sm text-green-600">{gameRecords.longest_win_streak.value} games</span>
-                  {gameRecords.longest_win_streak.date && (
-                    <span className="text-xs text-gray-400">{gameRecords.longest_win_streak.date}</span>
-                  )}
-                </div>
+                  </div>
+                  <div className="text-2xl font-bold text-green-600 mt-1">
+                    {gameRecords.longest_win_streak.value}
+                  </div>
+                </Link>
               )}
               {gameRecords.longest_lose_streak && (
-                <div className="flex flex-col">
-                  <span className="text-xs text-gray-500 uppercase tracking-wide">Longest Lose Streak</span>
-                  <Link href={`/players/${gameRecords.longest_lose_streak.player_id}`} className="font-semibold text-red-700 hover:underline">
+                <Link
+                  href={`/players/${gameRecords.longest_lose_streak.player_id}`}
+                  className="group bg-gradient-to-br from-rose-50 to-pink-50 border border-rose-200 rounded-xl p-4 hover:shadow-lg hover:border-rose-300 transition-all duration-200"
+                >
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-xl">💔</span>
+                    <span className="text-xs font-semibold text-rose-700 uppercase tracking-wide">Lose Streak</span>
+                  </div>
+                  <div className="font-bold text-gray-900 group-hover:text-rose-700 transition-colors">
                     {gameRecords.longest_lose_streak.player_name}
-                  </Link>
-                  <span className="text-sm text-red-600">{gameRecords.longest_lose_streak.value} games</span>
-                  {gameRecords.longest_lose_streak.date && (
-                    <span className="text-xs text-gray-400">{gameRecords.longest_lose_streak.date}</span>
-                  )}
-                </div>
+                  </div>
+                  <div className="text-2xl font-bold text-rose-600 mt-1">
+                    {gameRecords.longest_lose_streak.value}
+                  </div>
+                </Link>
               )}
               {gameRecords.longest_unbeaten_streak && (
-                <div className="flex flex-col">
-                  <span className="text-xs text-gray-500 uppercase tracking-wide">Longest Unbeaten</span>
-                  <Link href={`/players/${gameRecords.longest_unbeaten_streak.player_id}`} className="font-semibold text-blue-700 hover:underline">
+                <Link
+                  href={`/players/${gameRecords.longest_unbeaten_streak.player_id}`}
+                  className="group bg-gradient-to-br from-cyan-50 to-teal-50 border border-cyan-200 rounded-xl p-4 hover:shadow-lg hover:border-cyan-300 transition-all duration-200"
+                >
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-xl">🛡️</span>
+                    <span className="text-xs font-semibold text-cyan-700 uppercase tracking-wide">Unbeaten</span>
+                  </div>
+                  <div className="font-bold text-gray-900 group-hover:text-cyan-700 transition-colors">
                     {gameRecords.longest_unbeaten_streak.player_name}
-                  </Link>
-                  <span className="text-sm text-blue-600">{gameRecords.longest_unbeaten_streak.value} games</span>
-                  {gameRecords.longest_unbeaten_streak.date && (
-                    <span className="text-xs text-gray-400">{gameRecords.longest_unbeaten_streak.date}</span>
-                  )}
-                </div>
+                  </div>
+                  <div className="text-2xl font-bold text-cyan-600 mt-1">
+                    {gameRecords.longest_unbeaten_streak.value}
+                  </div>
+                </Link>
               )}
               {gameRecords.biggest_skill_gain && (
-                <div className="flex flex-col">
-                  <span className="text-xs text-gray-500 uppercase tracking-wide">Biggest Skill Gain</span>
-                  <Link href={`/players/${gameRecords.biggest_skill_gain.player_id}`} className="font-semibold text-green-700 hover:underline">
+                <Link
+                  href={`/players/${gameRecords.biggest_skill_gain.player_id}`}
+                  className="group bg-gradient-to-br from-lime-50 to-green-50 border border-lime-200 rounded-xl p-4 hover:shadow-lg hover:border-lime-300 transition-all duration-200"
+                >
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-xl">🚀</span>
+                    <span className="text-xs font-semibold text-lime-700 uppercase tracking-wide">Biggest Gain</span>
+                  </div>
+                  <div className="font-bold text-gray-900 group-hover:text-lime-700 transition-colors">
                     {gameRecords.biggest_skill_gain.player_name}
-                  </Link>
-                  <span className="text-sm font-mono text-green-600">+{(gameRecords.biggest_skill_gain.value as number).toFixed(3)}</span>
-                  {gameRecords.biggest_skill_gain.date && (
-                    <span className="text-xs text-gray-400">{gameRecords.biggest_skill_gain.date.split(' ')[0]}</span>
-                  )}
-                </div>
+                  </div>
+                  <div className="text-2xl font-bold text-lime-600 mt-1">
+                    +{(gameRecords.biggest_skill_gain.value as number).toFixed(0)}
+                  </div>
+                </Link>
               )}
               {gameRecords.biggest_skill_loss && (
-                <div className="flex flex-col">
-                  <span className="text-xs text-gray-500 uppercase tracking-wide">Biggest Skill Loss</span>
-                  <Link href={`/players/${gameRecords.biggest_skill_loss.player_id}`} className="font-semibold text-red-700 hover:underline">
+                <Link
+                  href={`/players/${gameRecords.biggest_skill_loss.player_id}`}
+                  className="group bg-gradient-to-br from-orange-50 to-red-50 border border-orange-200 rounded-xl p-4 hover:shadow-lg hover:border-orange-300 transition-all duration-200"
+                >
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-xl">💫</span>
+                    <span className="text-xs font-semibold text-orange-700 uppercase tracking-wide">Biggest Loss</span>
+                  </div>
+                  <div className="font-bold text-gray-900 group-hover:text-orange-700 transition-colors">
                     {gameRecords.biggest_skill_loss.player_name}
-                  </Link>
-                  <span className="text-sm font-mono text-red-600">-{(gameRecords.biggest_skill_loss.value as number).toFixed(3)}</span>
-                  {gameRecords.biggest_skill_loss.date && (
-                    <span className="text-xs text-gray-400">{gameRecords.biggest_skill_loss.date.split(' ')[0]}</span>
-                  )}
-                </div>
+                  </div>
+                  <div className="text-2xl font-bold text-orange-600 mt-1">
+                    -{(gameRecords.biggest_skill_loss.value as number).toFixed(0)}
+                  </div>
+                </Link>
               )}
             </div>
           </div>

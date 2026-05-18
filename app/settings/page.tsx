@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { useTheme } from "@/lib/contexts/ThemeContext";
 
 interface Game {
   id: number;
@@ -11,13 +12,40 @@ interface Game {
   image_url?: string | null;
 }
 
+const COLOR_PRESETS = [
+  { name: 'Blue', primary: '#2563eb', accent: '#dc2626' },
+  { name: 'Green', primary: '#16a34a', accent: '#dc2626' },
+  { name: 'Purple', primary: '#9333ea', accent: '#f97316' },
+  { name: 'Orange', primary: '#ea580c', accent: '#0891b2' },
+  { name: 'Teal', primary: '#0d9488', accent: '#f43f5e' },
+  { name: 'Red', primary: '#dc2626', accent: '#2563eb' },
+];
+
 export default function SettingsPage() {
+  const { settings: themeSettings, updateSettings: updateTheme, isLoading: themeLoading } = useTheme();
   const [games, setGames] = useState<Game[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<number | null>(null);
   const [editedUrls, setEditedUrls] = useState<Record<number, string>>({});
   const [recalculating, setRecalculating] = useState(false);
   const [recalcResults, setRecalcResults] = useState<{ game_name: string; matches_processed: number; achievements_awarded: number }[] | null>(null);
+
+  // Local form state for theme settings
+  const [companyName, setCompanyName] = useState('');
+  const [logoUrl, setLogoUrl] = useState('');
+  const [primaryColor, setPrimaryColor] = useState('');
+  const [accentColor, setAccentColor] = useState('');
+  const [savingTheme, setSavingTheme] = useState(false);
+
+  // Sync local form state with theme context
+  useEffect(() => {
+    if (!themeLoading) {
+      setCompanyName(themeSettings.company_name || '');
+      setLogoUrl(themeSettings.logo_url || '');
+      setPrimaryColor(themeSettings.primary_color || '#2563eb');
+      setAccentColor(themeSettings.accent_color || '#dc2626');
+    }
+  }, [themeSettings, themeLoading]);
 
   useEffect(() => {
     fetch("/api/games")
@@ -65,6 +93,29 @@ export default function SettingsPage() {
     }
   }
 
+  async function handleThemeSave() {
+    setSavingTheme(true);
+    try {
+      await updateTheme({
+        company_name: companyName,
+        logo_url: logoUrl,
+        primary_color: primaryColor,
+        accent_color: accentColor,
+      });
+      alert('Theme settings saved!');
+    } catch (err) {
+      console.error(err);
+      alert('Failed to save theme settings');
+    } finally {
+      setSavingTheme(false);
+    }
+  }
+
+  function applyPreset(preset: typeof COLOR_PRESETS[0]) {
+    setPrimaryColor(preset.primary);
+    setAccentColor(preset.accent);
+  }
+
   async function recalculateAchievements() {
     setRecalculating(true);
     setRecalcResults(null);
@@ -102,6 +153,172 @@ export default function SettingsPage() {
       </div>
 
       <div className="bg-white rounded-lg shadow p-6">
+        <h2 className="text-xl font-semibold mb-4">Branding</h2>
+        <p className="text-gray-600 mb-6">
+          Customize the app name and logo to match your organization.
+        </p>
+
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              App Name
+            </label>
+            <input
+              type="text"
+              value={companyName}
+              onChange={(e) => setCompanyName(e.target.value)}
+              placeholder="Office Games"
+              className="w-full max-w-md px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              This name will appear in the navigation bar.
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Logo URL
+            </label>
+            <input
+              type="url"
+              value={logoUrl}
+              onChange={(e) => setLogoUrl(e.target.value)}
+              placeholder="https://example.com/logo.png"
+              className="w-full max-w-md px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            {logoUrl && (
+              <div className="mt-2 flex items-center gap-2">
+                <div className="text-xs text-gray-500">Preview:</div>
+                <img
+                  src={logoUrl}
+                  alt="Logo preview"
+                  className="h-8 w-8 object-contain rounded border"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).style.display = 'none';
+                  }}
+                />
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-lg shadow p-6 mt-6">
+        <h2 className="text-xl font-semibold mb-4">Colors</h2>
+        <p className="text-gray-600 mb-6">
+          Choose primary and accent colors for the app. Primary color is used for buttons and links. Accent color is used for highlights and warnings.
+        </p>
+
+        <div className="space-y-6">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Color Presets
+            </label>
+            <div className="flex flex-wrap gap-2">
+              {COLOR_PRESETS.map((preset) => (
+                <button
+                  key={preset.name}
+                  onClick={() => applyPreset(preset)}
+                  className="flex items-center gap-2 px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  <div className="flex">
+                    <div
+                      className="w-4 h-4 rounded-l"
+                      style={{ backgroundColor: preset.primary }}
+                    />
+                    <div
+                      className="w-4 h-4 rounded-r"
+                      style={{ backgroundColor: preset.accent }}
+                    />
+                  </div>
+                  <span className="text-sm">{preset.name}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Primary Color
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="color"
+                  value={primaryColor}
+                  onChange={(e) => setPrimaryColor(e.target.value)}
+                  className="w-12 h-10 border border-gray-300 rounded cursor-pointer"
+                />
+                <input
+                  type="text"
+                  value={primaryColor}
+                  onChange={(e) => setPrimaryColor(e.target.value)}
+                  className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Accent Color
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="color"
+                  value={accentColor}
+                  onChange={(e) => setAccentColor(e.target.value)}
+                  className="w-12 h-10 border border-gray-300 rounded cursor-pointer"
+                />
+                <input
+                  type="text"
+                  value={accentColor}
+                  onChange={(e) => setAccentColor(e.target.value)}
+                  className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Preview
+            </label>
+            <div className="p-4 bg-gray-50 rounded-lg">
+              <div className="flex items-center gap-4 mb-4">
+                <button
+                  className="px-4 py-2 rounded-lg text-white"
+                  style={{ backgroundColor: primaryColor }}
+                >
+                  Primary Button
+                </button>
+                <button
+                  className="px-4 py-2 rounded-lg bg-gray-200 text-gray-800 hover:bg-gray-300 transition-colors"
+                >
+                  Secondary Button
+                </button>
+              </div>
+              <div className="flex items-center gap-4">
+                <span style={{ color: primaryColor }} className="font-medium">
+                  Primary Link
+                </span>
+                <span style={{ color: accentColor }} className="font-medium">
+                  Accent Text
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <button
+            onClick={handleThemeSave}
+            disabled={savingTheme}
+            className="bg-primary text-white px-4 py-2 rounded-lg hover:bg-primary-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {savingTheme ? "Saving..." : "Save Theme"}
+          </button>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-lg shadow p-6 mt-6">
         <h2 className="text-xl font-semibold mb-4">Game Images</h2>
         <p className="text-gray-600 mb-6">
           Set an image URL for each game to be used in Google Chat notifications.
@@ -142,7 +359,7 @@ export default function SettingsPage() {
                 <button
                   onClick={() => saveImageUrl(game.id)}
                   disabled={saving === game.id}
-                  className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="bg-primary text-white px-4 py-2 rounded-lg hover:bg-primary-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {saving === game.id ? "Saving..." : "Save"}
                 </button>

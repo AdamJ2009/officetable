@@ -158,6 +158,25 @@ try {
   // Migration failed or already done, ignore
 }
 
+// Settings table for app configuration (branding, theming, etc.)
+db.exec(`
+  CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`);
+
+// Seed default settings if not exists
+const seedSettings = db.prepare(`
+  INSERT OR IGNORE INTO settings (key, value) VALUES
+    ('company_name', 'Office Games'),
+    ('logo_url', ''),
+    ('primary_color', '#2563eb'),
+    ('accent_color', '#dc2626')
+`);
+seedSettings.run();
+
 // Seed games with scoring configuration if not exists
 const seedGames = db.prepare(`
   INSERT OR IGNORE INTO games (name, score_type, score_value) VALUES

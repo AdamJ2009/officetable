@@ -1,11 +1,11 @@
-import { getGames, getLeaderboard, getGameStats, getGameRecords } from "@/lib/data";
+import { getLeaderboard, getGameStats, getGameRecords, getGames } from "@/lib/data";
 import LeaderboardClient from "./LeaderboardClient";
 
 // Revalidate every 30 seconds to pick up new matches
 export const revalidate = 30;
 
 export default async function Home() {
-  // Fetch all data on the server
+  // Fetch initial data for the first game
   const games = getGames();
   const initialGameId = games.length > 0 ? games[0].id : 0;
 
@@ -18,8 +18,6 @@ export default async function Home() {
 
   return (
     <LeaderboardClient
-      games={games}
-      initialGameId={initialGameId}
       initialLeaderboard={initialLeaderboard}
       initialStats={initialStats}
       initialRecords={initialRecords}

@@ -94,13 +94,13 @@ export default function PlayersPage() {
             value={newPlayerName}
             onChange={(e) => setNewPlayerName(e.target.value)}
             placeholder="Enter player name"
-            className="flex-1 max-w-xs px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="flex-1 max-w-xs px-3 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
             disabled={submitting}
           />
           <button
             type="submit"
             disabled={submitting || !newPlayerName.trim()}
-            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="bg-primary text-white px-4 py-2 rounded-lg hover:bg-primary-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {submitting ? "Adding..." : "Add Player"}
           </button>
@@ -148,7 +148,7 @@ export default function PlayersPage() {
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                       <Link
                         href={`/players/${player.id}`}
-                        className="text-blue-600 hover:underline"
+                        className="text-primary hover:underline"
                       >
                         {player.name}
                       </Link>
@@ -183,7 +183,7 @@ export default function PlayersPage() {
                     <td className="px-6 py-4 whitespace-nowrap text-sm">
                       <button
                         onClick={() => togglePlayerStatus(player)}
-                        className="text-blue-600 hover:text-blue-800 underline"
+                        className="text-primary hover:underline"
                       >
                         Reactivate
                       </button>

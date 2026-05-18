@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useSelectedGame } from "@/lib/hooks/useSelectedGame";
 
 interface Game {
   id: number;
@@ -24,11 +25,10 @@ interface PlayerRating {
 function NewMatchContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [games, setGames] = useState<Game[]>([]);
+  const { selectedGameId, games, setSelectedGameId } = useSelectedGame();
+  const selectedGameData = games.find(g => g.id === selectedGameId);
   const [players, setPlayers] = useState<Player[]>([]);
   const [ratings, setRatings] = useState<PlayerRating[]>([]);
-  const [selectedGame, setSelectedGame] = useState<number | null>(null);
-  const selectedGameData = games.find(g => g.id === selectedGame);
   const [team1Players, setTeam1Players] = useState<number[]>([]);
   const [team2Players, setTeam2Players] = useState<number[]>([]);
   const [team1Score, setTeam1Score] = useState<string>("0");
@@ -37,33 +37,33 @@ function NewMatchContent() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Check URL params for pre-selected game
   useEffect(() => {
-    Promise.all([
-      fetch("/api/games").then((res) => res.json()),
-      fetch("/api/players").then((res) => res.json()),
-    ]).then(([gamesData, playersData]) => {
-      setGames(gamesData);
-      if (gamesData.length > 0) {
-        // Check if there's a game parameter in the URL
-        const gameParam = searchParams.get("game");
-        const gameIdFromParam = gameParam ? parseInt(gameParam, 10) : null;
-        // Use the game from URL if it exists, otherwise default to first game
-        const gameExists = gameIdFromParam && gamesData.some((g: Game) => g.id === gameIdFromParam);
-        setSelectedGame(gameExists ? gameIdFromParam : gamesData[0].id);
+    const gameParam = searchParams.get("game");
+    if (gameParam) {
+      const gameIdFromParam = parseInt(gameParam, 10);
+      const gameExists = games.some((g: Game) => g.id === gameIdFromParam);
+      if (gameExists) {
+        setSelectedGameId(gameIdFromParam);
       }
-      setPlayers(playersData);
-    });
-  }, [searchParams]);
+    }
+  }, [searchParams, games, setSelectedGameId]);
 
   useEffect(() => {
-    if (selectedGame) {
-      fetch(`/api/leaderboard?game_id=${selectedGame}`)
+    fetch("/api/players")
+      .then((res) => res.json())
+      .then((data: Player[]) => setPlayers(data));
+  }, []);
+
+  useEffect(() => {
+    if (selectedGameId) {
+      fetch(`/api/leaderboard?game_id=${selectedGameId}`)
         .then((res) => res.json())
         .then((data) => {
           setRatings(data);
         });
     }
-  }, [selectedGame]);
+  }, [selectedGameId]);
 
   function togglePlayer(team: 1 | 2, playerId: number) {
     if (team === 1) {
@@ -85,7 +85,7 @@ function NewMatchContent() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!selectedGame) return;
+    if (!selectedGameId) return;
 
     if (team1Players.length === 0 || team2Players.length === 0) {
       setError("Each team must have at least one player");
@@ -108,7 +108,7 @@ function NewMatchContent() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          game_id: selectedGame,
+          game_id: selectedGameId,
           notes: notes || null,
           teams: [
             {
@@ -214,23 +214,6 @@ function NewMatchContent() {
       <h1 className="text-3xl font-bold mb-8">Record Match</h1>
 
       <form onSubmit={handleSubmit} className="space-y-6">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Game Type
-          </label>
-          <select
-            value={selectedGame || ""}
-            onChange={(e) => setSelectedGame(Number(e.target.value))}
-            className="block w-full max-w-xs px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
-            {games.map((game) => (
-              <option key={game.id} value={game.id}>
-                {game.name.charAt(0).toUpperCase() + game.name.slice(1).replace("-", " ")}
-              </option>
-            ))}
-          </select>
-        </div>
-
         <div className="grid grid-cols-2 gap-8">
           <div>
             <h2 className="text-lg font-semibold mb-4">Team 1</h2>
@@ -410,7 +393,7 @@ function NewMatchContent() {
           <button
             type="submit"
             disabled={submitting || team1Players.length === 0 || team2Players.length === 0}
-            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="bg-primary text-white px-4 py-2 rounded-lg hover:bg-primary-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {submitting ? "Recording..." : "Record Match"}
           </button>

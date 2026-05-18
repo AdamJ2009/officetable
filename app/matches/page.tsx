@@ -3,6 +3,7 @@
 import { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
+import { useSelectedGame } from "@/lib/hooks/useSelectedGame";
 
 interface Game {
   id: number;
@@ -62,9 +63,9 @@ interface PaginationMeta {
 function MatchesPageContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
+  const { selectedGameId } = useSelectedGame();
 
   // Get initial values from URL params
-  const initialGameId = searchParams.get('game_id');
   const initialPage = parseInt(searchParams.get('page') || '1', 10);
   const initialLimit = parseInt(searchParams.get('limit') || '20', 10);
   const initialDateFrom = searchParams.get('date_from') || '';
@@ -74,9 +75,7 @@ function MatchesPageContent() {
   const initialHasAchievements = searchParams.get('has_achievements') === 'true';
   const initialMinSkillChange = searchParams.get('min_skill_change') || '';
 
-  const [games, setGames] = useState<Game[]>([]);
   const [players, setPlayers] = useState<Player[]>([]);
-  const [selectedGame, setSelectedGame] = useState<number | null>(initialGameId ? parseInt(initialGameId, 10) : null);
   const [matches, setMatches] = useState<Match[]>([]);
   const [totalMatches, setTotalMatches] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -102,7 +101,7 @@ function MatchesPageContent() {
   // Build URL params for API call and navigation
   const buildQueryParams = (pageArg?: number, limitArg?: number) => {
     const params = new URLSearchParams();
-    if (selectedGame) params.set('game_id', selectedGame.toString());
+    if (selectedGameId) params.set('game_id', selectedGameId.toString());
     params.set('page', (pageArg ?? page).toString());
     params.set('limit', (limitArg ?? limit).toString());
     if (dateFrom) params.set('date_from', dateFrom);
@@ -121,22 +120,13 @@ function MatchesPageContent() {
   };
 
   useEffect(() => {
-    fetch("/api/games")
-      .then((res) => res.json())
-      .then((data: Game[]) => {
-        setGames(data);
-        if (!selectedGame && data.length > 0) {
-          setSelectedGame(data[0].id);
-        }
-      });
-
     fetch("/api/players")
       .then((res) => res.json())
       .then((data: Player[]) => setPlayers(data));
   }, []);
 
   useEffect(() => {
-    if (selectedGame) {
+    if (selectedGameId) {
       setLoading(true);
       const params = buildQueryParams();
       fetch(`/api/matches?${params.toString()}`)
@@ -147,7 +137,7 @@ function MatchesPageContent() {
           setLoading(false);
         });
     }
-  }, [selectedGame, page, limit, dateFrom, dateTo, JSON.stringify(selectedPlayerIds), playerCount, hasAchievements, minSkillChange]);
+  }, [selectedGameId, page, limit, dateFrom, dateTo, JSON.stringify(selectedPlayerIds), playerCount, hasAchievements, minSkillChange]);
 
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr);
@@ -331,8 +321,8 @@ function MatchesPageContent() {
       <div className="flex items-center justify-between mb-8">
         <h1 className="text-3xl font-bold">Match History</h1>
         <Link
-          href={selectedGame ? `/matches/new?game=${selectedGame}` : "/matches/new"}
-          className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+          href={selectedGameId ? `/matches/new?game=${selectedGameId}` : "/matches/new"}
+          className="bg-primary text-white px-4 py-2 rounded-lg hover:bg-primary-hover transition-colors"
         >
           Record Match
         </Link>
@@ -340,26 +330,6 @@ function MatchesPageContent() {
 
       <div className="mb-6 space-y-4">
         <div className="flex flex-wrap items-end gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Select Game
-            </label>
-            <select
-              value={selectedGame || ""}
-              onChange={(e) => {
-                setSelectedGame(Number(e.target.value));
-                setPage(1);
-              }}
-              className="block w-full min-w-[200px] px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              {games.map((game) => (
-                <option key={game.id} value={game.id}>
-                  {game.name.charAt(0).toUpperCase() + game.name.slice(1).replace("-", " ")}
-                </option>
-              ))}
-            </select>
-          </div>
-
           <button
             onClick={() => setShowFilters(!showFilters)}
             className={`px-4 py-2 rounded-lg border transition-colors ${showFilters ? 'bg-blue-50 border-blue-300 text-blue-700' : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'}`}
@@ -472,7 +442,7 @@ function MatchesPageContent() {
       ) : matches.length === 0 ? (
         <div className="text-gray-500">
           No matches recorded yet.{" "}
-          <Link href={selectedGame ? `/matches/new?game=${selectedGame}` : "/matches/new"} className="text-blue-600 hover:underline">
+          <Link href={selectedGameId ? `/matches/new?game=${selectedGameId}` : "/matches/new"} className="text-primary hover:underline">
             Record your first match
           </Link>
         </div>

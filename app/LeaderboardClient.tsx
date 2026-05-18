@@ -1,13 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
-import type { LeaderboardEntry, Game } from "@/lib/types";
+import { useSelectedGame } from "@/lib/hooks/useSelectedGame";
+import type { LeaderboardEntry } from "@/lib/types";
 import type { GameStats, GameRecords } from "@/lib/data";
 
 interface LeaderboardClientProps {
-  games: Game[];
-  initialGameId: number;
   initialLeaderboard: LeaderboardEntry[];
   initialStats: GameStats;
   initialRecords: GameRecords;
@@ -58,52 +57,39 @@ function TrendSparkline({ deltas }: { deltas: number[] }) {
 }
 
 export default function LeaderboardClient({
-  games,
-  initialGameId,
   initialLeaderboard,
   initialStats,
   initialRecords,
 }: LeaderboardClientProps) {
-  const [selectedGame, setSelectedGame] = useState(initialGameId);
+  const { selectedGameId, selectedGame, games } = useSelectedGame();
   const [leaderboard, setLeaderboard] = useState(initialLeaderboard);
   const [gameStats, setGameStats] = useState(initialStats);
   const [gameRecords, setGameRecords] = useState(initialRecords);
   const [loading, setLoading] = useState(false);
   const [showRetired, setShowRetired] = useState(false);
 
-  const selectedGameData = games.find(g => g.id === selectedGame);
+  // Fetch data when selected game changes
+  useEffect(() => {
+    if (selectedGameId === null) return;
 
-  const formatGameName = (name: string) => {
-    return name.charAt(0).toUpperCase() + name.slice(1).replace("-", " ");
-  };
-
-  const handleGameChange = async (newGameId: number) => {
-    setSelectedGame(newGameId);
-    setLoading(true);
-    try {
-      const [leaderboardData, statsData, recordsData] = await Promise.all([
-        fetch(`/api/leaderboard?game_id=${newGameId}&include_retired=${showRetired}`).then(res => res.json()),
-        fetch(`/api/game-stats?game_id=${newGameId}`).then(res => res.json()),
-        fetch(`/api/game-records?game_id=${newGameId}`).then(res => res.json())
-      ]);
-      setLeaderboard(leaderboardData);
-      setGameStats(statsData);
-      setGameRecords(recordsData);
-    } finally {
-      setLoading(false);
+    async function fetchData() {
+      setLoading(true);
+      try {
+        const [leaderboardData, statsData, recordsData] = await Promise.all([
+          fetch(`/api/leaderboard?game_id=${selectedGameId}&include_retired=${showRetired}`).then(res => res.json()),
+          fetch(`/api/game-stats?game_id=${selectedGameId}`).then(res => res.json()),
+          fetch(`/api/game-records?game_id=${selectedGameId}`).then(res => res.json())
+        ]);
+        setLeaderboard(leaderboardData);
+        setGameStats(statsData);
+        setGameRecords(recordsData);
+      } finally {
+        setLoading(false);
+      }
     }
-  };
 
-  const handleRetiredToggle = async (show: boolean) => {
-    setShowRetired(show);
-    setLoading(true);
-    try {
-      const leaderboardData = await fetch(`/api/leaderboard?game_id=${selectedGame}&include_retired=${show}`).then(res => res.json());
-      setLeaderboard(leaderboardData);
-    } finally {
-      setLoading(false);
-    }
-  };
+    fetchData();
+  }, [selectedGameId, showRetired]);
 
   return (
     <div>
@@ -117,8 +103,8 @@ export default function LeaderboardClient({
             Match History
           </Link>
           <Link
-            href={selectedGame ? `/matches/new?game=${selectedGame}` : "/matches/new"}
-            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+            href={selectedGameId ? `/matches/new?game=${selectedGameId}` : "/matches/new"}
+            className="bg-primary text-white px-4 py-2 rounded-lg hover:bg-primary-hover transition-colors"
           >
             Record Match
           </Link>
@@ -129,23 +115,6 @@ export default function LeaderboardClient({
             Settings
           </Link>
         </div>
-      </div>
-
-      <div className="mb-6">
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          Select Game
-        </label>
-        <select
-          value={selectedGame || ""}
-          onChange={(e) => handleGameChange(Number(e.target.value))}
-          className="block w-full max-w-xs px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-        >
-          {games.map((game) => (
-            <option key={game.id} value={game.id}>
-              {formatGameName(game.name)}
-            </option>
-          ))}
-        </select>
       </div>
 
       {gameStats && (
@@ -292,8 +261,8 @@ export default function LeaderboardClient({
           <input
             type="checkbox"
             checked={showRetired}
-            onChange={(e) => handleRetiredToggle(e.target.checked)}
-            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            onChange={(e) => setShowRetired(e.target.checked)}
+            className="rounded border-border text-primary focus:ring-primary"
           />
           Show retired players
         </label>
@@ -304,7 +273,7 @@ export default function LeaderboardClient({
       ) : leaderboard.length === 0 ? (
         <div className="text-gray-500">
           No players on the leaderboard yet.{" "}
-          <Link href="/players" className="text-blue-600 hover:underline">
+          <Link href="/players" className="text-primary hover:underline">
             Add players
           </Link>{" "}
           and record some matches!

@@ -424,10 +424,10 @@ export default function LeaderboardClient({
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center gap-2">
                         <span className="text-lg font-bold text-gray-900">
-                          {entry.elo.toFixed(0)}
+                          {entry.elo < 0 && entry.elo > -1 ? -0 : Math.trunc(entry.elo)}
                         </span>
                         <span className="text-xs text-gray-400 font-mono">
-                          .{Math.abs(entry.elo % 1).toFixed(3).slice(2)}
+                          .{Math.abs(entry.elo - Math.trunc(entry.elo)).toFixed(3).slice(2)}
                         </span>
                       </div>
                     </td>

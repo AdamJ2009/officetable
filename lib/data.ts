@@ -136,7 +136,7 @@ export function getLeaderboard(gameId: number, includeRetired: boolean = false):
     FROM player_ratings pr
     JOIN players p ON pr.player_id = p.id
     WHERE pr.game_id = ?${statusFilter}
-    ORDER BY pr.elo DESC
+    ORDER BY pr.elo DESC, p.name ASC
   `).all(gameId) as {
     player_id: number;
     player_name: string;
@@ -226,7 +226,7 @@ export function getGameRecords(gameId: number): GameRecords {
     FROM player_ratings pr
     JOIN players p ON pr.player_id = p.id
     WHERE pr.game_id = ? AND (p.status IS NULL OR p.status = 'active')
-    ORDER BY pr.elo DESC
+    ORDER BY pr.elo DESC, p.name ASC
     LIMIT 1
   `).get(gameId) as Record | undefined;
   records.highest_skill = highestSkill || null;
@@ -242,7 +242,7 @@ export function getGameRecords(gameId: number): GameRecords {
       JOIN matches m ON mp.match_id = m.id
       WHERE mp.player_id = pr.player_id AND m.game_id = ?
     ) >= 5
-    ORDER BY pr.elo ASC
+    ORDER BY pr.elo ASC, p.name ASC
     LIMIT 1
   `).get(gameId, gameId) as Record | undefined;
   records.lowest_skill = lowestSkill || null;
@@ -258,7 +258,7 @@ export function getGameRecords(gameId: number): GameRecords {
     JOIN players p ON mp.player_id = p.id
     JOIN matches m ON mp.match_id = m.id
     WHERE m.game_id = ?
-    ORDER BY mp.elo_after DESC
+    ORDER BY mp.elo_after DESC, p.name ASC
     LIMIT 1
   `).get(gameId) as Record | undefined;
   records.peak_skill_ever = peakSkillEver || null;
@@ -278,7 +278,7 @@ export function getGameRecords(gameId: number): GameRecords {
       JOIN matches m2 ON mp2.match_id = m2.id
       WHERE mp2.player_id = mp.player_id AND m2.game_id = ? AND m2.played_at <= m.played_at
     ) >= 5
-    ORDER BY mp.elo_after ASC
+    ORDER BY mp.elo_after ASC, p.name ASC
     LIMIT 1
   `).get(gameId, gameId) as Record | undefined;
   records.trough_skill_ever = troughSkillEver || null;

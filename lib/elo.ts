@@ -29,7 +29,7 @@ export function getPlayerRatings(gameId: number): PlayerRating[] {
     FROM player_ratings pr
     JOIN players p ON pr.player_id = p.id
     WHERE pr.game_id = ?
-    ORDER BY pr.elo DESC
+    ORDER BY pr.elo DESC, p.name ASC
   `);
   return stmt.all(gameId) as PlayerRating[];
 }
@@ -82,7 +82,7 @@ export function getLeaderboard(gameId: number): LeaderboardEntry[] {
       GROUP BY player_id
     ) draws ON draws.player_id = pr.player_id
     WHERE pr.game_id = ?
-    ORDER BY pr.elo DESC
+    ORDER BY pr.elo DESC, p.name ASC
   `);
   return stmt.all(gameId) as LeaderboardEntry[];
 }

@@ -91,12 +91,16 @@ function isFirstGameForOpponent(playerId: number, gameId: number, matchId: numbe
 }
 
 // Get ranking at a point in time
-function getRankAtTime(gameId: number, playerIds: number[], eloMap: Map<number, number>): Map<number, number> {
-  // Sort players by elo descending
+function getRankAtTime(gameId: number, playerIds: number[], eloMap: Map<number, number>, playerNameMap: Map<number, string>): Map<number, number> {
+  // Sort players by elo descending, with name as tiebreaker for deterministic ordering
   const sorted = [...playerIds].sort((a, b) => {
     const eloA = eloMap.get(a) ?? 0;
     const eloB = eloMap.get(b) ?? 0;
-    return eloB - eloA;
+    if (eloB !== eloA) return eloB - eloA;
+    // Tiebreaker: alphabetically by name for deterministic ranking
+    const nameA = playerNameMap.get(a) ?? '';
+    const nameB = playerNameMap.get(b) ?? '';
+    return nameA.localeCompare(nameB);
   });
 
   const rankings = new Map<number, number>();
@@ -236,8 +240,18 @@ export function checkAchievements(context: AchievementContext): AchievementResul
     allEloBefore.set(p.player_id, p.elo_before);
   }
 
-  // Sort by elo descending to get rankings before the match
-  const sortedBefore = [...allEloBefore.entries()].sort((a, b) => b[1] - a[1]);
+  // Sort by elo descending (with player name tiebreaker) to get rankings before the match
+  const allPlayerNamesBefore = new Map<number, string>();
+  const allNamesStmt = db.prepare('SELECT id, name FROM players');
+  for (const row of allNamesStmt.all() as { id: number; name: string }[]) {
+    allPlayerNamesBefore.set(row.id, row.name);
+  }
+  const sortedBefore = [...allEloBefore.entries()].sort((a, b) => {
+    if (b[1] !== a[1]) return b[1] - a[1];
+    const nameA = allPlayerNamesBefore.get(a[0]) ?? '';
+    const nameB = allPlayerNamesBefore.get(b[0]) ?? '';
+    return nameA.localeCompare(nameB);
+  });
   const numberOneBefore = sortedBefore[0]?.[0];
   const lastBefore = sortedBefore[sortedBefore.length - 1]?.[0];
 
@@ -274,7 +288,12 @@ export function checkAchievements(context: AchievementContext): AchievementResul
       allEloAfter.set(p.player_id, p.elo_after);
     }
 
-    const sortedAfter = [...allEloAfter.entries()].sort((a, b) => b[1] - a[1]);
+    const sortedAfter = [...allEloAfter.entries()].sort((a, b) => {
+      if (b[1] !== a[1]) return b[1] - a[1];
+      const nameA = allPlayerNamesBefore.get(a[0]) ?? '';
+      const nameB = allPlayerNamesBefore.get(b[0]) ?? '';
+      return nameA.localeCompare(nameB);
+    });
     const numberOneAfter = sortedAfter[0]?.[0];
     const lastAfter = sortedAfter[sortedAfter.length - 1]?.[0];
 

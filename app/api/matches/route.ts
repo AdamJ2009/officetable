@@ -199,7 +199,7 @@ export async function POST(request: NextRequest) {
       FROM player_ratings pr
       JOIN players p ON pr.player_id = p.id
       WHERE pr.game_id = ? AND (p.status IS NULL OR p.status = 'active')
-      ORDER BY pr.elo DESC
+      ORDER BY pr.elo DESC, p.name ASC
     `).all(game_id) as { player_id: number; elo: number }[];
 
     const rankBefore = new Map<number, number>();
@@ -216,7 +216,7 @@ export async function POST(request: NextRequest) {
       FROM player_ratings pr
       JOIN players p ON pr.player_id = p.id
       WHERE pr.game_id = ? AND (p.status IS NULL OR p.status = 'active')
-      ORDER BY pr.elo DESC
+      ORDER BY pr.elo DESC, p.name ASC
     `).all(game_id) as { player_id: number; elo: number }[];
 
     const rankAfter = new Map<number, number>();

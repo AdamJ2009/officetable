@@ -120,7 +120,7 @@ export async function GET(request: NextRequest) {
     FROM player_ratings pr
     JOIN players p ON pr.player_id = p.id
     WHERE pr.game_id = ?${statusFilter}
-    ORDER BY pr.elo DESC
+    ORDER BY pr.elo DESC, p.name ASC
   `);
 
   const rows = stmt.all(parseInt(gameId)) as {

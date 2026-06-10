@@ -615,6 +615,29 @@ export default function PlayerProfilePage() {
                     Retired
                   </span>
                 )}
+                <button
+                  onClick={async () => {
+                    const newStatus = stats.player.status === 'retired' ? 'active' : 'retired';
+                    try {
+                      const res = await fetch('/api/players', {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ id: stats.player.id, status: newStatus }),
+                      });
+                      if (!res.ok) throw new Error('Failed to update');
+                      setStats({ ...stats, player: { ...stats.player, status: newStatus } });
+                    } catch {
+                      alert('Failed to update player status');
+                    }
+                  }}
+                  className={`text-xs px-3 py-1 rounded-full font-medium transition-colors ${
+                    stats.player.status === 'retired'
+                      ? 'bg-green-700/30 text-green-300 hover:bg-green-700/50'
+                      : 'bg-slate-700/50 text-slate-400 hover:bg-slate-600/50'
+                  }`}
+                >
+                  {stats.player.status === 'retired' ? '↩ Reactivate' : '👋 Retire'}
+                </button>
               </div>
               <div className="text-slate-400 mt-1 flex items-center gap-2">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

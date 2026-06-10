@@ -147,23 +147,31 @@ export default function PlayersPage() {
           {/* Active Players */}
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
             {activePlayers.map((player) => (
-              <Link
+              <div
                 key={player.id}
-                href={`/players/${player.id}`}
-                className="group"
+                className="group relative"
               >
-                <div className="bg-white rounded-xl shadow hover:shadow-lg transition-all p-4 text-center">
-                  <div className={`w-16 h-16 mx-auto mb-3 rounded-full bg-gradient-to-br ${getPlayerColor(player.name)} flex items-center justify-center text-white text-2xl font-bold shadow-md group-hover:scale-110 transition-transform`}>
-                    {player.name.charAt(0).toUpperCase()}
+                <Link href={`/players/${player.id}`}>
+                  <div className="bg-white rounded-xl shadow hover:shadow-lg transition-all p-4 text-center">
+                    <div className={`w-16 h-16 mx-auto mb-3 rounded-full bg-gradient-to-br ${getPlayerColor(player.name)} flex items-center justify-center text-white text-2xl font-bold shadow-md group-hover:scale-110 transition-transform`}>
+                      {player.name.charAt(0).toUpperCase()}
+                    </div>
+                    <h3 className="font-semibold text-gray-900 group-hover:text-primary transition-colors truncate">
+                      {player.name}
+                    </h3>
+                    <p className="text-xs text-gray-400 mt-1">
+                      Added {new Date(player.created_at).toLocaleDateString()}
+                    </p>
                   </div>
-                  <h3 className="font-semibold text-gray-900 group-hover:text-primary transition-colors truncate">
-                    {player.name}
-                  </h3>
-                  <p className="text-xs text-gray-400 mt-1">
-                    Added {new Date(player.created_at).toLocaleDateString()}
-                  </p>
-                </div>
-              </Link>
+                </Link>
+                <button
+                  onClick={(e) => { e.preventDefault(); togglePlayerStatus(player); }}
+                  className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity text-xs text-gray-400 hover:text-red-500 bg-white/80 rounded px-1.5 py-0.5 backdrop-blur-sm"
+                  title="Retire player"
+                >
+                  👋
+                </button>
+              </div>
             ))}
           </div>
 

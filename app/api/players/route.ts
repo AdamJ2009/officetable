@@ -15,7 +15,25 @@ export async function GET(request: NextRequest) {
     stmt = db.prepare("SELECT * FROM players WHERE status IS NULL OR status = 'active' ORDER BY name");
   }
   const players = stmt.all() as Player[];
-  return NextResponse.json(players);
+
+  // Attach first match date for each player
+  const firstMatchStmt = db.prepare(`
+    SELECT mp.player_id, MIN(m.played_at) as first_played_at
+    FROM match_participants mp
+    JOIN matches m ON mp.match_id = m.id
+    WHERE mp.player_id = ?
+    GROUP BY mp.player_id
+  `);
+
+  const playersWithFirstMatch = players.map(player => {
+    const row = firstMatchStmt.get(player.id) as { first_played_at: string } | undefined;
+    return {
+      ...player,
+      first_played_at: row?.first_played_at ?? null,
+    };
+  });
+
+  return NextResponse.json(playersWithFirstMatch);
 }
 
 export async function POST(request: NextRequest) {

@@ -8,6 +8,7 @@ interface Player {
   name: string;
   status: 'active' | 'retired';
   created_at: string;
+  first_played_at: string | null;
 }
 
 export default function PlayersPage() {
@@ -160,7 +161,9 @@ export default function PlayersPage() {
                       {player.name}
                     </h3>
                     <p className="text-xs text-gray-400 mt-1">
-                      Added {new Date(player.created_at).toLocaleDateString()}
+                      {player.first_played_at
+                        ? `Playing since ${new Date(player.first_played_at).toLocaleDateString()}`
+                        : 'Yet to play'}
                     </p>
                   </div>
                 </Link>

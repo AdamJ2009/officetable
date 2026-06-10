@@ -13,7 +13,16 @@ export async function GET(request: NextRequest) {
   const playerStmt = db.prepare(`
     SELECT id, name, status, created_at FROM players WHERE id = ?
   `);
-  const player = playerStmt.get(parseInt(playerId));
+  const player = playerStmt.get(parseInt(playerId)) as { id: number; name: string; status: string; created_at: string };
+
+  // Get first match date across all games
+  const firstMatchStmt = db.prepare(`
+    SELECT MIN(m.played_at) as first_played_at
+    FROM match_participants mp
+    JOIN matches m ON mp.match_id = m.id
+    WHERE mp.player_id = ?
+  `);
+  const firstMatch = firstMatchStmt.get(parseInt(playerId)) as { first_played_at: string | null } | undefined;
 
   if (!player) {
     return NextResponse.json({ error: 'Player not found' }, { status: 404 });
@@ -447,7 +456,10 @@ export async function GET(request: NextRequest) {
   };
 
   return NextResponse.json({
-    player,
+    player: {
+      ...player,
+      first_played_at: firstMatch?.first_played_at ?? null,
+    },
     overallStats,
     gameStats,
     recentMatches: matchesWithOpponents

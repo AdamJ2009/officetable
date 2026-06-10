@@ -142,7 +142,7 @@ function StreakBadge({ streak }: { streak: string }) {
   }[type] || { emoji: '•', bg: 'bg-gray-100 text-gray-600', label: streak };
 
   return (
-    <span className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-xs font-semibold ${config.bg}`}>
+    <span title="Current streak against player" className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-xs font-semibold ${config.bg}`}>
       <span>{config.emoji}</span>{count}
     </span>
   );

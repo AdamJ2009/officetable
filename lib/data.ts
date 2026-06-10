@@ -31,7 +31,7 @@ export function getGames(): Game[] {
   return db.prepare('SELECT id, name, score_type, score_value, created_at, image_url FROM games').all() as Game[];
 }
 
-export function getLeaderboard(gameId: number, includeRetired: boolean = false): LeaderboardEntry[] {
+export function getLeaderboard(gameId: number, includeRetired: boolean = false, includeInactive: boolean = false): LeaderboardEntry[] {
   // Get all match results for this game, calculating wins/losses/draws from scores
   const participations = db.prepare(`
     SELECT
@@ -144,9 +144,35 @@ export function getLeaderboard(gameId: number, includeRetired: boolean = false):
     status: string | null;
   }[];
 
-  return rows.map(row => {
+  // Get last match date per player for inactivity calculation
+  const lastMatchRows = db.prepare(`
+    SELECT
+      mp.player_id,
+      MAX(m.played_at) as last_match_at
+    FROM match_participants mp
+    JOIN matches m ON mp.match_id = m.id
+    WHERE m.game_id = ?
+    GROUP BY mp.player_id
+  `).all(gameId) as { player_id: number; last_match_at: string }[];
+
+  const playerLastMatch: Map<number, string> = new Map();
+  for (const row of lastMatchRows) {
+    playerLastMatch.set(row.player_id, row.last_match_at);
+  }
+
+  // Read inactive threshold from settings
+  const thresholdSetting = db.prepare(`SELECT value FROM settings WHERE key = 'inactive_threshold_days'`).get() as { value: string } | undefined;
+  const inactiveThresholdDays = thresholdSetting ? parseInt(thresholdSetting.value, 10) : 60;
+  const now = Date.now();
+
+  let result = rows.map(row => {
     const stats = playerStats.get(row.player_id) || { wins: 0, losses: 0, draws: 0 };
     const trend = playerTrends.get(row.player_id) || [];
+    const lastMatchAt = playerLastMatch.get(row.player_id);
+    const isInactive = lastMatchAt
+      ? (now - new Date(lastMatchAt).getTime()) > inactiveThresholdDays * 24 * 60 * 60 * 1000
+      : true; // No matches = inactive
+
     return {
       player_id: row.player_id,
       player_name: row.player_name,
@@ -155,9 +181,17 @@ export function getLeaderboard(gameId: number, includeRetired: boolean = false):
       losses: stats.losses,
       draws: stats.draws,
       status: (row.status === 'retired' ? 'retired' : 'active') as 'active' | 'retired',
+      is_inactive: isInactive,
+      last_match_at: lastMatchAt || undefined,
       trend,
     };
   });
+
+  if (!includeInactive) {
+    result = result.filter(entry => !entry.is_inactive);
+  }
+
+  return result;
 }
 
 export function getGameStats(gameId: number): GameStats {

@@ -55,6 +55,8 @@ export interface LeaderboardEntry {
   losses: number;
   draws: number;
   status?: 'active' | 'retired';
+  is_inactive?: boolean;
+  last_match_at?: string;
   trend: number[];
 }
 

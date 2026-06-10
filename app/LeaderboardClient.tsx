@@ -67,6 +67,7 @@ export default function LeaderboardClient({
   const [gameRecords, setGameRecords] = useState(initialRecords);
   const [loading, setLoading] = useState(false);
   const [showRetired, setShowRetired] = useState(false);
+  const [showInactive, setShowInactive] = useState(false);
 
   // Fetch data when selected game changes
   useEffect(() => {
@@ -76,7 +77,7 @@ export default function LeaderboardClient({
       setLoading(true);
       try {
         const [leaderboardData, statsData, recordsData] = await Promise.all([
-          fetch(`/api/leaderboard?game_id=${selectedGameId}&include_retired=${showRetired}`).then(res => res.json()),
+          fetch(`/api/leaderboard?game_id=${selectedGameId}&include_retired=${showRetired}&include_inactive=${showInactive}`).then(res => res.json()),
           fetch(`/api/game-stats?game_id=${selectedGameId}`).then(res => res.json()),
           fetch(`/api/game-records?game_id=${selectedGameId}`).then(res => res.json())
         ]);
@@ -89,7 +90,7 @@ export default function LeaderboardClient({
     }
 
     fetchData();
-  }, [selectedGameId, showRetired]);
+  }, [selectedGameId, showRetired, showInactive]);
 
   return (
     <div>
@@ -320,7 +321,7 @@ export default function LeaderboardClient({
         </div>
       )}
 
-      <div className="mb-4">
+      <div className="mb-4 flex flex-wrap gap-4">
         <label className="flex items-center gap-2 text-sm text-gray-600">
           <input
             type="checkbox"
@@ -329,6 +330,15 @@ export default function LeaderboardClient({
             className="rounded border-border text-primary focus:ring-primary"
           />
           Show retired players
+        </label>
+        <label className="flex items-center gap-2 text-sm text-gray-600">
+          <input
+            type="checkbox"
+            checked={showInactive}
+            onChange={(e) => setShowInactive(e.target.checked)}
+            className="rounded border-border text-primary focus:ring-primary"
+          />
+          Show inactive players
         </label>
       </div>
 
@@ -372,7 +382,13 @@ export default function LeaderboardClient({
                 const totalGames = entry.wins + entry.losses + entry.draws;
                 const winRate = totalGames > 0 ? ((entry.wins / totalGames) * 100).toFixed(0) : "0";
                 const isRetired = entry.status === 'retired';
+                const isInactive = entry.is_inactive ?? false;
                 const rank = index + 1;
+
+                // Calculate days since last match
+                const daysSinceLastMatch = entry.last_match_at
+                  ? Math.floor((Date.now() - new Date(entry.last_match_at).getTime()) / (1000 * 60 * 60 * 24))
+                  : null;
 
                 // Rank badge component
                 const rankBadge = () => {
@@ -386,7 +402,8 @@ export default function LeaderboardClient({
                 const rowBg = rank === 1 ? 'bg-gradient-to-r from-amber-50 to-yellow-50' :
                               rank === 2 ? 'bg-gradient-to-r from-slate-50 to-gray-50' :
                               rank === 3 ? 'bg-gradient-to-r from-orange-50 to-amber-50' :
-                              isRetired ? 'bg-gray-50' : 'bg-white';
+                              isRetired ? 'bg-gray-50' :
+                              isInactive ? 'bg-gray-50' : 'bg-white';
 
                 return (
                   <tr
@@ -399,7 +416,7 @@ export default function LeaderboardClient({
                     <td className="px-6 py-4 whitespace-nowrap">
                       <Link
                         href={`/players/${entry.player_id}`}
-                        className={`group flex items-center gap-3 ${isRetired ? 'opacity-60' : ''}`}
+                        className={`group flex items-center gap-3 ${isRetired || isInactive ? 'opacity-60' : ''}`}
                       >
                         <div className={`w-10 h-10 rounded-full flex items-center justify-center text-lg font-bold ${
                           rank === 1 ? 'bg-gradient-to-br from-amber-400 to-yellow-500 text-white shadow-md' :
@@ -416,6 +433,11 @@ export default function LeaderboardClient({
                           {isRetired && (
                             <span className="ml-2 text-xs bg-gray-200 text-gray-500 px-2 py-0.5 rounded-full">
                               Retired
+                            </span>
+                          )}
+                          {isInactive && !isRetired && (
+                            <span className="ml-2 text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">
+                              Inactive{daysSinceLastMatch !== null ? ` (${daysSinceLastMatch}d)` : ''}
                             </span>
                           )}
                         </div>

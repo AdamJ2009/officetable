@@ -29,6 +29,8 @@ export default function SettingsPage() {
   const [editedUrls, setEditedUrls] = useState<Record<number, string>>({});
   const [recalculating, setRecalculating] = useState(false);
   const [recalcResults, setRecalcResults] = useState<{ game_name: string; matches_processed: number; achievements_awarded: number }[] | null>(null);
+  const [inactiveThreshold, setInactiveThreshold] = useState('60');
+  const [savingThreshold, setSavingThreshold] = useState(false);
 
   // Local form state for theme settings
   const [companyName, setCompanyName] = useState('');
@@ -61,6 +63,24 @@ export default function SettingsPage() {
       });
   }, []);
 
+  // Load inactive threshold from settings
+  useEffect(() => {
+    async function loadThreshold() {
+      try {
+        const res = await fetch('/api/settings');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.inactive_threshold_days) {
+            setInactiveThreshold(data.inactive_threshold_days);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to load settings:', error);
+      }
+    }
+    loadThreshold();
+  }, []);
+
   const formatGameName = (name: string) => {
     return name.charAt(0).toUpperCase() + name.slice(1).replace("-", " ");
   };
@@ -90,6 +110,26 @@ export default function SettingsPage() {
       alert("Failed to save image URL");
     } finally {
       setSaving(null);
+    }
+  }
+
+  async function saveInactiveThreshold() {
+    setSavingThreshold(true);
+    try {
+      const res = await fetch('/api/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ settings: { inactive_threshold_days: inactiveThreshold } })
+      });
+      if (!res.ok) {
+        throw new Error('Failed to save');
+      }
+      alert('Inactivity threshold saved!');
+    } catch (err) {
+      console.error(err);
+      alert('Failed to save inactivity threshold');
+    } finally {
+      setSavingThreshold(false);
     }
   }
 
@@ -405,6 +445,43 @@ export default function SettingsPage() {
               ))}
             </div>
           )}
+        </div>
+      </div>
+
+      {/* Inactivity Threshold Section */}
+      <div className="bg-white rounded-xl shadow-lg overflow-hidden mb-6">
+        <div className="px-6 py-4 bg-gradient-to-r from-gray-600 to-gray-700">
+          <h2 className="text-lg font-bold text-white flex items-center gap-2">
+            <span className="text-xl">💤</span> Inactivity
+          </h2>
+          <p className="text-gray-300 text-sm mt-1">Hide players from leaderboards who haven&apos;t played recently</p>
+        </div>
+        <div className="p-6">
+          <div className="max-w-md">
+            <label className="block text-sm font-semibold text-gray-700 mb-2">
+              Inactive threshold (days)
+            </label>
+            <p className="text-xs text-gray-500 mb-3">
+              Players who haven&apos;t played a match in this game type for more than this many days will be hidden from the leaderboard by default.
+            </p>
+            <div className="flex items-center gap-3">
+              <input
+                type="number"
+                min="1"
+                value={inactiveThreshold}
+                onChange={(e) => setInactiveThreshold(e.target.value)}
+                className="w-24 px-3 py-2 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent text-center text-lg font-semibold"
+              />
+              <span className="text-sm text-gray-500">days</span>
+              <button
+                onClick={saveInactiveThreshold}
+                disabled={savingThreshold}
+                className="px-4 py-2 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {savingThreshold ? "Saving..." : "Save"}
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 

@@ -173,7 +173,8 @@ const seedSettings = db.prepare(`
     ('company_name', 'Office Games'),
     ('logo_url', ''),
     ('primary_color', '#2563eb'),
-    ('accent_color', '#dc2626')
+    ('accent_color', '#dc2626'),
+    ('inactive_threshold_days', '60')
 `);
 seedSettings.run();
 

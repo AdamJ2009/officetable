@@ -515,7 +515,7 @@ export function checkAchievements(context: AchievementContext): AchievementResul
               AND mp1.team != mp2.team
           `).get(gameId, playerId, opponentId) as { count: number };
 
-          if (gamesAgainst.count >= 100) {
+          if (gamesAgainst.count === 100) {
             results.push({
               achievementName: 'comrades',
               playerId: playerId,

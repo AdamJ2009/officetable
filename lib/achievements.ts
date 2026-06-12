@@ -55,14 +55,14 @@ function getRankingsBeforeMatch(gameId: number, matchId: number): Map<number, nu
   return rankings;
 }
 
-// Get player's total games in a game type
-function getTotalGames(playerId: number, gameId: number): number {
+// Get player's total games in a game type, up to and including a specific match
+function getTotalGames(playerId: number, gameId: number, matchId: number): number {
   const result = db.prepare(`
     SELECT COUNT(DISTINCT mp.match_id) as count
     FROM match_participants mp
     JOIN matches m ON mp.match_id = m.id
-    WHERE mp.player_id = ? AND m.game_id = ?
-  `).get(playerId, gameId) as { count: number };
+    WHERE mp.player_id = ? AND m.game_id = ? AND m.id <= ?
+  `).get(playerId, gameId, matchId) as { count: number };
   return result.count;
 }
 
@@ -85,7 +85,7 @@ function isFirstGameForOpponent(playerId: number, gameId: number, matchId: numbe
   const result = db.prepare(`
     SELECT COUNT(*) as count FROM match_participants mp
     JOIN matches m ON mp.match_id = m.id
-    WHERE mp.player_id = ? AND m.game_id = ? AND m.id != ?
+    WHERE mp.player_id = ? AND m.game_id = ? AND m.id < ?
   `).get(playerId, gameId, matchId) as { count: number };
   return result.count === 0;
 }
@@ -338,7 +338,7 @@ export function checkAchievements(context: AchievementContext): AchievementResul
   ];
 
   for (const p of participants) {
-    const totalGames = getTotalGames(p.player_id, gameId);
+    const totalGames = getTotalGames(p.player_id, gameId, matchId);
     for (const [threshold, name] of milestones) {
       if (totalGames === threshold) {
         results.push({
@@ -378,10 +378,10 @@ export function checkAchievements(context: AchievementContext): AchievementResul
       SELECT mp.elo_before, mp.elo_after, m.played_at
       FROM match_participants mp
       JOIN matches m ON mp.match_id = m.id
-      WHERE mp.player_id = ? AND m.game_id = ? AND m.played_at <= ?
+      WHERE mp.player_id = ? AND m.game_id = ? AND m.id <= ?
       ORDER BY m.played_at DESC
       LIMIT 2
-    `).all(p.player_id, gameId, playedAt.toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '')) as { elo_before: number; elo_after: number; played_at: string }[];
+    `).all(p.player_id, gameId, matchId) as { elo_before: number; elo_after: number; played_at: string }[];
 
     if (recentMatches.length >= 2) {
       const change1 = recentMatches[0].elo_after - recentMatches[0].elo_before;
@@ -420,9 +420,10 @@ export function checkAchievements(context: AchievementContext): AchievementResul
           WHERE m.game_id = ?
             AND mp1.player_id = ? AND mp2.player_id = ?
             AND mp1.team != mp2.team
+            AND m.id <= ?
           ORDER BY m.played_at DESC
           LIMIT 10
-        `).all(gameId, winnerId, loserId) as {
+        `).all(gameId, winnerId, loserId, matchId) as {
           match_id: number;
           player1_id: number;
           player1_score: number;
@@ -467,10 +468,10 @@ export function checkAchievements(context: AchievementContext): AchievementResul
         (SELECT MAX(mp2.score) FROM match_participants mp2 WHERE mp2.match_id = mp.match_id AND mp2.team != mp.team) as opponent_score
       FROM match_participants mp
       JOIN matches m ON mp.match_id = m.id
-      WHERE mp.player_id = ? AND m.game_id = ?
+      WHERE mp.player_id = ? AND m.game_id = ? AND m.id <= ?
       ORDER BY m.played_at DESC
       LIMIT 5
-    `).all(p.player_id, gameId) as { player_score: number; opponent_score: number }[];
+    `).all(p.player_id, gameId, matchId) as { player_score: number; opponent_score: number }[];
 
     if (recentMatches.length === 5) {
       const firstMatch = recentMatches[0];
@@ -513,7 +514,8 @@ export function checkAchievements(context: AchievementContext): AchievementResul
             WHERE m.game_id = ?
               AND mp1.player_id = ? AND mp2.player_id = ?
               AND mp1.team != mp2.team
-          `).get(gameId, playerId, opponentId) as { count: number };
+              AND m.id <= ?
+          `).get(gameId, playerId, opponentId, matchId) as { count: number };
 
           if (gamesAgainst.count === 100) {
             results.push({
@@ -534,9 +536,9 @@ export function checkAchievements(context: AchievementContext): AchievementResul
       SELECT DISTINCT DATE(m.played_at) as play_date
       FROM match_participants mp
       JOIN matches m ON mp.match_id = m.id
-      WHERE mp.player_id = ? AND m.game_id = ?
+      WHERE mp.player_id = ? AND m.game_id = ? AND m.id <= ?
       ORDER BY play_date ASC
-    `).all(p.player_id, gameId) as { play_date: string }[];
+    `).all(p.player_id, gameId, matchId) as { play_date: string }[];
 
     if (matchDates.length > 0) {
       const dates = matchDates.map(d => new Date(d.play_date));

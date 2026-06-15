@@ -236,6 +236,9 @@ export async function POST(request: NextRequest) {
     // Get achievements earned in this match
     const matchAchievements = getAchievementsForMatch(result.matchId);
 
+    // Get punditry facts for this match
+    const punditryFacts = getPunditryForMatch(result.matchId);
+
     // Send notification (async, don't wait for it)
     if (game) {
       const notification = buildMatchNotification(
@@ -251,7 +254,8 @@ export async function POST(request: NextRequest) {
           playerId: a.player_id,
           achievementName: a.achievement_name,
           achievementIcon: a.achievement_icon
-        }))
+        })),
+        punditryFacts.map(p => ({ description: p.description }))
       );
       sendGoogleChatNotification(notification).catch(err => {
         console.error('Failed to send notification:', err);

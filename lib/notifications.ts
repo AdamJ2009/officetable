@@ -18,6 +18,9 @@ interface MatchNotification {
     achievementName: string;
     achievementIcon?: string | null;
   }[];
+  punditry?: {
+    description: string;
+  }[];
   timestamp: string;
 }
 
@@ -104,6 +107,20 @@ export async function sendGoogleChatNotification(match: MatchNotification): Prom
     });
   }
 
+  // Line 6: Punditry (if present)
+  if (match.punditry && match.punditry.length > 0) {
+    const punditryText = match.punditry
+      .slice(0, 3) // Limit to 3 facts to keep the notification concise
+      .map(p => `🎙️ ${p.description}`)
+      .join('<br>');
+    const suffix = match.punditry.length > 3 ? `<br><i>...and ${match.punditry.length - 3} more insights</i>` : '';
+    widgets.push({
+      textParagraph: {
+        text: punditryText + suffix
+      }
+    });
+  }
+
   // Build the cards V2 payload
   const payload = {
     cardsV2: [
@@ -164,7 +181,8 @@ export function buildMatchNotification(
   imageUrl?: string | null,
   notes?: string | null,
   rankChanges?: Map<number, number>,
-  achievements?: { playerId: number; achievementName: string; achievementIcon?: string | null }[]
+  achievements?: { playerId: number; achievementName: string; achievementIcon?: string | null }[],
+  punditry?: { description: string }[]
 ): MatchNotification {
   const maxScore = Math.max(...teams.map(t => t.score));
   const winners = teams.filter(t => t.score === maxScore);
@@ -192,6 +210,7 @@ export function buildMatchNotification(
       achievementName: a.achievementName,
       achievementIcon: a.achievementIcon
     })),
+    punditry: punditry?.map(p => ({ description: p.description })),
     timestamp: new Date().toISOString()
   };
 }

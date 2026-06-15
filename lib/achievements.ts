@@ -351,19 +351,27 @@ export function checkAchievements(context: AchievementContext): AchievementResul
     }
   }
 
-  // Improver: Gain 100 skill points from lowest point
+  // Improver: Gain 100 skill points from lowest point (awarded once only)
   for (const p of participants) {
     const lowestElo = getLowestElo(p.player_id, gameId);
     if (lowestElo !== null) {
       const currentElo = p.elo_after;
       const justReached = currentElo >= lowestElo + 100 && p.elo_before < lowestElo + 100;
       if (justReached) {
-        results.push({
-          achievementName: 'improver',
-          playerId: p.player_id,
-          matchId,
-          metadata: { from_lowest: currentElo - lowestElo }
-        });
+        const existing = db.prepare(`
+          SELECT COUNT(*) as count FROM player_achievements pa
+          JOIN achievements a ON pa.achievement_id = a.id
+          WHERE pa.player_id = ? AND pa.game_id = ? AND a.name = 'improver'
+        `).get(p.player_id, gameId) as { count: number };
+
+        if (existing.count === 0) {
+          results.push({
+            achievementName: 'improver',
+            playerId: p.player_id,
+            matchId,
+            metadata: { from_lowest: currentElo - lowestElo }
+          });
+        }
       }
     }
   }

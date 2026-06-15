@@ -356,9 +356,8 @@ export function checkAchievements(context: AchievementContext): AchievementResul
     const lowestElo = getLowestElo(p.player_id, gameId);
     if (lowestElo !== null) {
       const currentElo = p.elo_after;
-      const previousBest = currentElo - 100 >= lowestElo;
       const justReached = currentElo >= lowestElo + 100 && p.elo_before < lowestElo + 100;
-      if (justReached && !previousBest) {
+      if (justReached) {
         results.push({
           achievementName: 'improver',
           playerId: p.player_id,

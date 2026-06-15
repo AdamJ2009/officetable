@@ -455,6 +455,21 @@ export async function GET(request: NextRequest) {
     total_points_conceded: gameStats.reduce((sum, g) => sum + g.points_conceded, 0)
   };
 
+  // Get all achievement definitions for computing locked vs unlocked
+  const allAchievements = db.prepare(`
+    SELECT id, name, description, category, icon
+    FROM achievements
+    ORDER BY
+      CASE category
+        WHEN 'milestone' THEN 1
+        WHEN 'ranking' THEN 2
+        WHEN 'streak' THEN 3
+        WHEN 'special' THEN 4
+        WHEN 'time_based' THEN 5
+        ELSE 6
+      END, name
+  `).all() as { id: number; name: string; description: string; category: string; icon: string | null }[];
+
   return NextResponse.json({
     player: {
       ...player,
@@ -462,6 +477,7 @@ export async function GET(request: NextRequest) {
     },
     overallStats,
     gameStats,
-    recentMatches: matchesWithOpponents
+    recentMatches: matchesWithOpponents,
+    allAchievements
   });
 }

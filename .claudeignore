@@ -1,0 +1,46 @@
+# Dependencies
+node_modules/
+
+# Build output
+.next/
+out/
+build/
+dist/
+
+# Lock files
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Generated/static
+public/sw.js
+public/workbox-*.js
+public/sitemap*.xml
+public/robots.txt
+
+# Environment files
+.env*.local
+
+# Cache
+.cache/
+.eslintcache
+tsconfig.tsbuildinfo
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing coverage
+coverage/
+
+# Prisma generated
+prisma/generated/
+
+# Storybook
+storybook-static/

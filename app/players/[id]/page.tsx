@@ -128,8 +128,7 @@ interface PlayerStats {
     status: string;
     created_at: string;
     first_played_at: string | null;
-    has_avatar?: boolean;
-    avatar_updated_at?: string | null;
+    avatar_url?: string | null;
   };
   overallStats: {
     total_matches: number;
@@ -289,8 +288,8 @@ export default function PlayerProfilePage() {
         onStatusChange={(newStatus) => {
           setStats({ ...stats, player: { ...stats.player, status: newStatus } });
         }}
-        onAvatarChange={(hasAvatar, updatedAt) => {
-          setStats({ ...stats, player: { ...stats.player, has_avatar: hasAvatar, avatar_updated_at: updatedAt } });
+        onAvatarChange={(avatarUrl) => {
+          setStats({ ...stats, player: { ...stats.player, avatar_url: avatarUrl } });
         }}
       />
 

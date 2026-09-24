@@ -131,6 +131,7 @@ export function getLeaderboard(gameId: number, includeRetired: boolean = false, 
     SELECT
       pr.player_id,
       p.name as player_name,
+      p.avatar_url,
       pr.elo,
       p.status
     FROM player_ratings pr
@@ -140,6 +141,7 @@ export function getLeaderboard(gameId: number, includeRetired: boolean = false, 
   `).all(gameId) as {
     player_id: number;
     player_name: string;
+    avatar_url: string | null;
     elo: number;
     status: string | null;
   }[];
@@ -176,6 +178,7 @@ export function getLeaderboard(gameId: number, includeRetired: boolean = false, 
     return {
       player_id: row.player_id,
       player_name: row.player_name,
+      avatar_url: row.avatar_url,
       elo: row.elo,
       wins: stats.wins,
       losses: stats.losses,

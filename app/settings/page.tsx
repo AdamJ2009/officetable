@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useTheme } from "@/lib/contexts/ThemeContext";
 import { PlayerAvatar } from "@/components/PlayerAvatar";
-import { prepareAvatarForUpload, uploadPlayerAvatar, removePlayerAvatar } from "@/lib/avatarUpload";
+import { setPlayerAvatarUrl, removePlayerAvatar } from "@/lib/avatarClient";
 
 interface Game {
   id: number;
@@ -46,13 +46,11 @@ export default function SettingsPage() {
     id: number;
     name: string;
     status: 'active' | 'retired';
-    has_avatar?: boolean;
-    avatar_updated_at?: string | null;
+    avatar_url?: string | null;
   }
   const [players, setPlayers] = useState<Player[]>([]);
-  const [avatarBusy, setAvatarBusy] = useState<number | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const uploadTargetRef = useRef<number | null>(null);
+  const [editedAvatarUrls, setEditedAvatarUrls] = useState<Record<number, string>>({});
+  const [savingAvatar, setSavingAvatar] = useState<number | null>(null);
 
   // Sync local form state with theme context
   useEffect(() => {
@@ -99,46 +97,44 @@ export default function SettingsPage() {
   useEffect(() => {
     fetch("/api/players?status=all")
       .then((res) => res.json())
-      .then((data: Player[]) => setPlayers(data))
+      .then((data: Player[]) => {
+        setPlayers(data);
+        const urls: Record<number, string> = {};
+        data.forEach(p => {
+          if (p.avatar_url) urls[p.id] = p.avatar_url;
+        });
+        setEditedAvatarUrls(urls);
+      })
       .catch(() => setPlayers([]));
   }, []);
 
-  async function handleAvatarFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    const playerId = uploadTargetRef.current;
-    e.target.value = "";
-    if (!file || !playerId) return;
-
-    setAvatarBusy(playerId);
+  async function savePlayerAvatar(playerId: number) {
+    setSavingAvatar(playerId);
     try {
-      const blob = await prepareAvatarForUpload(file);
-      const updatedAt = await uploadPlayerAvatar(playerId, blob);
+      const url = editedAvatarUrls[playerId]?.trim() || '';
+      await setPlayerAvatarUrl(playerId, url);
       setPlayers(players.map(p =>
-        p.id === playerId ? { ...p, has_avatar: true, avatar_updated_at: updatedAt } : p
+        p.id === playerId ? { ...p, avatar_url: url || null } : p
       ));
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to upload avatar");
+      alert(err instanceof Error ? err.message : "Failed to save avatar");
     } finally {
-      setAvatarBusy(null);
+      setSavingAvatar(null);
     }
   }
 
-  function openAvatarPicker(playerId: number) {
-    uploadTargetRef.current = playerId;
-    fileInputRef.current?.click();
-  }
-
   async function handleRemoveAvatar(playerId: number) {
-    setAvatarBusy(playerId);
+    setSavingAvatar(playerId);
     try {
       await removePlayerAvatar(playerId);
+      setEditedAvatarUrls({ ...editedAvatarUrls, [playerId]: '' });
       setPlayers(players.map(p =>
-        p.id === playerId ? { ...p, has_avatar: false, avatar_updated_at: null } : p
+        p.id === playerId ? { ...p, avatar_url: null } : p
       ));
     } catch (err) {
       alert(err instanceof Error ? err.message : "Failed to remove avatar");
     } finally {
-      setAvatarBusy(null);
+      setSavingAvatar(null);
     }
   }
 
@@ -509,66 +505,65 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      {/* Hidden file input for avatar uploads */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/png,image/jpeg,image/webp,image/gif"
-        className="hidden"
-        onChange={handleAvatarFileSelected}
-      />
-
       {/* Player Avatars Section */}
       <div className="bg-white rounded-xl shadow-lg overflow-hidden mb-6">
         <div className="px-6 py-4 bg-gradient-to-r from-indigo-500 to-violet-500">
           <h2 className="text-lg font-bold text-white flex items-center gap-2">
             <span className="text-xl">👤</span> Player Avatars
           </h2>
-          <p className="text-indigo-100 text-sm mt-1">Upload avatar images for players (shown on leaderboards, profiles &amp; notifications)</p>
+          <p className="text-indigo-100 text-sm mt-1">Set an image link for each player (shown on leaderboards, profiles &amp; chat notifications)</p>
         </div>
         <div className="p-6">
           {players.length === 0 ? (
             <div className="text-gray-500">No players yet.</div>
           ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {players.map((player) => (
-                <div key={player.id} className="bg-gray-50 rounded-xl p-4 text-center">
-                  <div className="relative w-16 h-16 mx-auto mb-2 group/avatar">
+                <div key={player.id} className="bg-gray-50 rounded-xl p-4">
+                  <div className="flex items-center gap-3 mb-3">
                     <PlayerAvatar
-                      playerId={player.id}
                       name={player.name}
-                      hasAvatar={player.has_avatar}
-                      updatedAt={player.avatar_updated_at}
-                      size={64}
+                      avatarUrl={editedAvatarUrls[player.id] || player.avatar_url}
+                      size={40}
                       className={player.status === 'retired' ? 'grayscale' : ''}
                     />
-                    <button
-                      onClick={() => openAvatarPicker(player.id)}
-                      disabled={avatarBusy === player.id}
-                      className="absolute inset-0 flex items-center justify-center bg-black/40 rounded-full text-white text-lg opacity-0 group-hover/avatar:opacity-100 transition-opacity"
-                      title={player.has_avatar ? 'Change avatar' : 'Add avatar'}
-                    >
-                      {avatarBusy === player.id ? '…' : '📷'}
-                    </button>
+                    <span className={`font-semibold text-sm truncate ${player.status === 'retired' ? 'text-gray-500 line-through' : 'text-gray-900'}`}>
+                      {player.name}
+                    </span>
                   </div>
-                  <div className={`font-semibold text-sm truncate ${player.status === 'retired' ? 'text-gray-500 line-through' : 'text-gray-900'}`}>
-                    {player.name}
-                  </div>
-                  {player.has_avatar ? (
+                  <div className="flex gap-2">
+                    <input
+                      type="url"
+                      value={editedAvatarUrls[player.id] || ""}
+                      onChange={(e) => setEditedAvatarUrls({ ...editedAvatarUrls, [player.id]: e.target.value })}
+                      placeholder="https://example.com/avatar.png"
+                      className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent text-sm"
+                    />
                     <button
-                      onClick={() => handleRemoveAvatar(player.id)}
-                      disabled={avatarBusy === player.id}
-                      className="text-xs text-gray-400 hover:text-red-500 transition-colors"
+                      onClick={() => savePlayerAvatar(player.id)}
+                      disabled={savingAvatar === player.id}
+                      className="px-3 py-2 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary-hover transition-colors disabled:opacity-50"
                     >
-                      Remove
+                      {savingAvatar === player.id ? "..." : "Save"}
                     </button>
-                  ) : (
-                    <span className="text-xs text-gray-400">No avatar</span>
-                  )}
+                    {player.avatar_url && (
+                      <button
+                        onClick={() => handleRemoveAvatar(player.id)}
+                        disabled={savingAvatar === player.id}
+                        className="px-2 py-2 text-gray-400 hover:text-red-500 transition-colors text-sm"
+                        title="Remove avatar"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
           )}
+          <p className="text-xs text-gray-500 mt-3">
+            Use a publicly-reachable image link (like the game images above) so avatars can also be embedded in Google Chat notifications.
+          </p>
         </div>
       </div>
 

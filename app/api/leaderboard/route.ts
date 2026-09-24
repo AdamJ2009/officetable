@@ -116,8 +116,7 @@ export async function GET(request: NextRequest) {
     SELECT
       pr.player_id,
       p.name as player_name,
-      p.avatar IS NOT NULL as has_avatar,
-      p.avatar_updated_at,
+      p.avatar_url,
       pr.elo,
       p.status
     FROM player_ratings pr
@@ -129,8 +128,7 @@ export async function GET(request: NextRequest) {
   const rows = stmt.all(parseInt(gameId)) as {
     player_id: number;
     player_name: string;
-    has_avatar: number;
-    avatar_updated_at: string | null;
+    avatar_url: string | null;
     elo: number;
     status: string | null;
   }[];
@@ -168,8 +166,7 @@ export async function GET(request: NextRequest) {
     return {
       player_id: row.player_id,
       player_name: row.player_name,
-      has_avatar: !!row.has_avatar,
-      avatar_updated_at: row.avatar_updated_at,
+      avatar_url: row.avatar_url,
       elo: row.elo,
       wins: stats.wins,
       losses: stats.losses,

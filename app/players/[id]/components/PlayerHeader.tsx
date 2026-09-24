@@ -1,6 +1,6 @@
 import { AchievementProgressRing } from './AchievementProgressRing';
 import { PlayerAvatar } from '@/components/PlayerAvatar';
-import { prepareAvatarForUpload, uploadPlayerAvatar, removePlayerAvatar } from '@/lib/avatarUpload';
+import { setPlayerAvatarUrl, removePlayerAvatar } from '@/lib/avatarClient';
 
 interface PlayerHeaderProps {
   player: {
@@ -9,13 +9,12 @@ interface PlayerHeaderProps {
     status: string;
     created_at: string;
     first_played_at: string | null;
-    has_avatar?: boolean;
-    avatar_updated_at?: string | null;
+    avatar_url?: string | null;
   };
   achievementUnlocked: number;
   achievementTotal: number;
   onStatusChange: (newStatus: string) => void;
-  onAvatarChange: (hasAvatar: boolean, updatedAt: string | null) => void;
+  onAvatarChange?: (avatarUrl: string | null) => void;
 }
 
 function formatDate(dateStr: string) {
@@ -28,27 +27,25 @@ function formatDate(dateStr: string) {
 }
 
 export function PlayerHeader({ player, achievementUnlocked, achievementTotal, onStatusChange, onAvatarChange }: PlayerHeaderProps) {
+  async function promptForAvatar() {
+    const input = window.prompt(
+      'Avatar image URL (use a publicly-reachable link so it embeds in Google Chat):',
+      player.avatar_url ?? ''
+    );
+    if (input === null) return; // cancelled
 
-  async function handleAvatarFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file) return;
-
+    const url = input.trim();
     try {
-      const blob = await prepareAvatarForUpload(file);
-      const updatedAt = await uploadPlayerAvatar(player.id, blob);
-      onAvatarChange(true, updatedAt);
+      if (url === '') {
+        if (player.avatar_url && !window.confirm("Remove this player's avatar?")) return;
+        await removePlayerAvatar(player.id);
+        onAvatarChange?.(null);
+      } else {
+        await setPlayerAvatarUrl(player.id, url);
+        onAvatarChange?.(url);
+      }
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to upload avatar');
-    }
-  }
-
-  async function handleRemoveAvatar() {
-    try {
-      await removePlayerAvatar(player.id);
-      onAvatarChange(false, null);
-    } catch {
-      alert('Failed to remove avatar');
+      alert(err instanceof Error ? err.message : 'Failed to update avatar');
     }
   }
 
@@ -56,38 +53,22 @@ export function PlayerHeader({ player, achievementUnlocked, achievementTotal, on
     <div className="bg-gradient-to-br from-slate-800 to-slate-900 rounded-2xl shadow-xl overflow-hidden mb-6">
       <div className="px-8 py-6">
         <div className="flex items-center gap-6">
-          {/* Avatar */}
+          {/* Avatar (click to change) */}
           <div className="group relative">
             <PlayerAvatar
-              playerId={player.id}
               name={player.name}
-              hasAvatar={player.has_avatar}
-              updatedAt={player.avatar_updated_at}
+              avatarUrl={player.avatar_url}
               size={80}
               roundedClass="rounded-2xl"
               ringClass="shadow-lg"
             />
-            <label
+            <button
+              onClick={promptForAvatar}
               className="absolute inset-0 flex items-center justify-center bg-black/40 rounded-2xl text-white text-xl cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity"
-              title={player.has_avatar ? 'Change avatar' : 'Add avatar'}
+              title={player.avatar_url ? 'Change avatar URL' : 'Set avatar URL'}
             >
               📷
-              <input
-                type="file"
-                accept="image/png,image/jpeg,image/webp,image/gif"
-                className="hidden"
-                onChange={handleAvatarFileSelected}
-              />
-            </label>
-            {player.has_avatar && (
-              <button
-                onClick={handleRemoveAvatar}
-                className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-red-600 text-white text-[10px] leading-none items-center justify-center cursor-pointer hidden group-hover:flex"
-                title="Remove avatar"
-              >
-                ✕
-              </button>
-            )}
+            </button>
           </div>
 
           {/* Name and status */}

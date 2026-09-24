@@ -3,8 +3,7 @@ export interface Player {
   name: string;
   status: 'active' | 'retired';
   created_at: string;
-  has_avatar?: boolean;
-  avatar_updated_at?: string | null;
+  avatar_url?: string | null;
 }
 
 export interface Game {
@@ -52,8 +51,7 @@ export interface MatchWithParticipants extends Match {
 export interface LeaderboardEntry {
   player_id: number;
   player_name: string;
-  has_avatar?: boolean;
-  avatar_updated_at?: string | null;
+  avatar_url?: string | null;
   elo: number;
   wins: number;
   losses: number;

@@ -15,8 +15,7 @@ interface Game {
 interface Player {
   id: number;
   name: string;
-  has_avatar?: boolean;
-  avatar_updated_at?: string | null;
+  avatar_url?: string | null;
 }
 
 interface PlayerRating {
@@ -248,10 +247,8 @@ function NewMatchContent() {
                     >
                       <div className="flex items-center gap-2">
                         <PlayerAvatar
-                          playerId={playerId}
                           name={player?.name ?? ''}
-                          hasAvatar={player?.has_avatar}
-                          updatedAt={player?.avatar_updated_at}
+                          avatarUrl={player?.avatar_url}
                           size={22}
                         />
                         <span className="font-medium">{player?.name}</span>
@@ -289,10 +286,8 @@ function NewMatchContent() {
                     >
                       <div className="flex items-center gap-2">
                         <PlayerAvatar
-                          playerId={playerId}
                           name={player?.name ?? ''}
-                          hasAvatar={player?.has_avatar}
-                          updatedAt={player?.avatar_updated_at}
+                          avatarUrl={player?.avatar_url}
                           size={22}
                         />
                         <span className="font-medium">{player?.name}</span>
@@ -391,10 +386,8 @@ function NewMatchContent() {
                   <div key={player.id} className="flex items-center rounded-lg overflow-hidden border border-gray-200">
                     <div className="pl-2 flex items-center">
                       <PlayerAvatar
-                        playerId={player.id}
                         name={player.name}
-                        hasAvatar={player.has_avatar}
-                        updatedAt={player.avatar_updated_at}
+                        avatarUrl={player.avatar_url}
                         size={20}
                       />
                     </div>

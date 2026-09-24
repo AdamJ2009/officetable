@@ -61,21 +61,30 @@ try {
   // Column already exists, ignore
 }
 
-// Migration: Add avatar columns to players table (image stored as blob, max 512KB enforced by API)
+// Migration: Player avatar as an external image URL. A URL (like the game images)
+// is the single source of truth: it works in-app everywhere and embeds in Google
+// Chat notifications, which can only fetch publicly-reachable URLs.
 try {
-  db.exec(`ALTER TABLE players ADD COLUMN avatar BLOB`);
+  db.exec(`ALTER TABLE players ADD COLUMN avatar_url TEXT`);
 } catch (e) {
   // Column already exists, ignore
 }
+
+// Cleanup: drop the old blob-based avatar columns (avatars are URL-only now)
 try {
-  db.exec(`ALTER TABLE players ADD COLUMN avatar_mime TEXT`);
+  db.exec(`ALTER TABLE players DROP COLUMN avatar`);
 } catch (e) {
-  // Column already exists, ignore
+  // Column doesn't exist, ignore
 }
 try {
-  db.exec(`ALTER TABLE players ADD COLUMN avatar_updated_at DATETIME`);
+  db.exec(`ALTER TABLE players DROP COLUMN avatar_mime`);
 } catch (e) {
-  // Column already exists, ignore
+  // Column doesn't exist, ignore
+}
+try {
+  db.exec(`ALTER TABLE players DROP COLUMN avatar_updated_at`);
+} catch (e) {
+  // Column doesn't exist, ignore
 }
 
 // Migration: Add edit tracking columns to matches table

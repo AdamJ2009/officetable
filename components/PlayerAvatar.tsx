@@ -4,12 +4,9 @@ import { useState } from "react";
 import { getPlayerGradient } from "@/lib/playerGradient";
 
 interface PlayerAvatarProps {
-  playerId: number;
   name: string;
-  /** Whether the player has an uploaded avatar. If undefined, the image is attempted and falls back on error. */
-  hasAvatar?: boolean;
-  /** Cache-busting timestamp (avatar_updated_at) */
-  updatedAt?: string | null;
+  /** External avatar image URL; falls back to gradient initials when unset or broken */
+  avatarUrl?: string | null;
   /** Rendered size in px (square) */
   size?: number;
   /** Tailwind border-radius class; defaults to fully rounded */
@@ -22,14 +19,12 @@ interface PlayerAvatarProps {
 }
 
 /**
- * Renders a player's uploaded avatar if they have one, otherwise falls back to
- * a gradient circle with the player's initial (matching the original design).
+ * Renders a player's avatar from their external image URL, falling back to a
+ * gradient circle with the player's initial when unset or broken.
  */
 export function PlayerAvatar({
-  playerId,
   name,
-  hasAvatar,
-  updatedAt,
+  avatarUrl,
   size = 40,
   roundedClass = "rounded-full",
   className = "",
@@ -38,14 +33,11 @@ export function PlayerAvatar({
 }: PlayerAvatarProps) {
   const [failed, setFailed] = useState(false);
 
-  const showImage = (hasAvatar === undefined || hasAvatar) && !failed;
-
-  if (showImage) {
-    const cacheBuster = updatedAt ? `?v=${encodeURIComponent(updatedAt)}` : "";
+  if (avatarUrl && !failed) {
     return (
       // eslint-disable-next-line @next/next/no-img-element
       <img
-        src={`/api/players/${playerId}/avatar${cacheBuster}`}
+        src={avatarUrl}
         alt={name}
         width={size}
         height={size}

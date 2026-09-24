@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { PlayerAvatar } from "@/components/PlayerAvatar";
-import { prepareAvatarForUpload, uploadPlayerAvatar, removePlayerAvatar } from "@/lib/avatarUpload";
+import { setPlayerAvatarUrl, removePlayerAvatar } from "@/lib/avatarClient";
 
 interface Player {
   id: number;
@@ -11,8 +11,7 @@ interface Player {
   status: 'active' | 'retired';
   created_at: string;
   first_played_at: string | null;
-  has_avatar?: boolean;
-  avatar_updated_at?: string | null;
+  avatar_url?: string | null;
 }
 
 export default function PlayersPage() {
@@ -22,9 +21,29 @@ export default function PlayersPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showRetired, setShowRetired] = useState(false);
-  const [avatarBusy, setAvatarBusy] = useState<number | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const uploadTargetRef = useRef<number | null>(null);
+
+  async function promptForAvatar(player: Player) {
+    const input = window.prompt(
+      `Avatar image URL for ${player.name} (use a publicly-reachable link so it embeds in Google Chat):`,
+      player.avatar_url ?? ''
+    );
+    if (input === null) return; // cancelled
+
+    const url = input.trim();
+    setError(null);
+    try {
+      if (url === '') {
+        if (player.avatar_url && !window.confirm(`Remove ${player.name}'s avatar?`)) return;
+        await removePlayerAvatar(player.id);
+        setPlayers(players.map(p => p.id === player.id ? { ...p, avatar_url: null } : p));
+      } else {
+        await setPlayerAvatarUrl(player.id, url);
+        setPlayers(players.map(p => p.id === player.id ? { ...p, avatar_url: url } : p));
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update avatar');
+    }
+  }
 
   useEffect(() => {
     fetchPlayers();
@@ -88,43 +107,6 @@ export default function PlayersPage() {
     }
   }
 
-  async function handleAvatarFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    const playerId = uploadTargetRef.current;
-    // Reset so selecting the same file again still triggers change
-    e.target.value = "";
-    if (!file || !playerId) return;
-
-    setAvatarBusy(playerId);
-    setError(null);
-    try {
-      const blob = await prepareAvatarForUpload(file);
-      await uploadPlayerAvatar(playerId, blob);
-      fetchPlayers();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to upload avatar");
-    } finally {
-      setAvatarBusy(null);
-    }
-  }
-
-  function openAvatarPicker(playerId: number) {
-    uploadTargetRef.current = playerId;
-    fileInputRef.current?.click();
-  }
-
-  async function handleRemoveAvatar(playerId: number) {
-    setAvatarBusy(playerId);
-    setError(null);
-    try {
-      await removePlayerAvatar(playerId);
-      fetchPlayers();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to remove avatar");
-    } finally {
-      setAvatarBusy(null);
-    }
-  }
 
   const activePlayers = players.filter(p => p.status === 'active' || !p.status);
   const retiredPlayers = players.filter(p => p.status === 'retired');
@@ -163,15 +145,6 @@ export default function PlayersPage() {
         )}
       </div>
 
-      {/* Hidden file input for avatar uploads */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/png,image/jpeg,image/webp,image/gif"
-        className="hidden"
-        onChange={handleAvatarFileSelected}
-      />
-
       {/* Players Grid */}
       {loading ? (
         <div className="text-gray-500">Loading...</div>
@@ -194,20 +167,17 @@ export default function PlayersPage() {
                   <div className="bg-white rounded-xl shadow hover:shadow-lg transition-all p-4 text-center">
                     <div className="relative w-16 h-16 mx-auto mb-3 group/avatar">
                       <PlayerAvatar
-                        playerId={player.id}
                         name={player.name}
-                        hasAvatar={player.has_avatar}
-                        updatedAt={player.avatar_updated_at}
+                        avatarUrl={player.avatar_url}
                         size={64}
                         className="group-hover:scale-110 transition-transform"
                       />
                       <button
-                        onClick={(e) => { e.preventDefault(); openAvatarPicker(player.id); }}
-                        disabled={avatarBusy === player.id}
+                        onClick={(e) => { e.preventDefault(); promptForAvatar(player); }}
                         className="absolute inset-0 flex items-center justify-center bg-black/40 rounded-full text-white text-lg opacity-0 group-hover/avatar:opacity-100 transition-opacity"
-                        title={player.has_avatar ? 'Change avatar' : 'Add avatar'}
+                        title={player.avatar_url ? 'Change avatar URL' : 'Set avatar URL'}
                       >
-                        {avatarBusy === player.id ? '…' : '📷'}
+                        📷
                       </button>
                     </div>
                     <h3 className="font-semibold text-gray-900 group-hover:text-primary transition-colors truncate">
@@ -218,14 +188,6 @@ export default function PlayersPage() {
                         ? `Playing since ${new Date(player.first_played_at).toLocaleDateString()}`
                         : 'Yet to play'}
                     </p>
-                    {player.has_avatar && (
-                      <button
-                        onClick={(e) => { e.preventDefault(); handleRemoveAvatar(player.id); }}
-                        className="text-xs text-gray-400 hover:text-red-500 mt-1 transition-colors"
-                      >
-                        Remove avatar
-                      </button>
-                    )}
                   </div>
                 </Link>
                 <button
@@ -259,10 +221,8 @@ export default function PlayersPage() {
                     >
                     <div className="w-16 h-16 mx-auto mb-3 rounded-full grayscale">
                       <PlayerAvatar
-                        playerId={player.id}
                         name={player.name}
-                        hasAvatar={player.has_avatar}
-                        updatedAt={player.avatar_updated_at}
+                        avatarUrl={player.avatar_url}
                         size={64}
                         className="grayscale"
                       />

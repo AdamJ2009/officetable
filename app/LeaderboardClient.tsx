@@ -420,10 +420,8 @@ export default function LeaderboardClient({
                         className={`group flex items-center gap-3 ${isRetired || isInactive ? 'opacity-60' : ''}`}
                       >
                         <PlayerAvatar
-                          playerId={entry.player_id}
                           name={entry.player_name}
-                          hasAvatar={entry.has_avatar}
-                          updatedAt={entry.avatar_updated_at}
+                          avatarUrl={entry.avatar_url}
                           size={40}
                           ringClass="shadow-md"
                           fallbackClassName={

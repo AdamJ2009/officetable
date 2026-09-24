@@ -6,8 +6,7 @@ import { PlayerAvatar } from '@/components/PlayerAvatar';
 interface HeadToHeadOpponent {
   opponent_id: number;
   opponent_name: string;
-  opponent_has_avatar?: boolean;
-  opponent_avatar_updated_at?: string | null;
+  opponent_avatar_url?: string | null;
   game_id: number;
   game_name: string;
   wins: number;
@@ -172,10 +171,8 @@ export function RivalsSection({ gameId, gameName, playerId, opponents, isLoading
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
                   <PlayerAvatar
-                    playerId={opp.opponent_id}
                     name={opp.opponent_name}
-                    hasAvatar={opp.opponent_has_avatar}
-                    updatedAt={opp.opponent_avatar_updated_at}
+                    avatarUrl={opp.opponent_avatar_url}
                     size={32}
                   />
                   <div>

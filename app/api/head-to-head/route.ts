@@ -73,8 +73,7 @@ export async function GET(request: NextRequest) {
       mp.match_id,
       mp.player_id as opponent_id,
       p.name as opponent_name,
-      p.avatar IS NOT NULL as opponent_has_avatar,
-      p.avatar_updated_at as opponent_avatar_updated_at,
+      p.avatar_url as opponent_avatar_url,
       mp.team,
       mp.score as opponent_score
     FROM match_participants mp
@@ -85,14 +84,13 @@ export async function GET(request: NextRequest) {
     match_id: number;
     opponent_id: number;
     opponent_name: string;
-    opponent_has_avatar: number;
-    opponent_avatar_updated_at: string | null;
+    opponent_avatar_url: string | null;
     team: number;
     opponent_score: number;
   }[];
 
   // Build match_id -> list of opponents on the opposing team
-  const opponentByMatch = new Map<number, { opponent_id: number; opponent_name: string; opponent_has_avatar: boolean; opponent_avatar_updated_at: string | null; opponent_score: number }[]>();
+  const opponentByMatch = new Map<number, { opponent_id: number; opponent_name: string; opponent_avatar_url: string | null; opponent_score: number }[]>();
   for (const opp of allOpponents) {
     const playerTeam = matchTeamMap.get(opp.match_id);
     if (playerTeam === undefined || opp.team === playerTeam) continue; // skip teammates
@@ -102,8 +100,7 @@ export async function GET(request: NextRequest) {
     opponentByMatch.get(opp.match_id)!.push({
       opponent_id: opp.opponent_id,
       opponent_name: opp.opponent_name,
-      opponent_has_avatar: !!opp.opponent_has_avatar,
-      opponent_avatar_updated_at: opp.opponent_avatar_updated_at,
+      opponent_avatar_url: opp.opponent_avatar_url,
       opponent_score: opp.opponent_score,
     });
   }
@@ -116,8 +113,7 @@ export async function GET(request: NextRequest) {
   interface OpponentAggregate {
     opponent_id: number;
     opponent_name: string;
-    opponent_has_avatar: boolean;
-    opponent_avatar_updated_at: string | null;
+    opponent_avatar_url: string | null;
     game_id: number;
     game_name: string;
     wins: number;
@@ -152,8 +148,7 @@ export async function GET(request: NextRequest) {
         opponentMap.set(key, {
           opponent_id: opp.opponent_id,
           opponent_name: opp.opponent_name,
-          opponent_has_avatar: opp.opponent_has_avatar,
-          opponent_avatar_updated_at: opp.opponent_avatar_updated_at,
+          opponent_avatar_url: opp.opponent_avatar_url,
           game_id: match.game_id,
           game_name: match.game_name,
           wins: 0,
@@ -203,8 +198,7 @@ export async function GET(request: NextRequest) {
     return {
       opponent_id: agg.opponent_id,
       opponent_name: agg.opponent_name,
-      opponent_has_avatar: agg.opponent_has_avatar,
-      opponent_avatar_updated_at: agg.opponent_avatar_updated_at,
+      opponent_avatar_url: agg.opponent_avatar_url,
       game_id: agg.game_id,
       game_name: agg.game_name,
       wins: agg.wins,

@@ -9,10 +9,10 @@ export async function GET(request: NextRequest) {
 
   let stmt;
   if (status === 'all') {
-    stmt = db.prepare("SELECT id, name, status, created_at, avatar IS NOT NULL as has_avatar, avatar_updated_at FROM players ORDER BY name");
+    stmt = db.prepare("SELECT id, name, status, created_at, avatar_url FROM players ORDER BY name");
   } else {
     // Default: only active players
-    stmt = db.prepare("SELECT id, name, status, created_at, avatar IS NOT NULL as has_avatar, avatar_updated_at FROM players WHERE status IS NULL OR status = 'active' ORDER BY name");
+    stmt = db.prepare("SELECT id, name, status, created_at, avatar_url FROM players WHERE status IS NULL OR status = 'active' ORDER BY name");
   }
   const players = stmt.all() as Player[];
 
@@ -47,7 +47,7 @@ export async function POST(request: NextRequest) {
 
     const stmt = db.prepare('INSERT INTO players (name) VALUES (?)');
     const result = stmt.run(name.trim());
-    const player = db.prepare('SELECT id, name, status, created_at, avatar IS NOT NULL as has_avatar, avatar_updated_at FROM players WHERE id = ?').get(result.lastInsertRowid) as Player;
+    const player = db.prepare('SELECT id, name, status, created_at, avatar_url FROM players WHERE id = ?').get(result.lastInsertRowid) as Player;
 
     revalidatePath('/', 'layout');
     return NextResponse.json(player, { status: 201 });
@@ -79,7 +79,7 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'Player not found' }, { status: 404 });
     }
 
-    const player = db.prepare('SELECT id, name, status, created_at, avatar IS NOT NULL as has_avatar, avatar_updated_at FROM players WHERE id = ?').get(id) as Player;
+    const player = db.prepare('SELECT id, name, status, created_at, avatar_url FROM players WHERE id = ?').get(id) as Player;
     revalidatePath('/', 'layout');
     return NextResponse.json(player);
   } catch (error) {

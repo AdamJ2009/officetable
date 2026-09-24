@@ -40,8 +40,7 @@ interface Match {
     elo_before: number;
     elo_after: number;
     player_name: string;
-    has_avatar?: boolean;
-    avatar_updated_at?: string | null;
+    avatar_url?: string | null;
   }[];
   achievements?: MatchAchievement[];
   punditry?: PunditryFact[];
@@ -321,10 +320,8 @@ export default function MatchDetailsPage() {
                       >
                         <div className="flex items-center gap-3">
                           <PlayerAvatar
-                            playerId={p.player_id}
                             name={p.player_name}
-                            hasAvatar={p.has_avatar}
-                            updatedAt={p.avatar_updated_at}
+                            avatarUrl={p.avatar_url}
                             size={40}
                             roundedClass="rounded-lg"
                           />

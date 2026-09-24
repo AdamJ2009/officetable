@@ -6,9 +6,12 @@ This project provides an office leaderboard table for multiple office games, tra
 
 ## Getting Started
 
-First, run the development server:
+Requires **Node.js 20 or later** (LTS recommended) and, on macOS, the Xcode Command Line Tools (see Troubleshooting below).
+
+Install dependencies and run the development server:
 
 ```bash
+npm install
 npm run dev
 # or
 yarn dev
@@ -19,6 +22,52 @@ bun dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+
+## Troubleshooting
+
+This app uses two packages with **native (compiled) code**: `better-sqlite3` (the database) and `lightningcss` (CSS processing). If `npm install` fails or `npm run dev` says `next: command not found` right after a fresh install, it's almost always one of these:
+
+### macOS: "gyp ERR!" / "No Xcode or CLT version detected" when installing better-sqlite3
+
+`better-sqlite3` normally downloads a prebuilt binary, but when none exists for your Node version it compiles from source, which requires the Xcode Command Line Tools:
+
+```bash
+xcode-select --install
+# then verify:
+clang --version
+```
+
+After installing, re-run `npm install`.
+
+### Check your Node version and architecture
+
+Prebuilt binaries are published for Node LTS releases. Very new or odd-numbered Node versions may not have a prebuild and require compilation:
+
+```bash
+node -v                     # prefer an LTS version (20.x or 22.x)
+node -p process.arch        # should be arm64 on an M1/M2/M3 Mac (not x64)
+```
+
+If you're on an Apple Silicon Mac but this prints `x64`, your Node is running under Rosetta — install a native arm64 build (e.g. via [nvm](https://github.com/nvm-sh/nvm): `nvm install 22` and `nvm use 22`, or `brew install node@22`).
+
+If you recently upgraded Node and the app stops loading the database (`ERR_DLOPEN_FAILED` / `NODE_MODULE_VERSION mismatch`), rebuild the native modules:
+
+```bash
+npm rebuild better-sqlite3
+```
+
+### Missing lightningcss / other native binaries ("Cannot find module lightningcss.darwin-arm64.node")
+
+A stale `node_modules` can contain binaries for the wrong platform (e.g. after restoring from a backup, or switching machines/architecture). Wipe and reinstall:
+
+```bash
+rm -rf node_modules .next
+npm install
+```
+
+### `next: command not found`
+
+This means dependencies aren't installed (or `npm install` failed partway — scroll up for the real error). Fix the underlying install error first, then `npm install` again.
 
 ## Import Data
 

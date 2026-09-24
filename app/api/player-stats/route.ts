@@ -11,7 +11,7 @@ export async function GET(request: NextRequest) {
 
   // Get player info
   const playerStmt = db.prepare(`
-    SELECT id, name, status, created_at, avatar IS NOT NULL as has_avatar, avatar_updated_at FROM players WHERE id = ?
+    SELECT id, name, status, created_at, avatar_url FROM players WHERE id = ?
   `);
   const player = playerStmt.get(parseInt(playerId)) as { id: number; name: string; status: string; created_at: string };
 

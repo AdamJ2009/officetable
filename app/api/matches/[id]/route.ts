@@ -28,7 +28,7 @@ export async function GET(
   }
 
   const participantsStmt = db.prepare(`
-    SELECT mp.*, p.name as player_name, p.avatar IS NOT NULL as has_avatar, p.avatar_updated_at
+    SELECT mp.*, p.name as player_name, p.avatar_url
     FROM match_participants mp
     JOIN players p ON mp.player_id = p.id
     WHERE mp.match_id = ?

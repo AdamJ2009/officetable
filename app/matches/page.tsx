@@ -4,6 +4,7 @@ import { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useSelectedGame } from "@/lib/hooks/useSelectedGame";
+import { PlayerAvatar } from "@/components/PlayerAvatar";
 
 interface Game {
   id: number;
@@ -48,6 +49,7 @@ interface Match {
     elo_before: number;
     elo_after: number;
     player_name: string;
+    avatar_url?: string | null;
   }[];
   achievements?: MatchAchievement[];
   punditry?: PunditryFact[];
@@ -530,12 +532,13 @@ function MatchesPageContent() {
                       </div>
                       <div className="space-y-2">
                         {match.participants.filter(p => p.team === teams[0]).map((p) => (
-                          <div key={p.player_id} className="flex items-center justify-between">
+                          <div key={p.player_id} className="flex items-center justify-between gap-2">
                             <Link
                               href={`/players/${p.player_id}`}
-                              className={`font-medium hover:underline ${team0Result.result === "win" ? "text-white" : "text-gray-900"}`}
+                              className={`flex items-center gap-2 min-w-0 font-medium hover:underline ${team0Result.result === "win" ? "text-white" : "text-gray-900"}`}
                             >
-                              {p.player_name}
+                              <PlayerAvatar name={p.player_name} avatarUrl={p.avatar_url} size={28} roundedClass="rounded-lg" />
+                              <span className="truncate">{p.player_name}</span>
                             </Link>
                             {!isEditing && (
                               <span className={`text-sm font-mono ${
@@ -588,12 +591,13 @@ function MatchesPageContent() {
                       </div>
                       <div className="space-y-2">
                         {match.participants.filter(p => p.team === teams[1]).map((p) => (
-                          <div key={p.player_id} className="flex items-center justify-between">
+                          <div key={p.player_id} className="flex items-center justify-between gap-2">
                             <Link
                               href={`/players/${p.player_id}`}
-                              className={`font-medium hover:underline ${team1Result.result === "win" ? "text-white" : "text-gray-900"}`}
+                              className={`flex items-center gap-2 min-w-0 font-medium hover:underline ${team1Result.result === "win" ? "text-white" : "text-gray-900"}`}
                             >
-                              {p.player_name}
+                              <PlayerAvatar name={p.player_name} avatarUrl={p.avatar_url} size={28} roundedClass="rounded-lg" />
+                              <span className="truncate">{p.player_name}</span>
                             </Link>
                             {!isEditing && (
                               <span className={`text-sm font-mono ${

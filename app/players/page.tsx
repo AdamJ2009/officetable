@@ -1,7 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
+import { PlayerAvatar } from "@/components/PlayerAvatar";
+import { prepareAvatarForUpload, uploadPlayerAvatar, removePlayerAvatar } from "@/lib/avatarUpload";
 
 interface Player {
   id: number;
@@ -9,6 +11,8 @@ interface Player {
   status: 'active' | 'retired';
   created_at: string;
   first_played_at: string | null;
+  has_avatar?: boolean;
+  avatar_updated_at?: string | null;
 }
 
 export default function PlayersPage() {
@@ -18,6 +22,9 @@ export default function PlayersPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showRetired, setShowRetired] = useState(false);
+  const [avatarBusy, setAvatarBusy] = useState<number | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const uploadTargetRef = useRef<number | null>(null);
 
   useEffect(() => {
     fetchPlayers();
@@ -81,24 +88,46 @@ export default function PlayersPage() {
     }
   }
 
+  async function handleAvatarFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    const playerId = uploadTargetRef.current;
+    // Reset so selecting the same file again still triggers change
+    e.target.value = "";
+    if (!file || !playerId) return;
+
+    setAvatarBusy(playerId);
+    setError(null);
+    try {
+      const blob = await prepareAvatarForUpload(file);
+      await uploadPlayerAvatar(playerId, blob);
+      fetchPlayers();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to upload avatar");
+    } finally {
+      setAvatarBusy(null);
+    }
+  }
+
+  function openAvatarPicker(playerId: number) {
+    uploadTargetRef.current = playerId;
+    fileInputRef.current?.click();
+  }
+
+  async function handleRemoveAvatar(playerId: number) {
+    setAvatarBusy(playerId);
+    setError(null);
+    try {
+      await removePlayerAvatar(playerId);
+      fetchPlayers();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to remove avatar");
+    } finally {
+      setAvatarBusy(null);
+    }
+  }
+
   const activePlayers = players.filter(p => p.status === 'active' || !p.status);
   const retiredPlayers = players.filter(p => p.status === 'retired');
-
-  // Generate a consistent color based on player name
-  function getPlayerColor(name: string): string {
-    const colors = [
-      'from-blue-500 to-blue-600',
-      'from-green-500 to-green-600',
-      'from-purple-500 to-purple-600',
-      'from-orange-500 to-orange-600',
-      'from-pink-500 to-pink-600',
-      'from-teal-500 to-teal-600',
-      'from-indigo-500 to-indigo-600',
-      'from-rose-500 to-rose-600',
-    ];
-    const index = name.charCodeAt(0) % colors.length;
-    return colors[index];
-  }
 
   return (
     <div>
@@ -134,6 +163,15 @@ export default function PlayersPage() {
         )}
       </div>
 
+      {/* Hidden file input for avatar uploads */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/png,image/jpeg,image/webp,image/gif"
+        className="hidden"
+        onChange={handleAvatarFileSelected}
+      />
+
       {/* Players Grid */}
       {loading ? (
         <div className="text-gray-500">Loading...</div>
@@ -154,8 +192,23 @@ export default function PlayersPage() {
               >
                 <Link href={`/players/${player.id}`}>
                   <div className="bg-white rounded-xl shadow hover:shadow-lg transition-all p-4 text-center">
-                    <div className={`w-16 h-16 mx-auto mb-3 rounded-full bg-gradient-to-br ${getPlayerColor(player.name)} flex items-center justify-center text-white text-2xl font-bold shadow-md group-hover:scale-110 transition-transform`}>
-                      {player.name.charAt(0).toUpperCase()}
+                    <div className="relative w-16 h-16 mx-auto mb-3 group/avatar">
+                      <PlayerAvatar
+                        playerId={player.id}
+                        name={player.name}
+                        hasAvatar={player.has_avatar}
+                        updatedAt={player.avatar_updated_at}
+                        size={64}
+                        className="group-hover:scale-110 transition-transform"
+                      />
+                      <button
+                        onClick={(e) => { e.preventDefault(); openAvatarPicker(player.id); }}
+                        disabled={avatarBusy === player.id}
+                        className="absolute inset-0 flex items-center justify-center bg-black/40 rounded-full text-white text-lg opacity-0 group-hover/avatar:opacity-100 transition-opacity"
+                        title={player.has_avatar ? 'Change avatar' : 'Add avatar'}
+                      >
+                        {avatarBusy === player.id ? '…' : '📷'}
+                      </button>
                     </div>
                     <h3 className="font-semibold text-gray-900 group-hover:text-primary transition-colors truncate">
                       {player.name}
@@ -165,6 +218,14 @@ export default function PlayersPage() {
                         ? `Playing since ${new Date(player.first_played_at).toLocaleDateString()}`
                         : 'Yet to play'}
                     </p>
+                    {player.has_avatar && (
+                      <button
+                        onClick={(e) => { e.preventDefault(); handleRemoveAvatar(player.id); }}
+                        className="text-xs text-gray-400 hover:text-red-500 mt-1 transition-colors"
+                      >
+                        Remove avatar
+                      </button>
+                    )}
                   </div>
                 </Link>
                 <button
@@ -196,9 +257,16 @@ export default function PlayersPage() {
                       key={player.id}
                       className="bg-gray-50 rounded-xl p-4 text-center opacity-60"
                     >
-                      <div className={`w-16 h-16 mx-auto mb-3 rounded-full bg-gradient-to-br ${getPlayerColor(player.name)} flex items-center justify-center text-white text-2xl font-bold grayscale`}>
-                        {player.name.charAt(0).toUpperCase()}
-                      </div>
+                    <div className="w-16 h-16 mx-auto mb-3 rounded-full grayscale">
+                      <PlayerAvatar
+                        playerId={player.id}
+                        name={player.name}
+                        hasAvatar={player.has_avatar}
+                        updatedAt={player.avatar_updated_at}
+                        size={64}
+                        className="grayscale"
+                      />
+                    </div>
                       <h3 className="font-semibold text-gray-500 truncate line-through">
                         {player.name}
                       </h3>

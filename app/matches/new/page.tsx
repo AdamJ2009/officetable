@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useSelectedGame } from "@/lib/hooks/useSelectedGame";
+import { PlayerAvatar } from "@/components/PlayerAvatar";
 
 interface Game {
   id: number;
@@ -14,6 +15,8 @@ interface Game {
 interface Player {
   id: number;
   name: string;
+  has_avatar?: boolean;
+  avatar_updated_at?: string | null;
 }
 
 interface PlayerRating {
@@ -243,7 +246,16 @@ function NewMatchContent() {
                       key={playerId}
                       className="flex items-center justify-between bg-white/20 backdrop-blur px-3 py-2 rounded-lg"
                     >
-                      <span className="font-medium">{player?.name}</span>
+                      <div className="flex items-center gap-2">
+                        <PlayerAvatar
+                          playerId={playerId}
+                          name={player?.name ?? ''}
+                          hasAvatar={player?.has_avatar}
+                          updatedAt={player?.avatar_updated_at}
+                          size={22}
+                        />
+                        <span className="font-medium">{player?.name}</span>
+                      </div>
                       <button
                         type="button"
                         onClick={() => togglePlayer(1, playerId)}
@@ -275,7 +287,16 @@ function NewMatchContent() {
                       key={playerId}
                       className="flex items-center justify-between bg-white/20 backdrop-blur px-3 py-2 rounded-lg"
                     >
-                      <span className="font-medium">{player?.name}</span>
+                      <div className="flex items-center gap-2">
+                        <PlayerAvatar
+                          playerId={playerId}
+                          name={player?.name ?? ''}
+                          hasAvatar={player?.has_avatar}
+                          updatedAt={player?.avatar_updated_at}
+                          size={22}
+                        />
+                        <span className="font-medium">{player?.name}</span>
+                      </div>
                       <button
                         type="button"
                         onClick={() => togglePlayer(2, playerId)}
@@ -367,11 +388,20 @@ function NewMatchContent() {
               {availablePlayers.map((player) => {
                 const rating = ratings.find((r) => r.player_id === player.id);
                 return (
-                  <div key={player.id} className="flex rounded-lg overflow-hidden border border-gray-200">
+                  <div key={player.id} className="flex items-center rounded-lg overflow-hidden border border-gray-200">
+                    <div className="pl-2 flex items-center">
+                      <PlayerAvatar
+                        playerId={player.id}
+                        name={player.name}
+                        hasAvatar={player.has_avatar}
+                        updatedAt={player.avatar_updated_at}
+                        size={20}
+                      />
+                    </div>
                     <button
                       type="button"
                       onClick={() => togglePlayer(1, player.id)}
-                      className="px-3 py-1.5 text-sm font-medium bg-white text-gray-700 hover:bg-blue-50 hover:text-blue-700 transition-colors"
+                      className="px-2 py-1.5 text-sm font-medium bg-white text-gray-700 hover:bg-blue-50 hover:text-blue-700 transition-colors"
                     >
                       {player.name}
                     </button>

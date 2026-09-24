@@ -61,6 +61,23 @@ try {
   // Column already exists, ignore
 }
 
+// Migration: Add avatar columns to players table (image stored as blob, max 512KB enforced by API)
+try {
+  db.exec(`ALTER TABLE players ADD COLUMN avatar BLOB`);
+} catch (e) {
+  // Column already exists, ignore
+}
+try {
+  db.exec(`ALTER TABLE players ADD COLUMN avatar_mime TEXT`);
+} catch (e) {
+  // Column already exists, ignore
+}
+try {
+  db.exec(`ALTER TABLE players ADD COLUMN avatar_updated_at DATETIME`);
+} catch (e) {
+  // Column already exists, ignore
+}
+
 // Migration: Add edit tracking columns to matches table
 try {
   db.exec(`ALTER TABLE matches ADD COLUMN is_edited INTEGER DEFAULT 0`);

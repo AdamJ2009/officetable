@@ -105,7 +105,7 @@ export async function GET(request: NextRequest) {
 
   // Get participants for each match
   const participantsStmt = db.prepare(`
-    SELECT mp.*, p.name as player_name
+    SELECT mp.*, p.name as player_name, p.avatar IS NOT NULL as has_avatar, p.avatar_updated_at
     FROM match_participants mp
     JOIN players p ON mp.player_id = p.id
     WHERE mp.match_id = ?
@@ -189,9 +189,21 @@ export async function POST(request: NextRequest) {
     // Get player names for notification
     const playerIds = teams.flatMap(t => t.player_ids);
     const placeholders = playerIds.map(() => '?').join(',');
-    const playersStmt = db.prepare(`SELECT id, name FROM players WHERE id IN (${placeholders})`);
-    const players = playersStmt.all(...playerIds) as { id: number; name: string }[];
+    const playersStmt = db.prepare(`SELECT id, name, avatar IS NOT NULL as has_avatar, avatar_updated_at FROM players WHERE id IN (${placeholders})`);
+    const players = playersStmt.all(...playerIds) as { id: number; name: string; has_avatar: number; avatar_updated_at: string | null }[];
     const playerNameMap = new Map(players.map(p => [p.id, p.name]));
+
+    // Build avatar URLs for players that have one (used in Google Chat notifications)
+    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL;
+    const playerAvatarMap = new Map<number, string>();
+    if (baseUrl) {
+      for (const p of players) {
+        if (p.has_avatar) {
+          const cacheBuster = p.avatar_updated_at ? `?v=${encodeURIComponent(p.avatar_updated_at)}` : '';
+          playerAvatarMap.set(p.id, `${baseUrl}/api/players/${p.id}/avatar${cacheBuster}`);
+        }
+      }
+    }
 
     // Get rankings BEFORE the match to calculate rank changes (exclude retired players)
     const rankingsBefore = db.prepare(`
@@ -255,7 +267,8 @@ export async function POST(request: NextRequest) {
           achievementName: a.achievement_name,
           achievementIcon: a.achievement_icon
         })),
-        punditryFacts.map(p => ({ description: p.description }))
+        punditryFacts.map(p => ({ description: p.description })),
+        playerAvatarMap
       );
       sendGoogleChatNotification(notification).catch(err => {
         console.error('Failed to send notification:', err);

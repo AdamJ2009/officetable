@@ -1,8 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useTheme } from "@/lib/contexts/ThemeContext";
+import { PlayerAvatar } from "@/components/PlayerAvatar";
+import { prepareAvatarForUpload, uploadPlayerAvatar, removePlayerAvatar } from "@/lib/avatarUpload";
 
 interface Game {
   id: number;
@@ -38,6 +40,19 @@ export default function SettingsPage() {
   const [primaryColor, setPrimaryColor] = useState('');
   const [accentColor, setAccentColor] = useState('');
   const [savingTheme, setSavingTheme] = useState(false);
+
+  // Player avatars
+  interface Player {
+    id: number;
+    name: string;
+    status: 'active' | 'retired';
+    has_avatar?: boolean;
+    avatar_updated_at?: string | null;
+  }
+  const [players, setPlayers] = useState<Player[]>([]);
+  const [avatarBusy, setAvatarBusy] = useState<number | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const uploadTargetRef = useRef<number | null>(null);
 
   // Sync local form state with theme context
   useEffect(() => {
@@ -80,6 +95,52 @@ export default function SettingsPage() {
     }
     loadThreshold();
   }, []);
+
+  useEffect(() => {
+    fetch("/api/players?status=all")
+      .then((res) => res.json())
+      .then((data: Player[]) => setPlayers(data))
+      .catch(() => setPlayers([]));
+  }, []);
+
+  async function handleAvatarFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    const playerId = uploadTargetRef.current;
+    e.target.value = "";
+    if (!file || !playerId) return;
+
+    setAvatarBusy(playerId);
+    try {
+      const blob = await prepareAvatarForUpload(file);
+      const updatedAt = await uploadPlayerAvatar(playerId, blob);
+      setPlayers(players.map(p =>
+        p.id === playerId ? { ...p, has_avatar: true, avatar_updated_at: updatedAt } : p
+      ));
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to upload avatar");
+    } finally {
+      setAvatarBusy(null);
+    }
+  }
+
+  function openAvatarPicker(playerId: number) {
+    uploadTargetRef.current = playerId;
+    fileInputRef.current?.click();
+  }
+
+  async function handleRemoveAvatar(playerId: number) {
+    setAvatarBusy(playerId);
+    try {
+      await removePlayerAvatar(playerId);
+      setPlayers(players.map(p =>
+        p.id === playerId ? { ...p, has_avatar: false, avatar_updated_at: null } : p
+      ));
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to remove avatar");
+    } finally {
+      setAvatarBusy(null);
+    }
+  }
 
   const formatGameName = (name: string) => {
     return name.charAt(0).toUpperCase() + name.slice(1).replace("-", " ");
@@ -441,6 +502,69 @@ export default function SettingsPage() {
                       {saving === game.id ? "..." : "Save"}
                     </button>
                   </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Hidden file input for avatar uploads */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/png,image/jpeg,image/webp,image/gif"
+        className="hidden"
+        onChange={handleAvatarFileSelected}
+      />
+
+      {/* Player Avatars Section */}
+      <div className="bg-white rounded-xl shadow-lg overflow-hidden mb-6">
+        <div className="px-6 py-4 bg-gradient-to-r from-indigo-500 to-violet-500">
+          <h2 className="text-lg font-bold text-white flex items-center gap-2">
+            <span className="text-xl">👤</span> Player Avatars
+          </h2>
+          <p className="text-indigo-100 text-sm mt-1">Upload avatar images for players (shown on leaderboards, profiles &amp; notifications)</p>
+        </div>
+        <div className="p-6">
+          {players.length === 0 ? (
+            <div className="text-gray-500">No players yet.</div>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+              {players.map((player) => (
+                <div key={player.id} className="bg-gray-50 rounded-xl p-4 text-center">
+                  <div className="relative w-16 h-16 mx-auto mb-2 group/avatar">
+                    <PlayerAvatar
+                      playerId={player.id}
+                      name={player.name}
+                      hasAvatar={player.has_avatar}
+                      updatedAt={player.avatar_updated_at}
+                      size={64}
+                      className={player.status === 'retired' ? 'grayscale' : ''}
+                    />
+                    <button
+                      onClick={() => openAvatarPicker(player.id)}
+                      disabled={avatarBusy === player.id}
+                      className="absolute inset-0 flex items-center justify-center bg-black/40 rounded-full text-white text-lg opacity-0 group-hover/avatar:opacity-100 transition-opacity"
+                      title={player.has_avatar ? 'Change avatar' : 'Add avatar'}
+                    >
+                      {avatarBusy === player.id ? '…' : '📷'}
+                    </button>
+                  </div>
+                  <div className={`font-semibold text-sm truncate ${player.status === 'retired' ? 'text-gray-500 line-through' : 'text-gray-900'}`}>
+                    {player.name}
+                  </div>
+                  {player.has_avatar ? (
+                    <button
+                      onClick={() => handleRemoveAvatar(player.id)}
+                      disabled={avatarBusy === player.id}
+                      className="text-xs text-gray-400 hover:text-red-500 transition-colors"
+                    >
+                      Remove
+                    </button>
+                  ) : (
+                    <span className="text-xs text-gray-400">No avatar</span>
+                  )}
                 </div>
               ))}
             </div>

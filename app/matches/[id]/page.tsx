@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
+import { PlayerAvatar } from "@/components/PlayerAvatar";
 
 interface MatchAchievement {
   achievement_id: number;
@@ -39,6 +40,8 @@ interface Match {
     elo_before: number;
     elo_after: number;
     player_name: string;
+    has_avatar?: boolean;
+    avatar_updated_at?: string | null;
   }[];
   achievements?: MatchAchievement[];
   punditry?: PunditryFact[];
@@ -80,20 +83,6 @@ function getPunditryStyle(type: string): { bg: string; border: string; iconBg: s
     'consistency': { bg: 'from-emerald-50 to-teal-50', border: 'border-emerald-200', iconBg: 'bg-emerald-100' },
   };
   return styles[type] || { bg: 'from-gray-50 to-slate-50', border: 'border-gray-200', iconBg: 'bg-gray-100' };
-}
-
-// Generate player avatar gradient
-function getPlayerGradient(name: string): string {
-  const gradients = [
-    'from-blue-500 to-indigo-600',
-    'from-emerald-500 to-teal-600',
-    'from-purple-500 to-violet-600',
-    'from-orange-500 to-amber-600',
-    'from-pink-500 to-rose-600',
-    'from-cyan-500 to-sky-600',
-  ];
-  const index = name.charCodeAt(0) % gradients.length;
-  return gradients[index];
 }
 
 export default function MatchDetailsPage() {
@@ -331,9 +320,14 @@ export default function MatchDetailsPage() {
                         className="flex items-center justify-between p-3 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors group"
                       >
                         <div className="flex items-center gap-3">
-                          <div className={`w-10 h-10 rounded-lg bg-gradient-to-br ${getPlayerGradient(p.player_name)} flex items-center justify-center text-white font-bold text-lg shadow-sm`}>
-                            {p.player_name.charAt(0).toUpperCase()}
-                          </div>
+                          <PlayerAvatar
+                            playerId={p.player_id}
+                            name={p.player_name}
+                            hasAvatar={p.has_avatar}
+                            updatedAt={p.avatar_updated_at}
+                            size={40}
+                            roundedClass="rounded-lg"
+                          />
                           <div>
                             <div className="font-semibold text-gray-900 group-hover:text-primary transition-colors">
                               {p.player_name}

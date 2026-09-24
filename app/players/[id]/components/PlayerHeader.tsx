@@ -1,5 +1,6 @@
 import { AchievementProgressRing } from './AchievementProgressRing';
-import { getPlayerGradient } from './RivalsSection';
+import { PlayerAvatar } from '@/components/PlayerAvatar';
+import { prepareAvatarForUpload, uploadPlayerAvatar, removePlayerAvatar } from '@/lib/avatarUpload';
 
 interface PlayerHeaderProps {
   player: {
@@ -8,10 +9,13 @@ interface PlayerHeaderProps {
     status: string;
     created_at: string;
     first_played_at: string | null;
+    has_avatar?: boolean;
+    avatar_updated_at?: string | null;
   };
   achievementUnlocked: number;
   achievementTotal: number;
   onStatusChange: (newStatus: string) => void;
+  onAvatarChange: (hasAvatar: boolean, updatedAt: string | null) => void;
 }
 
 function formatDate(dateStr: string) {
@@ -23,14 +27,67 @@ function formatDate(dateStr: string) {
   });
 }
 
-export function PlayerHeader({ player, achievementUnlocked, achievementTotal, onStatusChange }: PlayerHeaderProps) {
+export function PlayerHeader({ player, achievementUnlocked, achievementTotal, onStatusChange, onAvatarChange }: PlayerHeaderProps) {
+
+  async function handleAvatarFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+
+    try {
+      const blob = await prepareAvatarForUpload(file);
+      const updatedAt = await uploadPlayerAvatar(player.id, blob);
+      onAvatarChange(true, updatedAt);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to upload avatar');
+    }
+  }
+
+  async function handleRemoveAvatar() {
+    try {
+      await removePlayerAvatar(player.id);
+      onAvatarChange(false, null);
+    } catch {
+      alert('Failed to remove avatar');
+    }
+  }
+
   return (
     <div className="bg-gradient-to-br from-slate-800 to-slate-900 rounded-2xl shadow-xl overflow-hidden mb-6">
       <div className="px-8 py-6">
         <div className="flex items-center gap-6">
           {/* Avatar */}
-          <div className={`w-20 h-20 rounded-2xl bg-gradient-to-br ${getPlayerGradient(player.name)} flex items-center justify-center text-white text-4xl font-bold shadow-lg`}>
-            {player.name.charAt(0).toUpperCase()}
+          <div className="group relative">
+            <PlayerAvatar
+              playerId={player.id}
+              name={player.name}
+              hasAvatar={player.has_avatar}
+              updatedAt={player.avatar_updated_at}
+              size={80}
+              roundedClass="rounded-2xl"
+              ringClass="shadow-lg"
+            />
+            <label
+              className="absolute inset-0 flex items-center justify-center bg-black/40 rounded-2xl text-white text-xl cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity"
+              title={player.has_avatar ? 'Change avatar' : 'Add avatar'}
+            >
+              📷
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/gif"
+                className="hidden"
+                onChange={handleAvatarFileSelected}
+              />
+            </label>
+            {player.has_avatar && (
+              <button
+                onClick={handleRemoveAvatar}
+                className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-red-600 text-white text-[10px] leading-none items-center justify-center cursor-pointer hidden group-hover:flex"
+                title="Remove avatar"
+              >
+                ✕
+              </button>
+            )}
           </div>
 
           {/* Name and status */}

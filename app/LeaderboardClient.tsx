@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useSelectedGame } from "@/lib/hooks/useSelectedGame";
+import { PlayerAvatar } from "@/components/PlayerAvatar";
 import type { LeaderboardEntry } from "@/lib/types";
 import type { GameStats, GameRecords } from "@/lib/data";
 
@@ -418,14 +419,20 @@ export default function LeaderboardClient({
                         href={`/players/${entry.player_id}`}
                         className={`group flex items-center gap-3 ${isRetired || isInactive ? 'opacity-60' : ''}`}
                       >
-                        <div className={`w-10 h-10 rounded-full flex items-center justify-center text-lg font-bold ${
-                          rank === 1 ? 'bg-gradient-to-br from-amber-400 to-yellow-500 text-white shadow-md' :
-                          rank === 2 ? 'bg-gradient-to-br from-slate-300 to-slate-400 text-white shadow-md' :
-                          rank === 3 ? 'bg-gradient-to-br from-orange-400 to-amber-500 text-white shadow-md' :
-                          'bg-gray-200 text-gray-600'
-                        }`}>
-                          {entry.player_name.charAt(0).toUpperCase()}
-                        </div>
+                        <PlayerAvatar
+                          playerId={entry.player_id}
+                          name={entry.player_name}
+                          hasAvatar={entry.has_avatar}
+                          updatedAt={entry.avatar_updated_at}
+                          size={40}
+                          ringClass="shadow-md"
+                          fallbackClassName={
+                            rank === 1 ? 'bg-gradient-to-br from-amber-400 to-yellow-500 text-white' :
+                            rank === 2 ? 'bg-gradient-to-br from-slate-300 to-slate-400 text-white' :
+                            rank === 3 ? 'bg-gradient-to-br from-orange-400 to-amber-500 text-white' :
+                            'bg-gray-200 text-gray-600'
+                          }
+                        />
                         <div>
                           <span className={`font-semibold text-gray-900 group-hover:text-primary transition-colors ${isRetired ? 'line-through' : ''}`}>
                             {entry.player_name}

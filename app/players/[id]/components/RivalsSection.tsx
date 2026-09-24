@@ -1,30 +1,13 @@
 import Link from 'next/link';
 import { WinLossBar } from './WinLossBar';
 import { StreakBadge } from './StreakBadge';
-
-// Generate a consistent gradient based on player name
-function getPlayerGradient(name: string): string {
-  const gradients = [
-    'from-blue-500 to-indigo-600',
-    'from-emerald-500 to-teal-600',
-    'from-purple-500 to-violet-600',
-    'from-orange-500 to-amber-600',
-    'from-pink-500 to-rose-600',
-    'from-cyan-500 to-sky-600',
-    'from-fuchsia-500 to-purple-600',
-    'from-lime-500 to-green-600',
-  ];
-  const index = name.charCodeAt(0) % gradients.length;
-  return gradients[index];
-}
-
-function formatGameName(name: string) {
-  return name.charAt(0).toUpperCase() + name.slice(1).replace("-", " ");
-}
+import { PlayerAvatar } from '@/components/PlayerAvatar';
 
 interface HeadToHeadOpponent {
   opponent_id: number;
   opponent_name: string;
+  opponent_has_avatar?: boolean;
+  opponent_avatar_updated_at?: string | null;
   game_id: number;
   game_name: string;
   wins: number;
@@ -188,9 +171,13 @@ export function RivalsSection({ gameId, gameName, playerId, opponents, isLoading
             >
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold bg-gradient-to-br ${getPlayerGradient(opp.opponent_name)} text-white shadow-sm`}>
-                    {opp.opponent_name.charAt(0).toUpperCase()}
-                  </div>
+                  <PlayerAvatar
+                    playerId={opp.opponent_id}
+                    name={opp.opponent_name}
+                    hasAvatar={opp.opponent_has_avatar}
+                    updatedAt={opp.opponent_avatar_updated_at}
+                    size={32}
+                  />
                   <div>
                     <div className="font-semibold text-gray-900 text-sm group-hover:text-primary transition-colors">
                       {opp.opponent_name}
@@ -225,5 +212,3 @@ export function RivalsSection({ gameId, gameName, playerId, opponents, isLoading
     </div>
   );
 }
-
-export { getPlayerGradient };

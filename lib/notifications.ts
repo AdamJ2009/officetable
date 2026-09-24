@@ -28,6 +28,17 @@ interface MatchNotification {
 
 const WIN_COLOR = '#16a34a';
 const LOSS_COLOR = '#dc2626';
+const DRAW_COLOR = '#e8eaed';
+/** De-emphasised grey used for the losing team's score. */
+const MUTED_COLOR = '#9aa0a6';
+
+/** Team accent colours, cycled if a match ever has more than 2 teams. */
+const TEAM_COLORS = ['#1147D1', '#D13011', '#8430ce', '#0b8043'];
+
+/** Minimal HTML escaping for names embedded in Chat card markup. */
+function escapeHtml(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
 
 /**
  * Default "person" icon used as a placeholder for players without an avatar.
@@ -36,27 +47,43 @@ const LOSS_COLOR = '#dc2626';
 const PERSON_PLACEHOLDER_ICON_URL = 'https://fonts.gstatic.com/s/i/short-term/release/googlesymbols/person/default/48px.svg';
 
 /**
- * Builds the face-off section: one column per team, each player as a row with
- * their avatar (or a person placeholder), bold name and coloured skill change.
- * Handles any team size (1v1, 2v2, ...).
+ * Builds the face-off section: one column per team. The top of each column is
+ * the team name + score (winner highlighted, loser de-emphasised), followed by
+ * one row per player with their avatar (or a person placeholder), bold name
+ * and coloured skill change. Handles any team size (1v1, 2v2, ...).
  */
 export function buildFaceOffColumnsWidget(
   match: MatchNotification,
   skillChangeByName: Map<string, { change: number; rankChange?: number }>
 ): Record<string, unknown> {
-  const columnItems = match.teams.slice(0, 4).map(team => ({
-    horizontalSizeStyle: 'FILL_AVAILABLE_SPACE',
-    horizontalAlignment: 'CENTER' as const,
-    verticalAlignment: 'TOP' as const,
-    widgets: team.playerIds.map((id, index) => {
+  const maxScore = Math.max(...match.teams.map(t => t.score));
+  const isDraw = match.teams.filter(t => t.score === maxScore).length > 1;
+
+  const columnItems = match.teams.slice(0, 4).map((team, teamIndex) => {
+    const teamColor = TEAM_COLORS[teamIndex % TEAM_COLORS.length];
+    const teamName = escapeHtml(team.players.join(' & '));
+    const isWinner = !isDraw && team.score === maxScore;
+
+    // Score line: bold score; winner gets a trophy + green, loser is pushed
+    // into the background with grey, draws are neutral with a handshake.
+    const scoreColor = isDraw ? DRAW_COLOR : isWinner ? WIN_COLOR : MUTED_COLOR;
+    const trophy = isWinner ? '\u{1F3C6} ' : isDraw ? '\u{1F91D} ' : '';
+    const scoreWidget = {
+      textParagraph: {
+        text: `<b><font color='${teamColor}'>${teamName}</font></b> ${trophy}<b><font color='${scoreColor}'>${team.score}</font></b>`
+      }
+    };
+
+    const playerWidgets = team.playerIds.map((id, index) => {
       const name = team.players[index];
       const skill = skillChangeByName.get(name);
       const sign = skill && skill.change >= 0 ? '+' : '';
       const rankPart = skill?.rankChange !== undefined && skill.rankChange !== 0
         ? ` (${skill.rankChange > 0 ? '+' : ''}${skill.rankChange} rank${Math.abs(skill.rankChange) !== 1 ? 's' : ''})`
         : '';
+      const arrow = skill ? (skill.change >= 0 ? '\u25B2 ' : '\u25BC ') : '';
       const skillText = skill
-        ? ` <font color='${skill.change >= 0 ? WIN_COLOR : LOSS_COLOR}'>${sign}${skill.change.toFixed(3)}</font>${rankPart}`
+        ? ` <font color='${skill.change >= 0 ? WIN_COLOR : LOSS_COLOR}'>${arrow}${sign}${skill.change.toFixed(3)}</font>${rankPart}`
         : '';
 
       const avatarUrl = match.playerAvatars?.get(id);
@@ -73,12 +100,19 @@ export function buildFaceOffColumnsWidget(
                 imageType: 'CIRCLE' as const,
                 iconUrl: PERSON_PLACEHOLDER_ICON_URL,
               },
-          text: `<b>${name}</b>${skillText}`,
+          text: `<b>${escapeHtml(name)}</b>${skillText}`,
           wrapText: true
         }
       };
-    })
-  }));
+    });
+
+    return {
+      horizontalSizeStyle: 'FILL_AVAILABLE_SPACE',
+      horizontalAlignment: 'START' as const,
+      verticalAlignment: 'TOP' as const,
+      widgets: [scoreWidget, ...playerWidgets]
+    };
+  });
 
   return { columns: { columnItems } };
 }
@@ -97,8 +131,6 @@ export function buildChatCardsPayload(match: MatchNotification): Record<string, 
     : 'https://fonts.gstatic.com/s/i/short-term/release/googlesymbols/emoji_events/default/48px.svg');
   const headerImageType = match.imageUrl ? 'SQUARE' : 'CIRCLE';
 
-  const scoresLine =`<b><font color='#1147D1'>${match.teams[0].players.join(' & ')} ${match.teams[0].score}</font> - <font color='#D13011'>${match.teams[1].score} ${match.teams[1].players.join(' & ')}</font></b>`
-
   // Build line 2: match link
   const matchLink = baseUrl ? `${baseUrl}/matches/${match.matchId}` : null;
 
@@ -107,30 +139,24 @@ export function buildChatCardsPayload(match: MatchNotification): Record<string, 
     match.skillChanges.map(sc => [sc.playerName, { change: sc.change, rankChange: sc.rankChange }])
   );
 
+  const hasExtraInfo = Boolean(match.notes?.trim())
+    || Boolean(match.achievements && match.achievements.length > 0)
+    || Boolean(match.punditry && match.punditry.length > 0);
+
   // Build widgets for the card
   const widgets = [];
 
-  // Line 1: Scores
-  widgets.push({
-    textParagraph: {
-      text: scoresLine
-    }
-  });
-
-  // Line 2: Match link (if base URL configured)
-  if (matchLink) {
-    widgets.push({
-      textParagraph: {
-        text: `<a href="${matchLink}">View match details</a>`
-      }
-    });
-  }
-
-  // Line 3: Face-off columns — one column per team; each player is a row with
-  // their avatar (or person placeholder), name and coloured skill change.
+  // Face-off columns — one column per team; score on top (winner
+  // highlighted), then one row per player with their avatar (or person
+  // placeholder), name and coloured skill change.
   widgets.push(buildFaceOffColumnsWidget(match, skillChangeByName));
 
-  // Line 4: Notes (if present)
+  // Divider between the score/player face-off and the further info below.
+  if (hasExtraInfo) {
+    widgets.push({ divider: {} });
+  }
+
+  // Notes (if present)
   if (match.notes?.trim()) {
     widgets.push({
       textParagraph: {
@@ -139,7 +165,7 @@ export function buildChatCardsPayload(match: MatchNotification): Record<string, 
     });
   }
 
-  // Line 5: Achievements (if present)
+  // Achievements (if present)
   if (match.achievements && match.achievements.length > 0) {
     const achievementsText = match.achievements
       .map(a => {
@@ -155,7 +181,7 @@ export function buildChatCardsPayload(match: MatchNotification): Record<string, 
     });
   }
 
-  // Line 6: Punditry (if present)
+  // Line 5: Punditry (if present)
   if (match.punditry && match.punditry.length > 0) {
     const punditryText = match.punditry
       .slice(0, 3) // Limit to 3 facts to keep the notification concise
@@ -165,6 +191,15 @@ export function buildChatCardsPayload(match: MatchNotification): Record<string, 
     widgets.push({
       textParagraph: {
         text: punditryText + suffix
+      }
+    });
+  }
+
+  // Footer: match link, last so it reads as a "find out more"
+  if (matchLink) {
+    widgets.push({
+      textParagraph: {
+        text: `<a href="${matchLink}">Find out more</a>`
       }
     });
   }

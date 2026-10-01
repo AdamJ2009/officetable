@@ -203,42 +203,64 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Get rankings BEFORE the match to calculate rank changes (exclude retired players)
-    const rankingsBefore = db.prepare(`
-      SELECT pr.player_id, pr.elo
-      FROM player_ratings pr
-      JOIN players p ON pr.player_id = p.id
-      WHERE pr.game_id = ? AND (p.status IS NULL OR p.status = 'active')
-      ORDER BY pr.elo DESC, p.name ASC
-    `).all(game_id) as { player_id: number; elo: number }[];
+    // Rank shifts are calculated against the same table shown on the
+    // leaderboard: retired players AND inactive players (no match within
+    // inactive_threshold_days) are hidden, so they must not affect ranks.
+    const thresholdSetting = db.prepare(`SELECT value FROM settings WHERE key = 'inactive_threshold_days'`).get() as { value: string } | undefined;
+    const inactiveThresholdDays = thresholdSetting ? parseInt(thresholdSetting.value, 10) : 60;
+    const inactiveCutoffMs = Date.now() - inactiveThresholdDays * 24 * 60 * 60 * 1000;
 
-    const rankBefore = new Map<number, number>();
-    rankingsBefore.forEach((row, index) => {
-      rankBefore.set(row.player_id, index + 1);
-    });
+    // Last match date per player in this game (before this match is recorded)
+    const lastMatchRows = db.prepare(`
+      SELECT mp.player_id, MAX(m.played_at) as last_match_at
+      FROM match_participants mp
+      JOIN matches m ON mp.match_id = m.id
+      WHERE m.game_id = ?
+      GROUP BY mp.player_id
+    `).all(game_id) as { player_id: number; last_match_at: string }[];
+    const playerLastMatch = new Map<number, string>();
+    for (const row of lastMatchRows) {
+      playerLastMatch.set(row.player_id, row.last_match_at);
+    }
+
+    // A player is ranked if they're not retired and have played recently enough
+    const isRanked = (playerId: number) => {
+      const lastMatchAt = playerLastMatch.get(playerId);
+      return lastMatchAt !== undefined && new Date(lastMatchAt.replace(' ', 'T')).getTime() >= inactiveCutoffMs;
+    };
+
+    const fetchRankings = () =>
+      (db.prepare(`
+        SELECT pr.player_id, pr.elo
+        FROM player_ratings pr
+        JOIN players p ON pr.player_id = p.id
+        WHERE pr.game_id = ? AND (p.status IS NULL OR p.status != 'retired')
+        ORDER BY pr.elo DESC, p.name ASC
+      `).all(game_id) as { player_id: number; elo: number }[])
+        .filter(row => isRanked(row.player_id));
+
+    const toRankMap = (rankings: { player_id: number }[]) => {
+      const map = new Map<number, number>();
+      rankings.forEach((row, index) => map.set(row.player_id, index + 1));
+      return map;
+    };
+
+    const rankBefore = toRankMap(fetchRankings());
 
     // Process match and get skill changes
     const result = processMatch({ game_id, notes, teams });
 
-    // Get rankings AFTER the match (exclude retired players)
-    const rankingsAfter = db.prepare(`
-      SELECT pr.player_id, pr.elo
-      FROM player_ratings pr
-      JOIN players p ON pr.player_id = p.id
-      WHERE pr.game_id = ? AND (p.status IS NULL OR p.status = 'active')
-      ORDER BY pr.elo DESC, p.name ASC
-    `).all(game_id) as { player_id: number; elo: number }[];
+    // Get rankings AFTER the match
+    const rankAfter = toRankMap(fetchRankings());
 
-    const rankAfter = new Map<number, number>();
-    rankingsAfter.forEach((row, index) => {
-      rankAfter.set(row.player_id, index + 1);
-    });
-
-    // Calculate rank changes (positive = moved up, negative = moved down)
+    // Calculate rank changes (positive = moved up, negative = moved down).
+    // Players who were unranked before the match (e.g. inactive players
+    // returning after a long break) aren't shown a rank shift.
     const rankChanges = new Map<number, number>();
     for (const playerId of playerIds) {
-      const before = rankBefore.get(playerId) ?? rankingsBefore.length + 1;
-      const after = rankAfter.get(playerId) ?? rankingsAfter.length + 1;
+      const before = rankBefore.get(playerId);
+      const after = rankAfter.get(playerId);
+      if (before === undefined || after === undefined) continue;
       // Rank change: positive means moved UP in ranking (lower number is better)
       rankChanges.set(playerId, before - after);
     }

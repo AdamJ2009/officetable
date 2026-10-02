@@ -91,6 +91,135 @@ function TrendSparkline({ deltas }: { deltas: number[] }) {
   );
 }
 
+interface EmptyStateProps {
+  seasonView: 'current' | 'alltime' | number;
+  viewedSeason: SeasonInfo | null;
+  selectedGameId: number | null;
+  /** Matches played in the viewed season (0 for other scopes). */
+  seasonMatchCount: number;
+  /** Ticking clock from the parent (client-only; null at first paint). */
+  now: Date | null;
+}
+
+/**
+ * Empty leaderboard, with season-aware explanations:
+ *  - an upcoming (queued, not-yet-started) season → big countdown;
+ *  - the current season with no games yet → "be the first to play";
+ *  - the current season with games but everyone inactive → nudge to filters;
+ *  - anything else (all-time, closed season with no games) → generic.
+ */
+function LeaderboardEmptyState({
+  seasonView,
+  viewedSeason,
+  selectedGameId,
+  seasonMatchCount,
+  now,
+}: EmptyStateProps) {
+  const recordingLink = selectedGameId !== null ? `/matches/new?game=${selectedGameId}` : '/matches/new';
+
+  // Big countdown for a queued season that hasn't begun
+  if (viewedSeason && now) {
+    const startsAt = parseDbDate(viewedSeason.start_date).getTime();
+    const nowMs = now.getTime();
+    if (startsAt > nowMs) {
+      const ms = startsAt - nowMs;
+      const units = [
+        { value: Math.floor(ms / 86400000), label: 'days' },
+        { value: Math.floor((ms % 86400000) / 3600000), label: 'hours' },
+        { value: Math.floor((ms % 3600000) / 60000), label: 'minutes' },
+        { value: Math.floor((ms % 60000) / 1000), label: 'seconds' },
+      ];
+
+      return (
+        <div className="bg-gradient-to-br from-amber-400 to-orange-500 rounded-2xl shadow-lg p-10 text-center text-white">
+          <div className="text-6xl mb-4">🎉</div>
+          <h2 className="text-2xl font-bold mb-1">
+            {viewedSeason.name} kicks off {formatDbDate(viewedSeason.start_date)}
+          </h2>
+          <p className="text-amber-100 mb-8">Everyone starts from zero — a clean slate for glory.</p>
+          <div className="flex justify-center gap-3">
+            {units.map((unit) => (
+              <div key={unit.label} className="bg-white/15 rounded-xl px-5 py-4 min-w-[80px]">
+                <div className="text-4xl font-bold tabular-nums">{unit.value}</div>
+                <div className="text-xs uppercase tracking-wide text-amber-100 mt-1">{unit.label}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+  }
+
+  // Current season, live but empty: rally cry (or inactive nudge if games exist)
+  if (viewedSeason?.is_current || seasonView === 'current') {
+    if (seasonMatchCount > 0) {
+      return (
+        <div className="bg-white rounded-2xl shadow-lg p-10 text-center">
+          <div className="text-6xl mb-4">💤</div>
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">Everyone&apos;s gone quiet...</h2>
+          <p className="text-gray-500 mb-2">
+            {seasonMatchCount.toLocaleString()} {seasonMatchCount === 1 ? 'match was' : 'matches were'} played in{' '}
+            {viewedSeason?.name ?? 'this season'}, but no one has played within the last 60 days.
+          </p>
+          <p className="text-gray-400 text-sm mb-6">
+            Tick “Show inactive players” above to bring them back — or better, get everyone playing again!
+          </p>
+          <Link
+            href={recordingLink}
+            className="inline-block bg-primary text-white px-6 py-3 rounded-xl font-semibold hover:bg-primary-hover transition-colors shadow-lg hover:shadow-xl"
+          >
+            ⚡ Record a Match
+          </Link>
+        </div>
+      );
+    }
+
+    return (
+      <div className="bg-white rounded-2xl shadow-lg p-10 text-center">
+        <div className="text-6xl mb-4">🏁</div>
+        <h2 className="text-2xl font-bold text-gray-900 mb-2">
+          {viewedSeason ? `${viewedSeason.name} is live!` : 'A new season is live!'}
+        </h2>
+        <p className="text-gray-500 mb-6">
+          Zero games played — everyone&apos;s at zero skill. Be the first to add one!
+        </p>
+        <Link
+          href={recordingLink}
+          className="inline-block bg-primary text-white px-6 py-3 rounded-xl font-semibold hover:bg-primary-hover transition-colors shadow-lg hover:shadow-xl"
+        >
+          ⚡ Record the First Match
+        </Link>
+      </div>
+    );
+  }
+
+  // All-time / closed season / nothing loaded yet
+  const seasonName = seasonView === 'alltime' ? null : viewedSeason?.name ?? null;
+  return (
+    <div className="bg-white rounded-2xl shadow-lg p-10 text-center">
+      <div className="text-6xl mb-4">🏏</div>
+      <h2 className="text-2xl font-bold text-gray-900 mb-2">Nothing on the board yet</h2>
+      {seasonName ? (
+        <p className="text-gray-500 mb-6">No games were played in {seasonName}.</p>
+      ) : (
+        <p className="text-gray-500 mb-6">
+          No players on the leaderboard yet.{' '}
+          <Link href="/players" className="text-primary hover:underline">
+            Add players
+          </Link>{' '}
+          and record some matches!
+        </p>
+      )}
+      <Link
+        href={recordingLink}
+        className="inline-block bg-primary text-white px-6 py-3 rounded-xl font-semibold hover:bg-primary-hover transition-colors shadow-lg hover:shadow-xl"
+      >
+        ⚡ Record a Match
+      </Link>
+    </div>
+  );
+}
+
 export default function LeaderboardClient({
   initialLeaderboard,
   initialStats,
@@ -173,6 +302,8 @@ export default function LeaderboardClient({
     : null;
   // Queued (not-yet-started) season for the countdown
   const nextSeason = seasons.find(s => parseDbDate(s.start_date) > (now ?? new Date(0))) ?? null;
+  // Don't double up the countdown banner when the big empty-state card covers it
+  const countdownInView = !(viewedSeason && nextSeason && viewedSeason.id === nextSeason.id);
 
   return (
     <div>
@@ -191,7 +322,7 @@ export default function LeaderboardClient({
               </span>
             </div>
           )}
-          {nextSeason && now && (
+          {nextSeason && now && countdownInView && (
             <div className="flex items-center gap-2 bg-gradient-to-r from-amber-400 to-orange-400 text-white rounded-lg px-3 py-1.5 text-sm font-semibold shadow">
               <span>⏳</span>
               <span>
@@ -480,13 +611,13 @@ export default function LeaderboardClient({
       {loading ? (
         <div className="text-gray-500">Loading...</div>
       ) : leaderboard.length === 0 ? (
-        <div className="text-gray-500">
-          No players on the leaderboard yet.{" "}
-          <Link href="/players" className="text-primary hover:underline">
-            Add players
-          </Link>{" "}
-          and record some matches!
-        </div>
+        <LeaderboardEmptyState
+          seasonView={seasonView}
+          viewedSeason={viewedSeason}
+          selectedGameId={selectedGameId}
+          seasonMatchCount={seasonView === 'current' || viewedSeason?.is_current ? gameStats?.total_matches ?? 0 : 0}
+          now={now}
+        />
       ) : (
         <div className="bg-white rounded-xl shadow-lg overflow-hidden">
           <table className="min-w-full">

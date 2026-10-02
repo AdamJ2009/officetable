@@ -155,12 +155,14 @@ export default function PlayerProfilePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedGameId, setSelectedGameId] = useState<number | null>(null);
+  // season = current season ledger (default); alltime = never-resetting ledger
+  const [scope, setScope] = useState<'season' | 'alltime'>('season');
   const [headToHeadData, setHeadToHeadData] = useState<Map<number, HeadToHeadOpponent[]>>(new Map());
   const [headToHeadLoading, setHeadToHeadLoading] = useState<Set<number>>(new Set());
   const [expandedGames, setExpandedGames] = useState<Set<number>>(new Set());
 
   useEffect(() => {
-    fetch(`/api/player-stats?player_id=${playerId}`)
+    fetch(`/api/player-stats?player_id=${playerId}&scope=${scope}`)
       .then((res) => {
         if (!res.ok) throw new Error("Player not found");
         return res.json();
@@ -173,13 +175,13 @@ export default function PlayerProfilePage() {
         setError(err.message);
         setLoading(false);
       });
-  }, [playerId]);
+  }, [playerId, scope]);
 
   const loadHeadToHead = (gameId: number) => {
     if (headToHeadData.has(gameId) || headToHeadLoading.has(gameId)) return;
 
     setHeadToHeadLoading(prev => new Set(prev).add(gameId));
-    fetch(`/api/head-to-head?player_id=${playerId}&game_id=${gameId}`)
+    fetch(`/api/head-to-head?player_id=${playerId}&game_id=${gameId}&scope=${scope}`)
       .then(res => res.json())
       .then(data => {
         setHeadToHeadData(prev => {
@@ -203,7 +205,16 @@ export default function PlayerProfilePage() {
     if (selectedGameId !== null) {
       loadHeadToHead(selectedGameId);
     }
-  }, [selectedGameId]);
+  }, [selectedGameId, scope]);
+
+  // Reload head-to-head cache when the scope changes
+  const switchScope = (next: 'season' | 'alltime') => {
+    if (next !== scope) {
+      setHeadToHeadData(new Map());
+      setHeadToHeadLoading(new Set());
+      setScope(next);
+    }
+  };
 
   // Group matches by game
   const matchesByGame: Record<number, RecentMatch[]> = {};
@@ -292,6 +303,31 @@ export default function PlayerProfilePage() {
           setStats({ ...stats, player: { ...stats.player, avatar_url: avatarUrl } });
         }}
       />
+
+      {/* Season / All-time scope toggle */}
+      <div className="mb-6 flex items-center gap-2">
+        <div className="flex bg-gray-100 rounded-lg p-1">
+          <button
+            onClick={() => switchScope('season')}
+            className={`px-4 py-1.5 text-sm rounded-md transition-colors ${
+              scope === 'season' ? 'bg-white shadow font-semibold text-gray-900' : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            Current Season
+          </button>
+          <button
+            onClick={() => switchScope('alltime')}
+            className={`px-4 py-1.5 text-sm rounded-md transition-colors ${
+              scope === 'alltime' ? 'bg-white shadow font-semibold text-gray-900' : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            All Time
+          </button>
+        </div>
+        {scope === 'season' && (
+          <span className="text-xs text-gray-400">season skill resets to 0 at each season start</span>
+        )}
+      </div>
 
       {/* Career Highlights */}
       <CareerHighlights

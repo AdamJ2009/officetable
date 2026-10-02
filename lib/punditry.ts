@@ -26,39 +26,40 @@ interface MatchInfo {
 /**
  * Get player's highest Elo ever achieved in a game (before this match)
  */
-function getHighestEloBefore(playerId: number, gameId: number, beforeMatchId: number): number | null {
+function getHighestEloBefore(playerId: number, gameId: number, seasonId: number, beforeMatchId: number): number | null {
+  // Elo reads are scoped to the match's own SEASON ledger
   const result = db.prepare(`
-    SELECT MAX(elo_after) as highest
+    SELECT MAX(mp.elo_after) as highest
     FROM match_participants mp
     JOIN matches m ON mp.match_id = m.id
-    WHERE mp.player_id = ? AND m.game_id = ? AND m.id < ?
-  `).get(playerId, gameId, beforeMatchId) as { highest: number | null } | null;
+    WHERE mp.player_id = ? AND m.game_id = ? AND m.season_id = ? AND m.id < ?
+  `).get(playerId, gameId, seasonId, beforeMatchId) as { highest: number | null } | null;
   return result?.highest ?? null;
 }
 
 /**
  * Get player's lowest Elo ever in a game (before this match)
  */
-function getLowestEloBefore(playerId: number, gameId: number, beforeMatchId: number): number | null {
+function getLowestEloBefore(playerId: number, gameId: number, seasonId: number, beforeMatchId: number): number | null {
   const result = db.prepare(`
-    SELECT MIN(elo_after) as lowest
+    SELECT MIN(mp.elo_after) as lowest
     FROM match_participants mp
     JOIN matches m ON mp.match_id = m.id
-    WHERE mp.player_id = ? AND m.game_id = ? AND m.id < ?
-  `).get(playerId, gameId, beforeMatchId) as { lowest: number | null } | null;
+    WHERE mp.player_id = ? AND m.game_id = ? AND m.season_id = ? AND m.id < ?
+  `).get(playerId, gameId, seasonId, beforeMatchId) as { lowest: number | null } | null;
   return result?.lowest ?? null;
 }
 
 /**
  * Get player's biggest absolute Elo change before this match
  */
-function getBiggestEloChangeBefore(playerId: number, gameId: number, beforeMatchId: number): number {
+function getBiggestEloChangeBefore(playerId: number, gameId: number, seasonId: number, beforeMatchId: number): number {
   const result = db.prepare(`
-    SELECT MAX(ABS(elo_after - elo_before)) as biggest
+    SELECT MAX(ABS(mp.elo_after - mp.elo_before)) as biggest
     FROM match_participants mp
     JOIN matches m ON mp.match_id = m.id
-    WHERE mp.player_id = ? AND m.game_id = ? AND m.id < ?
-  `).get(playerId, gameId, beforeMatchId) as { biggest: number } | null;
+    WHERE mp.player_id = ? AND m.game_id = ? AND m.season_id = ? AND m.id < ?
+  `).get(playerId, gameId, seasonId, beforeMatchId) as { biggest: number } | null;
   return result?.biggest ?? 0;
 }
 
@@ -150,16 +151,16 @@ function getMatchesBetweenPlayersBefore(playerId1: number, playerId2: number, ga
 /**
  * Get biggest absolute Elo change in a match between two players before this match
  */
-function getBiggestEloChangeBetweenPlayersBefore(playerId1: number, playerId2: number, gameId: number, beforeMatchId: number): number {
+function getBiggestEloChangeBetweenPlayersBefore(playerId1: number, playerId2: number, gameId: number, seasonId: number, beforeMatchId: number): number {
   const result = db.prepare(`
     SELECT MAX(ABS(mp1.elo_after - mp1.elo_before)) as biggest
     FROM matches m
     JOIN match_participants mp1 ON m.id = mp1.match_id
     JOIN match_participants mp2 ON m.id = mp2.match_id
-    WHERE m.game_id = ? AND m.id < ?
+    WHERE m.game_id = ? AND m.season_id = ? AND m.id < ?
       AND mp1.player_id = ? AND mp2.player_id = ?
       AND mp1.team != mp2.team
-  `).get(gameId, beforeMatchId, playerId1, playerId2) as { biggest: number } | null;
+  `).get(gameId, seasonId, beforeMatchId, playerId1, playerId2) as { biggest: number } | null;
   return result?.biggest ?? 0;
 }
 
@@ -206,10 +207,10 @@ export function getPunditryForMatch(matchId: number): PunditryFact[] {
 
   // Get match info
   const match = db.prepare(`
-    SELECT m.id, m.game_id, m.played_at
+    SELECT m.id, m.game_id, m.played_at, m.season_id
     FROM matches m
     WHERE m.id = ?
-  `).get(matchId) as { id: number; game_id: number; played_at: string } | null;
+  `).get(matchId) as { id: number; game_id: number; played_at: string; season_id: number } | null;
 
   if (!match) return facts;
 
@@ -251,7 +252,7 @@ export function getPunditryForMatch(matchId: number): PunditryFact[] {
 
   for (const p of participants) {
     // 1. Highest ever skill
-    const highestBefore = getHighestEloBefore(p.player_id, match.game_id, matchId);
+    const highestBefore = getHighestEloBefore(p.player_id, match.game_id, match.season_id, matchId);
     if (highestBefore === null || p.elo_after > highestBefore) {
       facts.push({
         type: 'highest_skill',
@@ -263,7 +264,7 @@ export function getPunditryForMatch(matchId: number): PunditryFact[] {
     }
 
     // 2. Lowest ever skill
-    const lowestBefore = getLowestEloBefore(p.player_id, match.game_id, matchId);
+    const lowestBefore = getLowestEloBefore(p.player_id, match.game_id, match.season_id, matchId);
     if (lowestBefore === null || p.elo_after < lowestBefore) {
       facts.push({
         type: 'lowest_skill',
@@ -276,7 +277,7 @@ export function getPunditryForMatch(matchId: number): PunditryFact[] {
 
     // 3. Most significant match (biggest skill gain/loss)
     const eloChange = Math.abs(p.elo_after - p.elo_before);
-    const biggestBefore = getBiggestEloChangeBefore(p.player_id, match.game_id, matchId);
+    const biggestBefore = getBiggestEloChangeBefore(p.player_id, match.game_id, match.season_id, matchId);
     if (eloChange > biggestBefore && biggestBefore > 0) {
       const change = p.elo_after - p.elo_before;
       const direction = change > 0 ? 'gain' : 'loss';
@@ -478,7 +479,7 @@ export function getPunditryForMatch(matchId: number): PunditryFact[] {
 
           // Head-to-head: Most significant game between players
           const eloChange = Math.abs(playerParticipant.elo_after - playerParticipant.elo_before);
-          const biggestBefore = getBiggestEloChangeBetweenPlayersBefore(playerId, opponentId, match.game_id, matchId);
+          const biggestBefore = getBiggestEloChangeBetweenPlayersBefore(playerId, opponentId, match.game_id, match.season_id, matchId);
           if (eloChange > biggestBefore && biggestBefore > 0) {
             const change = playerParticipant.elo_after - playerParticipant.elo_before;
             const direction = change > 0 ? 'gain' : 'loss';

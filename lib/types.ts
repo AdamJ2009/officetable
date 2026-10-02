@@ -20,6 +20,8 @@ export interface PlayerRating {
   player_id: number;
   game_id: number;
   elo: number;
+  /** Ledger: 0 = all-time (never resets); real season id = that season. */
+  season_id: number;
   player_name?: string;
 }
 
@@ -28,6 +30,8 @@ export interface Match {
   game_id: number;
   played_at: string;
   notes: string | null;
+  /** Season the match belongs to (resolved from played_at). */
+  season_id: number;
   is_edited?: number;
   edited_at?: string | null;
 }
@@ -38,8 +42,12 @@ export interface MatchParticipant {
   player_id: number;
   team: number;
   score: number;
+  /** Season-ledger delta (the match's own season). */
   elo_before: number;
   elo_after: number;
+  /** All-time-ledger delta (never resets). */
+  alltime_elo_before?: number;
+  alltime_elo_after?: number;
 }
 
 export interface MatchWithParticipants extends Match {
@@ -96,6 +104,8 @@ export interface PlayerAchievement {
   achievement_id: number;
   match_id: number | null;
   earned_at: string;
+  /** Season earned in (re-earnable each season). */
+  season_id: number;
   metadata?: string | null;
 }
 

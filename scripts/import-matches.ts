@@ -11,6 +11,7 @@
 import * as readline from 'readline';
 import db from '../lib/db';
 import { processMatch } from '../lib/elo';
+import { resolveSeason, ALLTIME_SEASON_ID } from '../lib/seasons';
 
 const rl = readline.createInterface({
   input: process.stdin,
@@ -58,14 +59,17 @@ async function main() {
     const player1Id = getOrCreatePlayer(player1Name);
     const player2Id = getOrCreatePlayer(player2Name);
 
-    // Get current ratings before processing
-    const rating1Before = db.prepare('SELECT elo FROM player_ratings WHERE player_id = ? AND game_id = ?')
-      .get(player1Id, gameId) as { elo: number } | undefined;
-    const rating2Before = db.prepare('SELECT elo FROM player_ratings WHERE player_id = ? AND game_id = ?')
-      .get(player2Id, gameId) as { elo: number } | undefined;
+    // Resolve the season from the match timestamp (matches spanning the
+    // season boundary slot into the right ledger automatically)
+    const matchDate = new Date(timestamp * 1000);
+    const seasonId = resolveSeason(matchDate);
+
+    const ratingStmt = db.prepare('SELECT elo FROM player_ratings WHERE player_id = ? AND game_id = ? AND season_id = ? AND season_id != 0');
+    // Get current season-ledger ratings before processing (0 if new to this season)
+    const rating1Before = (db.prepare('SELECT elo FROM player_ratings WHERE player_id = ? AND game_id = ? AND season_id = ? AND season_id != 0').get(player1Id, gameId, seasonId) as { elo: number } | undefined)?.elo ?? 0;
+    const rating2Before = (db.prepare('SELECT elo FROM player_ratings WHERE player_id = ? AND game_id = ? AND season_id = ? AND season_id != 0').get(player2Id, gameId, seasonId) as { elo: number } | undefined)?.elo ?? 0;
 
     // Process the match with the timestamp
-    const matchDate = new Date(timestamp * 1000);
     processMatch({
       game_id: gameId,
       teams: [
@@ -74,16 +78,15 @@ async function main() {
       ],
     }, matchDate);
 
-    // Get ratings after
-    const rating1After = db.prepare('SELECT elo FROM player_ratings WHERE player_id = ? AND game_id = ?')
-      .get(player1Id, gameId) as { elo: number };
-    const rating2After = db.prepare('SELECT elo FROM player_ratings WHERE player_id = ? AND game_id = ?')
-      .get(player2Id, gameId) as { elo: number };
+    const seasonRating1After = db.prepare('SELECT elo FROM player_ratings WHERE player_id = ? AND game_id = ? AND season_id = ?')
+      .get(player1Id, gameId, seasonId) as { elo: number };
+    const seasonRating2After = db.prepare('SELECT elo FROM player_ratings WHERE player_id = ? AND game_id = ? AND season_id = ?')
+      .get(player2Id, gameId, seasonId) as { elo: number };
 
     const result = player1Score > player2Score ? 'W' : player1Score < player2Score ? 'L' : 'D';
-    console.log(`  ${player1Name} (${player1Score}) vs ${player2Name} (${player2Score}) [${result}]`);
-    console.log(`    ${player1Name}: Elo ${rating1Before?.elo ?? 0} → ${rating1After.elo}`);
-    console.log(`    ${player2Name}: Elo ${rating2Before?.elo ?? 0} → ${rating2After.elo}`);
+    console.log(`  ${player1Name} (${player1Score}) vs ${player2Name} (${player2Score}) [${result}] (season_id=${seasonId})`);
+    console.log(`    ${player1Name}: Elo ${rating1Before} → ${seasonRating1After.elo}`);
+    console.log(`    ${player2Name}: Elo ${rating2Before} → ${seasonRating2After.elo}`);
   }
 
   const lines: string[] = [];
@@ -129,15 +132,15 @@ async function main() {
   console.log('\n---');
   console.log('Import complete!');
 
-  // Show final leaderboard
-  console.log('\nFinal Leaderboard:');
+  // Show final leaderboard (all-time ledger)
+  console.log('\nFinal Leaderboard (all-time):');
   const leaderboard = db.prepare(`
     SELECT p.name, pr.elo
     FROM player_ratings pr
     JOIN players p ON pr.player_id = p.id
-    WHERE pr.game_id = ?
+    WHERE pr.game_id = ? AND pr.season_id = ?
     ORDER BY pr.elo DESC
-  `).all(gameId) as { name: string; elo: number }[];
+  `).all(gameId, ALLTIME_SEASON_ID) as { name: string; elo: number }[];
 
   console.log('Player                 Elo');
   console.log('-'.repeat(30));

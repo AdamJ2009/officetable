@@ -281,6 +281,180 @@ const seedAchievements = db.prepare(`
 `);
 seedAchievements.run();
 
+// ============================================================
+// Seasons + dual-ledger Elo migration
+//
+// - `seasons` rows hold half-open [start_date, end_date) intervals.
+// - `season_id = 0` is the reserved ALL-TIME ledger sentinel (never a real
+//   season row; SQLite treats NULL as non-unique in UNIQUE indexes, hence
+//   a numeric sentinel instead of NULL).
+// - Every ledger lives in the existing tables, keyed by season_id:
+//   player_ratings gets one row per (player, game, season) — one per real
+//   season plus one all-time row that never resets.
+// ============================================================
+
+// Canonical DB datetime helpers (kept local to avoid a circular import with
+// lib/seasons.ts, which imports this module). 'YYYY-MM-DD HH:MM:SS' UTC.
+function seasonsToDbDate(d: Date): string {
+  return d.toISOString().replace('T', ' ').replace(/\.\d+Z$/, '');
+}
+function seasonsNormaliseDbDate(input: string): string {
+  const trimmed = input.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    return `${trimmed} 00:00:00`;
+  }
+  const parsed = new Date(trimmed);
+  if (isNaN(parsed.getTime())) {
+    throw new Error(`Invalid date: ${input}`);
+  }
+  return seasonsToDbDate(parsed).substring(0, 19);
+}
+
+// Create seasons table
+db.exec(`
+  CREATE TABLE IF NOT EXISTS seasons (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    start_date TEXT NOT NULL,
+    end_date TEXT
+  )
+`);
+
+// Add season_id / all-time ledger columns (try/catch ALTER style)
+try {
+  db.exec(`ALTER TABLE matches ADD COLUMN season_id INTEGER NOT NULL DEFAULT 0`);
+} catch (e) { /* already exists */ }
+try {
+  db.exec(`ALTER TABLE match_participants ADD COLUMN alltime_elo_before REAL`);
+} catch (e) { /* already exists */ }
+try {
+  db.exec(`ALTER TABLE match_participants ADD COLUMN alltime_elo_after REAL`);
+} catch (e) { /* already exists */ }
+try {
+  db.exec(`ALTER TABLE player_ratings ADD COLUMN season_id INTEGER NOT NULL DEFAULT 0`);
+} catch (e) { /* already exists */ }
+try {
+  db.exec(`ALTER TABLE player_achievements ADD COLUMN season_id INTEGER NOT NULL DEFAULT 0`);
+} catch (e) { /* already exists */ }
+
+// Rebuild player_ratings so its unique constraint becomes
+// UNIQUE(player_id, game_id, season_id). SQLite can't alter constraints,
+// so detect the new autoindex and rebuild once.
+try {
+  const ratingIndexes = db.prepare(
+    `SELECT name, sql FROM sqlite_master WHERE type = 'index' AND tbl_name = 'player_ratings'`
+  ).all() as { name: string; sql: string | null }[];
+  const hasSeasonUnique = ratingIndexes.some(idx => (idx.sql ?? '').includes('season_id'));
+  if (!hasSeasonUnique && ratingIndexes.length > 0) {
+    db.exec(`
+      CREATE TABLE player_ratings_new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        player_id INTEGER NOT NULL,
+        game_id INTEGER NOT NULL,
+        elo REAL DEFAULT 0,
+        season_id INTEGER NOT NULL DEFAULT 0,
+        UNIQUE(player_id, game_id, season_id),
+        FOREIGN KEY (player_id) REFERENCES players(id),
+        FOREIGN KEY (game_id) REFERENCES games(id)
+      );
+      INSERT INTO player_ratings_new (id, player_id, game_id, elo, season_id)
+        SELECT id, player_id, game_id, elo, season_id FROM player_ratings;
+      DROP TABLE player_ratings;
+      ALTER TABLE player_ratings_new RENAME TO player_ratings;
+    `);
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_player_ratings_game ON player_ratings(game_id)`);
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_player_ratings_season ON player_ratings(game_id, season_id)`);
+  }
+} catch (e) {
+  console.error('player_ratings season rebuild failed:', e);
+}
+
+// Seed the initial seasons (once): Season 0 covers everything from the
+// earliest match up to the Season 1 boundary; Season 1 is the open season.
+// The boundary date is configurable: settings key 'season_1_start' >
+// env SEASON_1_START_DATE > a date 28 days out from first migration.
+try {
+  const seasonsCount = (db.prepare(`SELECT COUNT(*) as c FROM seasons`).get() as { c: number }).c;
+  if (seasonsCount === 0) {
+    const earliestRow = db.prepare(`SELECT MIN(played_at) as earliest FROM matches`).get() as { earliest: string | null };
+    let season0Start = earliestRow.earliest ?? '1970-01-01 00:00:00';
+
+    const boundarySetting = db.prepare(`SELECT value FROM settings WHERE key = 'season_1_start'`).get() as { value: string } | undefined;
+    const boundaryRaw = boundarySetting?.value ?? process.env.SEASON_1_START_DATE;
+    let season1Start: string;
+    if (boundaryRaw) {
+      season1Start = seasonsNormaliseDbDate(boundaryRaw);
+    } else {
+      // Default: 00:00 UTC, 28 days out
+      season1Start = seasonsToDbDate(new Date(Date.now() + 28 * 24 * 60 * 60 * 1000)).substring(0, 10) + ' 00:00:00';
+    }
+
+    // Season 0's interval [start, boundary) must be valid, even if the
+    // configured boundary precedes the earliest match.
+    if (season1Start <= season0Start) {
+      season0Start = '1970-01-01 00:00:00';
+    }
+
+    db.prepare(`INSERT INTO seasons (name, start_date, end_date) VALUES (?, ?, ?)`)
+      .run('Season 0', season0Start, season1Start);
+    db.prepare(`INSERT INTO seasons (name, start_date, end_date) VALUES (?, ?, ?)`)
+      .run('Season 1', season1Start, null);
+  }
+} catch (e) {
+  console.error('Season seeding failed:', e);
+}
+
+// Backfills (idempotent by data state)
+try {
+  const season0 = db
+    .prepare(`SELECT id FROM seasons ORDER BY start_date ASC, id ASC LIMIT 1`)
+    .get() as { id: number } | undefined;
+  const season0Id = season0?.id ?? 0;
+
+  // Existing matches belong to Season 0 (their ledger was the only one).
+  db.prepare(`UPDATE matches SET season_id = ? WHERE season_id = 0`).run(season0Id);
+
+  // Match-linked achievements resolve season via their match; any stragglers
+  // (NULL match) go to Season 0.
+  db.prepare(
+    `UPDATE player_achievements SET season_id = COALESCE(
+       (SELECT m.season_id FROM matches m WHERE m.id = player_achievements.match_id), ?
+     ) WHERE season_id = 0`
+  ).run(season0Id);
+
+  // All-time participant deltas mirror the original (single-ledger) values.
+  db.exec(
+    `UPDATE match_participants
+     SET alltime_elo_before = elo_before, alltime_elo_after = elo_after
+     WHERE alltime_elo_before IS NULL OR alltime_elo_after IS NULL`
+  );
+
+  // Ratings: existing rows become the Season 0 ledger, then duplicated as
+  // all-time (season_id = 0) rows. Current values are already correct for
+  // both ledgers — no replay required. Guarded by "no Season 0 ratings row
+  // exists yet" so it only ever runs once.
+  const hadAnyRatings = ((db.prepare(`SELECT COUNT(*) as c FROM player_ratings`).get() as { c: number }).c) > 0;
+  const hadSeasonRatings = ((db.prepare(`SELECT COUNT(*) as c FROM player_ratings WHERE season_id = ?`).get(season0Id) as { c: number }).c) > 0;
+  if (hadAnyRatings && !hadSeasonRatings) {
+    db.prepare(`UPDATE player_ratings SET season_id = ? WHERE season_id = 0`).run(season0Id);
+    db.prepare(
+      `INSERT INTO player_ratings (player_id, game_id, elo, season_id)
+       SELECT player_id, game_id, elo, 0 FROM player_ratings WHERE season_id = ?`
+    ).run(season0Id);
+  }
+
+  // Performance indexes
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_matches_season ON matches(season_id)`);
+  db.exec(
+    `CREATE INDEX IF NOT EXISTS idx_matches_game_season_played ON matches(game_id, season_id, played_at)`
+  );
+  db.exec(
+    `CREATE INDEX IF NOT EXISTS idx_player_ratings_season ON player_ratings(game_id, season_id)`
+  );
+} catch (e) {
+  console.error('Season backfill failed:', e);
+}
+
 // Update icons for existing achievements (migration)
 const updateAchievementIcons = db.prepare(`
   UPDATE achievements SET icon = CASE name

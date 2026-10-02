@@ -1,5 +1,6 @@
 import db from './db';
 import type { LeaderboardEntry, Game, GameStats } from './types';
+import { ALLTIME_SEASON_ID, getCurrentSeason, getSeason } from './seasons';
 import 'server-only';
 
 export type { Game };
@@ -31,8 +32,38 @@ export function getGames(): Game[] {
   return db.prepare('SELECT id, name, score_type, score_value, created_at, image_url FROM games').all() as Game[];
 }
 
-export function getLeaderboard(gameId: number, includeRetired: boolean = false, includeInactive: boolean = false): LeaderboardEntry[] {
-  // Get all match results for this game, calculating wins/losses/draws from scores
+export interface LeaderboardOptions {
+  includeRetired?: boolean;
+  includeInactive?: boolean;
+  scope?: 'season' | 'alltime';
+  /** Explicit past-season id (takes precedence over scope). */
+  seasonId?: number;
+}
+
+export function getLeaderboard(gameId: number, options: LeaderboardOptions = {}): LeaderboardEntry[] {
+  const { includeRetired = false, includeInactive = false, scope = 'season' } = options;
+
+  const currentSeason = getCurrentSeason();
+  let targetSeasonId: number;
+  if (options.seasonId !== undefined) {
+    targetSeasonId = options.seasonId === ALLTIME_SEASON_ID || getSeason(options.seasonId)
+      ? options.seasonId
+      : (currentSeason?.id ?? ALLTIME_SEASON_ID);
+  } else {
+    targetSeasonId = scope === 'alltime' ? ALLTIME_SEASON_ID : (currentSeason?.id ?? ALLTIME_SEASON_ID);
+  }
+
+  const isAllTime = targetSeasonId === ALLTIME_SEASON_ID;
+  // Inactivity rule (60 days) applies to the current-season leaderboard only;
+  // past-season and all-time views show everyone.
+  const applyInactivity = !isAllTime && targetSeasonId === currentSeason?.id;
+  const seasonFilter = isAllTime ? '' : 'AND m.season_id = ?';
+  // elo_before/elo_after hold the season ledger; alltime_* the never-resetting one
+  const deltaExpr = isAllTime ? 'mp.alltime_elo_after - mp.alltime_elo_before' : 'mp.elo_after - mp.elo_before';
+
+  const baseParams: (string | number)[] = isAllTime ? [gameId] : [gameId, targetSeasonId];
+
+  // Get all match results for this game (in scope), calculating wins/losses/draws from scores
   const participations = db.prepare(`
     SELECT
       mp.player_id,
@@ -42,8 +73,8 @@ export function getLeaderboard(gameId: number, includeRetired: boolean = false, 
       m.game_id
     FROM match_participants mp
     JOIN matches m ON mp.match_id = m.id
-    WHERE m.game_id = ?
-  `).all(gameId) as {
+    WHERE m.game_id = ?${seasonFilter}
+  `).all(...baseParams) as {
     player_id: number;
     match_id: number;
     team: number;
@@ -90,17 +121,17 @@ export function getLeaderboard(gameId: number, includeRetired: boolean = false, 
     }
   }
 
-  // Get trend data (last 10 matches rating changes for each player)
+  // Get trend data (last 10 matches rating changes for each player, in scope)
   const trendRows = db.prepare(`
     SELECT
       mp.player_id,
-      mp.elo_after - mp.elo_before as delta,
+      ${deltaExpr} as delta,
       m.played_at
     FROM match_participants mp
     JOIN matches m ON mp.match_id = m.id
-    WHERE m.game_id = ?
-    ORDER BY m.played_at DESC
-  `).all(gameId) as {
+    WHERE m.game_id = ?${seasonFilter}
+    ORDER BY m.played_at DESC, m.id DESC
+  `).all(...(isAllTime ? [gameId] : [gameId, targetSeasonId])) as {
     player_id: number;
     delta: number;
     played_at: string;
@@ -136,9 +167,9 @@ export function getLeaderboard(gameId: number, includeRetired: boolean = false, 
       p.status
     FROM player_ratings pr
     JOIN players p ON pr.player_id = p.id
-    WHERE pr.game_id = ?${statusFilter}
+    WHERE pr.game_id = ? AND pr.season_id = ?${statusFilter}
     ORDER BY pr.elo DESC, p.name ASC
-  `).all(gameId) as {
+  `).all(gameId, targetSeasonId) as {
     player_id: number;
     player_name: string;
     avatar_url: string | null;
@@ -171,9 +202,11 @@ export function getLeaderboard(gameId: number, includeRetired: boolean = false, 
     const stats = playerStats.get(row.player_id) || { wins: 0, losses: 0, draws: 0 };
     const trend = playerTrends.get(row.player_id) || [];
     const lastMatchAt = playerLastMatch.get(row.player_id);
-    const isInactive = lastMatchAt
-      ? (now - new Date(lastMatchAt).getTime()) > inactiveThresholdDays * 24 * 60 * 60 * 1000
-      : true; // No matches = inactive
+    const isInactive = applyInactivity
+      ? (lastMatchAt
+        ? (now - new Date(lastMatchAt).getTime()) > inactiveThresholdDays * 24 * 60 * 60 * 1000
+        : true) // No matches = inactive
+      : false;
 
     return {
       player_id: row.player_id,
@@ -197,20 +230,34 @@ export function getLeaderboard(gameId: number, includeRetired: boolean = false, 
   return result;
 }
 
-export function getGameStats(gameId: number): GameStats {
+export function getGameStats(gameId: number, options: { scope?: 'season' | 'alltime'; seasonId?: number } = {}): GameStats {
+  const { scope = 'season' } = options;
+  const currentSeason = getCurrentSeason();
+  let targetSeasonId: number;
+  if (options.seasonId !== undefined) {
+    targetSeasonId = options.seasonId === ALLTIME_SEASON_ID || getSeason(options.seasonId)
+      ? options.seasonId
+      : (currentSeason?.id ?? ALLTIME_SEASON_ID);
+  } else {
+    targetSeasonId = scope === 'alltime' ? ALLTIME_SEASON_ID : (currentSeason?.id ?? ALLTIME_SEASON_ID);
+  }
+  const isAllTime = targetSeasonId === ALLTIME_SEASON_ID;
+  const seasonFilter = isAllTime ? '' : 'AND m.season_id = ?';
+  const baseParams: (string | number)[] = isAllTime ? [gameId] : [gameId, targetSeasonId];
+
   const matchesResult = db.prepare(`
     SELECT COUNT(DISTINCT m.id) as count
     FROM matches m
-    WHERE m.game_id = ?
-  `).get(gameId) as { count: number };
+    WHERE m.game_id = ?${seasonFilter}
+  `).get(...baseParams) as { count: number };
 
   const pointsResult = db.prepare(`
     SELECT mp.team, SUM(mp.score) as total_points
     FROM match_participants mp
     JOIN matches m ON mp.match_id = m.id
-    WHERE m.game_id = ?
+    WHERE m.game_id = ?${seasonFilter}
     GROUP BY mp.team
-  `).all(gameId) as { team: number; total_points: number }[];
+  `).all(...baseParams) as { team: number; total_points: number }[];
 
   let team0Points = 0;
   let team1Points = 0;
@@ -223,14 +270,14 @@ export function getGameStats(gameId: number): GameStats {
     SELECT COUNT(DISTINCT pr.player_id) as count
     FROM player_ratings pr
     JOIN players p ON pr.player_id = p.id
-    WHERE pr.game_id = ? AND (p.status IS NULL OR p.status = 'active')
-  `).get(gameId) as { count: number };
+    WHERE pr.game_id = ? AND pr.season_id = ? AND (p.status IS NULL OR p.status = 'active')
+  `).get(gameId, targetSeasonId) as { count: number };
 
   const totalPlayersResult = db.prepare(`
     SELECT COUNT(DISTINCT pr.player_id) as count
     FROM player_ratings pr
-    WHERE pr.game_id = ?
-  `).get(gameId) as { count: number };
+    WHERE pr.game_id = ? AND pr.season_id = ?
+  `).get(gameId, targetSeasonId) as { count: number };
 
   return {
     game_id: gameId,
@@ -257,23 +304,25 @@ export function getGameRecords(gameId: number): GameRecords {
     biggest_skill_loss: null
   };
 
-  // Highest current skill (active players only)
+  // Highest current skill (current-season ledger, active players only)
   const highestSkill = db.prepare(`
     SELECT pr.player_id, p.name as player_name, pr.elo as value
     FROM player_ratings pr
     JOIN players p ON pr.player_id = p.id
-    WHERE pr.game_id = ? AND (p.status IS NULL OR p.status = 'active')
+    WHERE pr.game_id = ? AND pr.season_id = (SELECT id FROM seasons WHERE start_date <= datetime('now') ORDER BY start_date DESC, id DESC LIMIT 1)
+      AND (p.status IS NULL OR p.status = 'active')
     ORDER BY pr.elo DESC, p.name ASC
     LIMIT 1
   `).get(gameId) as Record | undefined;
   records.highest_skill = highestSkill || null;
 
-  // Lowest current skill (active players with at least 5 games)
+  // Lowest current skill (current-season ledger, active players with at least 5 games)
   const lowestSkill = db.prepare(`
     SELECT pr.player_id, p.name as player_name, pr.elo as value
     FROM player_ratings pr
     JOIN players p ON pr.player_id = p.id
-    WHERE pr.game_id = ? AND (p.status IS NULL OR p.status = 'active')
+    WHERE pr.game_id = ? AND pr.season_id = (SELECT id FROM seasons WHERE start_date <= datetime('now') ORDER BY start_date DESC, id DESC LIMIT 1)
+      AND (p.status IS NULL OR p.status = 'active')
     AND (
       SELECT COUNT(*) FROM match_participants mp
       JOIN matches m ON mp.match_id = m.id
@@ -284,28 +333,28 @@ export function getGameRecords(gameId: number): GameRecords {
   `).get(gameId, gameId) as Record | undefined;
   records.lowest_skill = lowestSkill || null;
 
-  // Peak skill ever reached
+  // Peak skill ever reached (all-time ledger — never resets)
   const peakSkillEver = db.prepare(`
     SELECT
       mp.player_id,
       p.name as player_name,
-      mp.elo_after as value,
+      mp.alltime_elo_after as value,
       m.played_at as date
     FROM match_participants mp
     JOIN players p ON mp.player_id = p.id
     JOIN matches m ON mp.match_id = m.id
     WHERE m.game_id = ?
-    ORDER BY mp.elo_after DESC, p.name ASC
+    ORDER BY mp.alltime_elo_after DESC, p.name ASC
     LIMIT 1
   `).get(gameId) as Record | undefined;
   records.peak_skill_ever = peakSkillEver || null;
 
-  // Trough skill ever (min 5 games at that point)
+  // Trough skill ever (all-time ledger, min 5 games at that point)
   const troughSkillEver = db.prepare(`
     SELECT
       mp.player_id,
       p.name as player_name,
-      mp.elo_after as value,
+      mp.alltime_elo_after as value,
       m.played_at as date
     FROM match_participants mp
     JOIN players p ON mp.player_id = p.id
@@ -315,7 +364,7 @@ export function getGameRecords(gameId: number): GameRecords {
       JOIN matches m2 ON mp2.match_id = m2.id
       WHERE mp2.player_id = mp.player_id AND m2.game_id = ? AND m2.played_at <= m.played_at
     ) >= 5
-    ORDER BY mp.elo_after ASC, p.name ASC
+    ORDER BY mp.alltime_elo_after ASC, p.name ASC
     LIMIT 1
   `).get(gameId, gameId) as Record | undefined;
   records.trough_skill_ever = troughSkillEver || null;

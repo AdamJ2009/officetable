@@ -45,23 +45,26 @@ export async function GET(request: NextRequest) {
     biggest_skill_loss: null
   };
 
-  // Highest current skill (active players only)
+  // Highest current skill (current-season ledger, active players only)
+  const currentSeasonIdSub = "(SELECT id FROM seasons WHERE start_date <= datetime('now') ORDER BY start_date DESC, id DESC LIMIT 1)";
   const highestSkill = db.prepare(`
     SELECT pr.player_id, p.name as player_name, pr.elo as value
     FROM player_ratings pr
     JOIN players p ON pr.player_id = p.id
-    WHERE pr.game_id = ? AND (p.status IS NULL OR p.status = 'active')
+    WHERE pr.game_id = ? AND pr.season_id = ${currentSeasonIdSub}
+      AND (p.status IS NULL OR p.status = 'active')
     ORDER BY pr.elo DESC
     LIMIT 1
   `).get(parseInt(gameId)) as Record | undefined;
   records.highest_skill = highestSkill || null;
 
-  // Lowest current skill (active players with at least 5 games)
+  // Lowest current skill (current-season ledger, active players with at least 5 games)
   const lowestSkill = db.prepare(`
     SELECT pr.player_id, p.name as player_name, pr.elo as value
     FROM player_ratings pr
     JOIN players p ON pr.player_id = p.id
-    WHERE pr.game_id = ? AND (p.status IS NULL OR p.status = 'active')
+    WHERE pr.game_id = ? AND pr.season_id = ${currentSeasonIdSub}
+      AND (p.status IS NULL OR p.status = 'active')
     AND (
       SELECT COUNT(*) FROM match_participants mp
       JOIN matches m ON mp.match_id = m.id
@@ -72,28 +75,28 @@ export async function GET(request: NextRequest) {
   `).get(parseInt(gameId), parseInt(gameId)) as Record | undefined;
   records.lowest_skill = lowestSkill || null;
 
-  // Peak skill ever reached (historical - highest elo_after any player achieved)
+  // Peak skill ever reached (historical - highest alltime elo_after any player achieved)
   const peakSkillEver = db.prepare(`
     SELECT
       mp.player_id,
       p.name as player_name,
-      mp.elo_after as value,
+      mp.alltime_elo_after as value,
       m.played_at as date
     FROM match_participants mp
     JOIN players p ON mp.player_id = p.id
     JOIN matches m ON mp.match_id = m.id
     WHERE m.game_id = ?
-    ORDER BY mp.elo_after DESC
+    ORDER BY mp.alltime_elo_after DESC
     LIMIT 1
   `).get(parseInt(gameId)) as Record | undefined;
   records.peak_skill_ever = peakSkillEver || null;
 
-  // Trough skill ever (historical - lowest elo_after any player hit, min 5 games at that point)
+  // Trough skill ever (historical - lowest alltime elo_after any player hit, min 5 games at that point)
   const troughSkillEver = db.prepare(`
     SELECT
       mp.player_id,
       p.name as player_name,
-      mp.elo_after as value,
+      mp.alltime_elo_after as value,
       m.played_at as date
     FROM match_participants mp
     JOIN players p ON mp.player_id = p.id
@@ -103,7 +106,7 @@ export async function GET(request: NextRequest) {
       JOIN matches m2 ON mp2.match_id = m2.id
       WHERE mp2.player_id = mp.player_id AND m2.game_id = ? AND m2.played_at <= m.played_at
     ) >= 5
-    ORDER BY mp.elo_after ASC
+    ORDER BY mp.alltime_elo_after ASC
     LIMIT 1
   `).get(parseInt(gameId), parseInt(gameId)) as Record | undefined;
   records.trough_skill_ever = troughSkillEver || null;

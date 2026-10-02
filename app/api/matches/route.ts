@@ -5,6 +5,7 @@ import { processMatch } from '@/lib/elo';
 import { sendGoogleChatNotification, buildMatchNotification } from '@/lib/notifications';
 import { getAchievementsForMatch } from '@/lib/achievements';
 import { getPunditryForMatch } from '@/lib/punditry';
+import { resolveScopeSeasonId, getCurrentSeason } from '@/lib/seasons';
 import type { MatchWithParticipants, CreateMatchInput, MatchFilters, PaginationMeta } from '@/lib/types';
 
 export async function GET(request: NextRequest) {
@@ -23,6 +24,9 @@ export async function GET(request: NextRequest) {
   const playerCount = searchParams.get('player_count');
   const hasAchievements = searchParams.get('has_achievements');
   const minSkillChange = searchParams.get('min_skill_change');
+  // Season scoping: scope=season (default, current season) | alltime;
+  // optional season_id selects a specific (past) season.
+  const targetSeasonId = resolveScopeSeasonId(searchParams.get('scope'), searchParams.get('season_id'));
 
   // Parse player_ids (comma-separated)
   const playerIds = playerIdsStr
@@ -36,6 +40,13 @@ export async function GET(request: NextRequest) {
   if (gameId) {
     whereConditions.push('m.game_id = ?');
     params.push(parseInt(gameId, 10));
+  }
+
+  // Season scope: all-time shows everything (each match exists once);
+  // season views filter to the target ledger's matches.
+  if (targetSeasonId !== 0) {
+    whereConditions.push('m.season_id = ?');
+    params.push(targetSeasonId);
   }
 
   if (dateFrom) {
@@ -229,15 +240,18 @@ export async function POST(request: NextRequest) {
       return lastMatchAt !== undefined && new Date(lastMatchAt.replace(' ', 'T')).getTime() >= inactiveCutoffMs;
     };
 
-    const fetchRankings = () =>
-      (db.prepare(`
+    const fetchRankings = () => {
+      // Rank-shift calc runs on the SEASON ledger (the live competition).
+      const currentSeasonId = getCurrentSeason()?.id ?? 0;
+      return (db.prepare(`
         SELECT pr.player_id, pr.elo
         FROM player_ratings pr
         JOIN players p ON pr.player_id = p.id
-        WHERE pr.game_id = ? AND (p.status IS NULL OR p.status != 'retired')
+        WHERE pr.game_id = ? AND pr.season_id = ? AND (p.status IS NULL OR p.status != 'retired')
         ORDER BY pr.elo DESC, p.name ASC
-      `).all(game_id) as { player_id: number; elo: number }[])
+      `).all(game_id, currentSeasonId) as { player_id: number; elo: number }[])
         .filter(row => isRanked(row.player_id));
+    };
 
     const toRankMap = (rankings: { player_id: number }[]) => {
       const map = new Map<number, number>();

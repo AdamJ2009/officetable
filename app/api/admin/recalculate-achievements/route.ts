@@ -5,20 +5,22 @@ import { recalculateAchievementsForGame, recalculateAllAchievements } from '@/li
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json().catch(() => ({}));
-    const { game_id } = body;
+    const { game_id, season_id } = body;
 
     if (game_id) {
-      // Recalculate for a specific game
-      const result = recalculateAchievementsForGame(game_id);
+      // Recalculate for a specific game (optionally restricted to one season)
+      const seasonId = season_id !== undefined ? parseInt(season_id, 10) : undefined;
+      const result = recalculateAchievementsForGame(game_id, seasonId);
       revalidatePath('/', 'layout');
       return NextResponse.json({
         success: true,
         game_id,
+        season_id: seasonId ?? null,
         matches_processed: result.matchesProcessed,
         achievements_awarded: result.achievementsAwarded
       });
     } else {
-      // Recalculate for all games
+      // Recalculate for all games (all seasons, resolved per match)
       const results = recalculateAllAchievements();
       revalidatePath('/', 'layout');
       return NextResponse.json({

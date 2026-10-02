@@ -11,6 +11,15 @@ interface LeaderboardClientProps {
   initialLeaderboard: LeaderboardEntry[];
   initialStats: GameStats;
   initialRecords: GameRecords;
+  currentSeasonId: number;
+}
+
+interface SeasonInfo {
+  id: number;
+  name: string;
+  start_date: string;
+  end_date: string | null;
+  is_current: boolean;
 }
 
 function TrendSparkline({ deltas }: { deltas: number[] }) {
@@ -61,6 +70,7 @@ export default function LeaderboardClient({
   initialLeaderboard,
   initialStats,
   initialRecords,
+  currentSeasonId,
 }: LeaderboardClientProps) {
   const { selectedGameId, selectedGame, games } = useSelectedGame();
   const [leaderboard, setLeaderboard] = useState(initialLeaderboard);
@@ -69,21 +79,40 @@ export default function LeaderboardClient({
   const [loading, setLoading] = useState(false);
   const [showRetired, setShowRetired] = useState(false);
   const [showInactive, setShowInactive] = useState(false);
+  const [seasons, setSeasons] = useState<SeasonInfo[]>([]);
+  // 'current' = current season (default); number = a past season; 'alltime'
+  const [seasonView, setSeasonView] = useState<'current' | 'alltime' | number>('current');
 
-  // Fetch data when selected game changes
+  // Load the season list once for the picker
+  useEffect(() => {
+    fetch('/api/seasons')
+      .then(res => res.json())
+      .then(data => {
+        setSeasons(data.seasons || []);
+      })
+      .catch(err => console.error('Failed to load seasons:', err));
+  }, []);
+
+  // Fetch data when selected game or season scope changes
   useEffect(() => {
     if (selectedGameId === null) return;
+
+    const scopeParams = seasonView === 'alltime'
+      ? '&scope=alltime'
+      : seasonView !== 'current'
+        ? `&season_id=${seasonView}`
+        : '';
 
     async function fetchData() {
       setLoading(true);
       try {
         const [leaderboardData, statsData, recordsData] = await Promise.all([
-          fetch(`/api/leaderboard?game_id=${selectedGameId}&include_retired=${showRetired}&include_inactive=${showInactive}`).then(res => res.json()),
-          fetch(`/api/game-stats?game_id=${selectedGameId}`).then(res => res.json()),
+          fetch(`/api/leaderboard?game_id=${selectedGameId}&include_retired=${showRetired}&include_inactive=${showInactive}${scopeParams}`).then(res => res.json()),
+          fetch(`/api/game-stats?game_id=${selectedGameId}${scopeParams}`).then(res => res.json()),
           fetch(`/api/game-records?game_id=${selectedGameId}`).then(res => res.json())
         ]);
         setLeaderboard(leaderboardData);
-        setGameStats(statsData);
+        if (statsData && !statsData.error) setGameStats(statsData);
         setGameRecords(recordsData);
       } finally {
         setLoading(false);
@@ -91,12 +120,39 @@ export default function LeaderboardClient({
     }
 
     fetchData();
-  }, [selectedGameId, showRetired, showInactive]);
+  }, [selectedGameId, showRetired, showInactive, seasonView]);
 
   return (
     <div>
       <div className="flex items-center justify-between mb-8">
-        <h1 className="text-3xl font-bold">Leaderboard</h1>
+        <div className="flex items-center gap-4">
+          <h1 className="text-3xl font-bold">Leaderboard</h1>
+          {/* Season picker + all-time toggle */}
+          <select
+            value={seasonView === 'current' ? `current:${currentSeasonId}` : String(seasonView)}
+            onChange={(e) => {
+              const val = e.target.value;
+              if (val === 'alltime') {
+                setSeasonView('alltime');
+              } else if (val === String(currentSeasonId) || val.startsWith('current:')) {
+                setSeasonView('current');
+              } else {
+                setSeasonView(parseInt(val, 10));
+              }
+            }}
+            className="bg-gray-200 text-gray-800 px-4 py-2 rounded-lg hover:bg-gray-300 transition-colors"
+          >
+            <option value={`current:${currentSeasonId}`}>
+              {seasons.find(s => s.id === currentSeasonId)?.name ?? 'Current Season'}
+            </option>
+            {seasons.filter(s => s.id !== currentSeasonId).map(s => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
+            ))}
+            <option value="alltime">🏆 All Time</option>
+          </select>
+        </div>
         <div className="flex gap-3">
           <Link
             href="/matches"

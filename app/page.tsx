@@ -1,4 +1,5 @@
 import { getLeaderboard, getGameStats, getGameRecords, getGames } from "@/lib/data";
+import { getCurrentSeason } from "@/lib/seasons";
 import LeaderboardClient from "./LeaderboardClient";
 
 // Revalidate every 30 seconds to pick up new matches
@@ -11,7 +12,7 @@ export default async function Home() {
 
   // Fetch initial data in parallel
   const [initialLeaderboard, initialStats, initialRecords] = await Promise.all([
-    Promise.resolve(getLeaderboard(initialGameId, false)),
+    Promise.resolve(getLeaderboard(initialGameId, { includeRetired: false })),
     Promise.resolve(getGameStats(initialGameId)),
     Promise.resolve(getGameRecords(initialGameId))
   ]);
@@ -21,6 +22,7 @@ export default async function Home() {
       initialLeaderboard={initialLeaderboard}
       initialStats={initialStats}
       initialRecords={initialRecords}
+      currentSeasonId={getCurrentSeason()?.id ?? 0}
     />
   );
 }

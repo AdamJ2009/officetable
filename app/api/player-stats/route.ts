@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import db from '@/lib/db';
+import { ALLTIME_SEASON_ID, resolveScopeSeasonId } from '@/lib/seasons';
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -8,6 +9,17 @@ export async function GET(request: NextRequest) {
   if (!playerId) {
     return NextResponse.json({ error: 'player_id is required' }, { status: 400 });
   }
+
+  // Season scoping: scope=season (default, current season) | alltime;
+  // season_id selects a specific (past) season's ledger.
+  const targetSeasonId = resolveScopeSeasonId(searchParams.get('scope'), searchParams.get('season_id'));
+  const isAllTime = targetSeasonId === ALLTIME_SEASON_ID;
+  const seasonFilter = isAllTime ? '' : 'AND m.season_id = ?';
+  // elo_* columns hold the match's own season ledger; alltime_* the continuous one
+  const eloAfterCol = isAllTime ? 'mp.alltime_elo_after' : 'mp.elo_after';
+  const eloBeforeCol = isAllTime ? 'mp.alltime_elo_before' : 'mp.elo_before';
+  const scopeParams = (gameParams: (string | number)[]) =>
+    isAllTime ? gameParams : [...gameParams, targetSeasonId];
 
   // Get player info
   const playerStmt = db.prepare(`
@@ -35,34 +47,34 @@ export async function GET(request: NextRequest) {
   // Get player's rating and stats for each game
   const gameStats = [];
   for (const game of games) {
-    // Check if player has a rating for this game
-    const ratingStmt = db.prepare(`
-      SELECT elo FROM player_ratings WHERE player_id = ? AND game_id = ?
-    `);
-    const rating = ratingStmt.get(parseInt(playerId), game.id) as { elo: number } | undefined;
+  // Get player's rating for this game from the target ledger
+  const ratingStmt = db.prepare(`
+    SELECT elo FROM player_ratings WHERE player_id = ? AND game_id = ? AND season_id = ?
+  `);
+  const rating = ratingStmt.get(parseInt(playerId), game.id, targetSeasonId) as { elo: number } | undefined;
 
-    if (!rating) continue; // Player hasn't played this game
+  if (isAllTime && !rating) continue; // Player hasn't played this game
 
-    // Get match stats for this game
-    const statsStmt = db.prepare(`
+  // Get match stats for this game (in scope)
+  const statsStmt = db.prepare(`
+    SELECT
+      COUNT(*) as total_matches,
+      SUM(CASE WHEN score > opponent_score THEN 1 ELSE 0 END) as wins,
+      SUM(CASE WHEN score < opponent_score THEN 1 ELSE 0 END) as losses,
+      SUM(CASE WHEN score = opponent_score THEN 1 ELSE 0 END) as draws,
+      SUM(score) as points_scored,
+      SUM(opponent_score) as points_conceded
+    FROM (
       SELECT
-        COUNT(*) as total_matches,
-        SUM(CASE WHEN score > opponent_score THEN 1 ELSE 0 END) as wins,
-        SUM(CASE WHEN score < opponent_score THEN 1 ELSE 0 END) as losses,
-        SUM(CASE WHEN score = opponent_score THEN 1 ELSE 0 END) as draws,
-        SUM(score) as points_scored,
-        SUM(opponent_score) as points_conceded
-      FROM (
-        SELECT
-          mp.score,
-          mp.match_id,
-          (SELECT MAX(score) FROM match_participants mp2 WHERE mp2.match_id = mp.match_id AND mp2.team != mp.team) as opponent_score
-        FROM match_participants mp
-        JOIN matches m ON mp.match_id = m.id
-        WHERE mp.player_id = ? AND m.game_id = ?
-      )
-    `);
-    const stats = statsStmt.get(parseInt(playerId), game.id) as {
+        mp.score,
+        mp.match_id,
+        (SELECT MAX(score) FROM match_participants mp2 WHERE mp2.match_id = mp.match_id AND mp2.team != mp.team) as opponent_score
+      FROM match_participants mp
+      JOIN matches m ON mp.match_id = m.id
+      WHERE mp.player_id = ? AND m.game_id = ?${seasonFilter}
+    )
+  `);
+  const stats = statsStmt.get(...scopeParams([parseInt(playerId), game.id])) as {
       total_matches: number;
       wins: number;
       losses: number;
@@ -71,20 +83,37 @@ export async function GET(request: NextRequest) {
       points_conceded: number;
     };
 
-    // Get Elo history for this game to calculate records
+    // Get Elo history for this game to calculate records + chart.
+    // All-time: one continuous series from the continuous ledger.
+    // Season: segmented per season so resets show as discontinuities.
     const eloHistoryStmt = db.prepare(`
-      SELECT mp.elo_after, m.played_at
+      SELECT ${eloAfterCol} as elo_after, m.played_at, m.season_id
       FROM match_participants mp
       JOIN matches m ON mp.match_id = m.id
-      WHERE mp.player_id = ? AND m.game_id = ?
-      ORDER BY m.played_at ASC
+      WHERE mp.player_id = ? AND m.game_id = ?${seasonFilter}
+      ORDER BY m.played_at ASC, m.id ASC
     `);
-    const eloHistory = eloHistoryStmt.all(parseInt(playerId), game.id) as { elo_after: number; played_at: string }[];
+    const historyRows = eloHistoryStmt.all(...scopeParams([parseInt(playerId), game.id])) as {
+      elo_after: number; played_at: string; season_id: number
+    }[];
 
-    // Calculate highest and lowest Elo
-    let highestElo = rating.elo;
-    let lowestElo = rating.elo;
+    const eloHistory: { elo_after: number; played_at: string }[] = [];
+    let lastHistorySeason: number | null = null;
+    for (const row of historyRows) {
+      if (lastHistorySeason !== null && row.season_id !== lastHistorySeason) {
+        // Null point breaks the line so the flat reset is visible
+        eloHistory.push({ elo_after: null as unknown as number, played_at: row.played_at });
+      }
+      eloHistory.push({ elo_after: row.elo_after, played_at: row.played_at });
+      lastHistorySeason = row.season_id;
+    }
+
+    // Calculate highest and lowest Elo (in-scope series + rating row)
+    const currentElo = rating?.elo ?? 0;
+    let highestElo = currentElo;
+    let lowestElo = currentElo;
     for (const record of eloHistory) {
+      if (record.elo_after == null) continue; // segment break
       if (record.elo_after > highestElo) highestElo = record.elo_after;
       if (record.elo_after < lowestElo) lowestElo = record.elo_after;
     }
@@ -98,10 +127,10 @@ export async function GET(request: NextRequest) {
         m.played_at
       FROM match_participants mp
       JOIN matches m ON mp.match_id = m.id
-      WHERE mp.player_id = ? AND m.game_id = ?
+      WHERE mp.player_id = ? AND m.game_id = ?${seasonFilter}
       ORDER BY m.played_at ASC
     `);
-    const matchResults = matchResultsStmt.all(parseInt(playerId), game.id) as {
+    const matchResults = matchResultsStmt.all(...scopeParams([parseInt(playerId), game.id])) as {
       match_id: number;
       score: number;
       opponent_score: number;
@@ -168,6 +197,7 @@ export async function GET(request: NextRequest) {
     let lowestEloDate: string | null = null;
 
     for (const record of eloHistory) {
+      if (record.elo_after == null) continue; // segment break
       if (record.elo_after === highestElo) {
         highestEloDate = record.played_at;
       }
@@ -176,22 +206,22 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Find biggest Elo gain and loss from single matches
+    // Find biggest Elo gain and loss from single matches (in the scope ledger)
     const biggestGainStmt = db.prepare(`
       SELECT
         mp.match_id,
-        mp.elo_before,
-        mp.elo_after,
-        mp.elo_after - mp.elo_before as gain,
+        ${eloBeforeCol} as elo_before,
+        ${eloAfterCol} as elo_after,
+        ${eloAfterCol} - ${eloBeforeCol} as gain,
         mp.score,
         m.played_at
       FROM match_participants mp
       JOIN matches m ON mp.match_id = m.id
-      WHERE mp.player_id = ? AND m.game_id = ?
+      WHERE mp.player_id = ? AND m.game_id = ?${seasonFilter}
       ORDER BY gain DESC
       LIMIT 1
     `);
-    const biggestGain = biggestGainStmt.get(parseInt(playerId), game.id) as {
+    const biggestGain = biggestGainStmt.get(...scopeParams([parseInt(playerId), game.id])) as {
       match_id: number;
       elo_before: number;
       elo_after: number;
@@ -203,18 +233,18 @@ export async function GET(request: NextRequest) {
     const biggestLossStmt = db.prepare(`
       SELECT
         mp.match_id,
-        mp.elo_before,
-        mp.elo_after,
-        mp.elo_before - mp.elo_after as loss,
+        ${eloBeforeCol} as elo_before,
+        ${eloAfterCol} as elo_after,
+        ${eloBeforeCol} - ${eloAfterCol} as loss,
         mp.score,
         m.played_at
       FROM match_participants mp
       JOIN matches m ON mp.match_id = m.id
-      WHERE mp.player_id = ? AND m.game_id = ?
+      WHERE mp.player_id = ? AND m.game_id = ?${seasonFilter}
       ORDER BY loss DESC
       LIMIT 1
     `);
-    const biggestLoss = biggestLossStmt.get(parseInt(playerId), game.id) as {
+    const biggestLoss = biggestLossStmt.get(...scopeParams([parseInt(playerId), game.id])) as {
       match_id: number;
       elo_before: number;
       elo_after: number;
@@ -313,7 +343,7 @@ export async function GET(request: NextRequest) {
         MIN(pa.earned_at) as first_earned_at
       FROM player_achievements pa
       JOIN achievements a ON pa.achievement_id = a.id
-      WHERE pa.player_id = ? AND pa.game_id = ?
+      WHERE pa.player_id = ? AND pa.game_id = ?${isAllTime ? '' : ' AND pa.season_id = ?'}
       GROUP BY a.id
       ORDER BY
         CASE a.category
@@ -326,7 +356,7 @@ export async function GET(request: NextRequest) {
         END,
         a.name
     `);
-    const achievements = achievementsStmt.all(parseInt(playerId), game.id) as {
+    const achievements = achievementsStmt.all(...scopeParams([parseInt(playerId), game.id])) as {
       achievement_id: number;
       achievement_name: string;
       achievement_description: string;
@@ -341,7 +371,7 @@ export async function GET(request: NextRequest) {
       game_name: game.name,
       score_type: game.score_type,
       score_value: game.score_value,
-      elo: rating.elo,
+      elo: currentElo,
       ...stats,
       records: {
         highest_elo: highestElo,
@@ -361,7 +391,7 @@ export async function GET(request: NextRequest) {
         biggest_loss: biggestLossDetails,
       },
       elo_history: eloHistory.map(h => ({
-        elo: h.elo_after,
+        elo: h.elo_after as number | null,
         date: h.played_at
       })),
       achievements
@@ -381,16 +411,16 @@ export async function GET(request: NextRequest) {
       g.name as game_name,
       mp.team,
       mp.score,
-      mp.elo_before,
-      mp.elo_after
+      ${eloBeforeCol} as elo_before,
+      ${eloAfterCol} as elo_after
     FROM match_participants mp
     JOIN matches m ON mp.match_id = m.id
     JOIN games g ON m.game_id = g.id
-    WHERE mp.player_id = ?
+    WHERE mp.player_id = ?${seasonFilter}
     ORDER BY m.played_at DESC
     LIMIT 20
   `);
-  const recentMatches = recentMatchesStmt.all(parseInt(playerId)) as {
+  const recentMatches = recentMatchesStmt.all(...scopeParams([parseInt(playerId)])) as {
     id: number;
     game_id: number;
     played_at: string;

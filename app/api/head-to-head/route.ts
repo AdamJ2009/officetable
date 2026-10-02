@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import db from '@/lib/db';
+import { ALLTIME_SEASON_ID, resolveScopeSeasonId } from '@/lib/seasons';
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -12,6 +13,16 @@ export async function GET(request: NextRequest) {
 
   const pid = parseInt(playerId);
 
+  // Season scoping: scope=season (default, current season) | alltime;
+  // season_id selects a specific (past) season's ledger.
+  const targetSeasonId = resolveScopeSeasonId(searchParams.get('scope'), searchParams.get('season_id'));
+  const isAllTime = targetSeasonId === ALLTIME_SEASON_ID;
+  const seasonFilter = isAllTime ? '' : ' AND m.season_id = ?';
+  const seasonParams = isAllTime ? [] : [targetSeasonId];
+  // elo_* columns hold the season ledger; alltime_* the continuous one
+  const eloAfterCol = isAllTime ? 'mp.alltime_elo_after' : 'mp.elo_after';
+  const eloBeforeCol = isAllTime ? 'mp.alltime_elo_before' : 'mp.elo_before';
+
   // Verify player exists
   const player = db.prepare('SELECT id, name FROM players WHERE id = ?').get(pid) as { id: number; name: string } | undefined;
   if (!player) {
@@ -21,6 +32,7 @@ export async function GET(request: NextRequest) {
   // Build game filter
   const gameFilter = gameId ? ' AND m.game_id = ?' : '';
   const gameParams = gameId ? [parseInt(gameId)] : [];
+  const allParams = [...gameParams, ...seasonParams];
 
   // Get all matches where this player participated
   const matchData = db.prepare(`
@@ -31,14 +43,14 @@ export async function GET(request: NextRequest) {
       m.played_at,
       mp.team,
       mp.score,
-      mp.elo_before,
-      mp.elo_after
+      ${eloBeforeCol} as elo_before,
+      ${eloAfterCol} as elo_after
     FROM match_participants mp
     JOIN matches m ON mp.match_id = m.id
     JOIN games g ON m.game_id = g.id
-    WHERE mp.player_id = ?${gameFilter}
+    WHERE mp.player_id = ?${gameFilter}${seasonFilter}
     ORDER BY m.played_at ASC
-  `).all(pid, ...gameParams) as {
+  `).all(pid, ...allParams) as {
     match_id: number;
     game_id: number;
     game_name: string;

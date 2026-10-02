@@ -82,6 +82,34 @@ Import with:
 npx tsx scripts/import-matches.ts <game_id> < your-matches.txt
 ```
 
+## Seasons
+
+Elo is tracked as two independent ledgers over the same matches:
+
+- **Season ledger** — flat-resets to 0 at each season start. This is the
+  live competition (leaderboard default, rank shifts, season achievements).
+- **All-time ledger** — never resets; continuous since the first match.
+
+Each match gets both deltas (see any match detail page for the toggle), and
+achievements can be re-earned once per season (except `fresh_blood`, which is
+a first-game-*ever* award).
+
+The first migration splits history into **Season 0** (everything before the
+new season opens) and **Season 1** (the new, empty season). The Season 1
+start date is configurable:
+
+1. Setting the `season_1_start` key in the settings table (e.g. via
+   `PUT /api/settings` `{"settings": {"season_1_start": "2026-11-01"}}`)
+   — before first launch, or
+2. The `SEASON_1_START_DATE` environment variable, or
+3. Defaults to 00:00 UTC, 28 days after the migration first runs.
+
+Every match's season is resolved from its played-at timestamp (not its insert
+date), so late-entered matches slot into the correct season. Seasons live in
+the `seasons` table; update it to close the current season and open the next
+one (`end_date` on the closing season, a new row with `start_date` and a null
+`end_date`).
+
 ## Skill System
 
 This uses a modified Elo rating system. The rating change after each game uses:

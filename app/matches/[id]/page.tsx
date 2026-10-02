@@ -39,6 +39,8 @@ interface Match {
     score: number;
     elo_before: number;
     elo_after: number;
+    alltime_elo_before: number;
+    alltime_elo_after: number;
     player_name: string;
     avatar_url?: string | null;
   }[];
@@ -91,6 +93,8 @@ export default function MatchDetailsPage() {
   const [match, setMatch] = useState<Match | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Season ledger deltas by default, with all-time ledger values available
+  const [deltaView, setDeltaView] = useState<'season' | 'alltime'>('season');
 
   useEffect(() => {
     fetch(`/api/matches/${matchId}`)
@@ -301,6 +305,29 @@ export default function MatchDetailsPage() {
         </div>
 
         {/* Player Details */}
+        <div className="border-t border-gray-100 px-6 py-3">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Skill changes</span>
+            <div className="flex bg-gray-100 rounded-lg p-0.5">
+              <button
+                onClick={() => setDeltaView('season')}
+                className={`px-3 py-1 text-xs rounded-md transition-colors ${
+                  deltaView === 'season' ? 'bg-white shadow text-gray-900 font-semibold' : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                Season
+              </button>
+              <button
+                onClick={() => setDeltaView('alltime')}
+                className={`px-3 py-1 text-xs rounded-md transition-colors ${
+                  deltaView === 'alltime' ? 'bg-white shadow text-gray-900 font-semibold' : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                All Time
+              </button>
+            </div>
+          </div>
+        </div>
         <div className="grid grid-cols-2 border-t border-gray-100">
           {teams.map((team) => {
             const teamParticipants = match.participants.filter((p) => p.team === team);
@@ -310,7 +337,9 @@ export default function MatchDetailsPage() {
               <div key={team} className="p-6">
                 <div className="space-y-3">
                   {teamParticipants.map((p) => {
-                    const eloChange = p.elo_after - p.elo_before;
+                    const before = deltaView === 'season' ? p.elo_before : (p.alltime_elo_before ?? p.elo_before);
+                    const after = deltaView === 'season' ? p.elo_after : (p.alltime_elo_after ?? p.elo_after);
+                    const eloChange = after - before;
 
                     return (
                       <Link
@@ -330,14 +359,14 @@ export default function MatchDetailsPage() {
                               {p.player_name}
                             </div>
                             <div className="text-xs text-gray-500 font-mono">
-                              {p.elo_before.toFixed(3)} → {p.elo_after.toFixed(3)}
+                              {before.toFixed(3)} → {after.toFixed(3)}
                             </div>
                           </div>
                         </div>
                         <div className={`font-mono text-lg font-bold ${
                           eloChange >= 0 ? 'text-green-600' : 'text-red-600'
                         }`}>
-                          {formatRatingChange(p.elo_before, p.elo_after)}
+                          {formatRatingChange(before, after)}
                         </div>
                       </Link>
                     );

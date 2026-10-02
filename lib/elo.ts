@@ -1,49 +1,49 @@
 import db from './db';
 import type { PlayerRating, LeaderboardEntry, CreateMatchInput } from './types';
-import { checkAchievements, saveAchievements, deleteAchievementsForMatch, deleteAchievementsForMatches, AchievementContext } from './achievements';
+import { checkAchievements, saveAchievements, deleteAchievementsForMatch, deleteAchievementsForMatches } from './achievements';
+import { resolveSeason, ALLTIME_SEASON_ID } from './seasons';
 
 // Elo constants
 const DEFAULT_ELO = 0;
 const K_FACTOR = 25;
 
-// For team games, we use average team Elo
-// This ensures all players on a team move in the same direction
+// For team games, we use the SUM of team Elo (not the average)
+// This supports "unfair" line-ups (e.g. 1v2)
 
-export function createPlayerRating(playerId: number, gameId: number): PlayerRating {
-  const stmt = db.prepare(`
-    INSERT INTO player_ratings (player_id, game_id, elo)
-    VALUES (?, ?, ?)
+/**
+ * Get (or create) a player's rating row for a given ledger.
+ * seasonId 0 = the all-time ledger (never resets); a real season id =
+ * that season's ledger, which flat-resets to DEFAULT_ELO (0) at season start.
+ * New players seed 0 in BOTH ledgers.
+ */
+export function getOrCreatePlayerRating(playerId: number, gameId: number, seasonId: number): PlayerRating {
+  const select = db.prepare(`
+    SELECT * FROM player_ratings WHERE player_id = ? AND game_id = ? AND season_id = ?
   `);
-  const result = stmt.run(playerId, gameId, DEFAULT_ELO);
-  return {
-    id: result.lastInsertRowid as number,
-    player_id: playerId,
-    game_id: gameId,
-    elo: DEFAULT_ELO,
-  };
-}
-
-export function getPlayerRatings(gameId: number): PlayerRating[] {
-  const stmt = db.prepare(`
-    SELECT pr.*, p.name as player_name
-    FROM player_ratings pr
-    JOIN players p ON pr.player_id = p.id
-    WHERE pr.game_id = ?
-    ORDER BY pr.elo DESC, p.name ASC
-  `);
-  return stmt.all(gameId) as PlayerRating[];
-}
-
-export function getOrCreatePlayerRating(playerId: number, gameId: number): PlayerRating {
-  const stmt = db.prepare(`
-    SELECT * FROM player_ratings WHERE player_id = ? AND game_id = ?
-  `);
-  const existing = stmt.get(playerId, gameId) as PlayerRating | undefined;
+  const existing = select.get(playerId, gameId, seasonId) as PlayerRating | undefined;
   if (existing) return existing;
-  return createPlayerRating(playerId, gameId);
+
+  const upsert = db.prepare(`
+    INSERT INTO player_ratings (player_id, game_id, season_id, elo)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(player_id, game_id, season_id) DO UPDATE SET elo = elo
+  `);
+  upsert.run(playerId, gameId, seasonId, DEFAULT_ELO);
+  return select.get(playerId, gameId, seasonId) as PlayerRating;
 }
 
-export function getLeaderboard(gameId: number): LeaderboardEntry[] {
+/**
+ * Persist a rating value to a ledger row (insert or update).
+ */
+function savePlayerRating(playerId: number, gameId: number, seasonId: number, elo: number): void {
+  db.prepare(`
+    INSERT INTO player_ratings (player_id, game_id, season_id, elo)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(player_id, game_id, season_id) DO UPDATE SET elo = excluded.elo
+  `).run(playerId, gameId, seasonId, elo);
+}
+
+export function getLeaderboard(gameId: number, seasonId: number = ALLTIME_SEASON_ID): LeaderboardEntry[] {
   const stmt = db.prepare(`
     SELECT
       pr.player_id,
@@ -55,36 +55,42 @@ export function getLeaderboard(gameId: number): LeaderboardEntry[] {
     FROM player_ratings pr
     JOIN players p ON pr.player_id = p.id
     LEFT JOIN (
-      SELECT player_id, COUNT(*) as count
-      FROM match_participants
-      WHERE score > 0 AND score > (
-        SELECT MAX(score) FROM match_participants mp2 WHERE mp2.match_id = match_participants.match_id AND mp2.team != match_participants.team
+      SELECT mp.player_id, COUNT(*) as count
+      FROM match_participants mp
+      JOIN matches m ON mp.match_id = m.id
+      WHERE m.season_id = ?
+        AND mp.score > 0 AND mp.score > (
+        SELECT MAX(score) FROM match_participants mp2 WHERE mp2.match_id = mp.match_id AND mp2.team != mp.team
       )
-      GROUP BY player_id
+      GROUP BY mp.player_id
     ) wins ON wins.player_id = pr.player_id
     LEFT JOIN (
-      SELECT player_id, COUNT(*) as count
-      FROM match_participants
-      WHERE score >= 0 AND score < (
-        SELECT MAX(score) FROM match_participants mp2 WHERE mp2.match_id = match_participants.match_id AND mp2.team != match_participants.team
+      SELECT mp.player_id, COUNT(*) as count
+      FROM match_participants mp
+      JOIN matches m ON mp.match_id = m.id
+      WHERE m.season_id = ?
+        AND mp.score >= 0 AND mp.score < (
+        SELECT MAX(score) FROM match_participants mp2 WHERE mp2.match_id = mp.match_id AND mp2.team != mp.team
       )
-      GROUP BY player_id
+      GROUP BY mp.player_id
     ) losses ON losses.player_id = pr.player_id
     LEFT JOIN (
-      SELECT player_id, COUNT(*) as count
-      FROM match_participants mp1
-      WHERE EXISTS (
+      SELECT mp.player_id, COUNT(*) as count
+      FROM match_participants mp
+      JOIN matches m ON mp.match_id = m.id
+      WHERE m.season_id = ?
+        AND EXISTS (
         SELECT 1 FROM match_participants mp2
-        WHERE mp2.match_id = mp1.match_id
-        AND mp2.team != mp1.team
-        AND mp2.score = mp1.score
+        WHERE mp2.match_id = mp.match_id
+        AND mp2.team != mp.team
+        AND mp2.score = mp.score
       )
-      GROUP BY player_id
+      GROUP BY mp.player_id
     ) draws ON draws.player_id = pr.player_id
-    WHERE pr.game_id = ?
+    WHERE pr.game_id = ? AND pr.season_id = ?
     ORDER BY pr.elo DESC, p.name ASC
   `);
-  return stmt.all(gameId) as LeaderboardEntry[];
+  return stmt.all(seasonId, seasonId, seasonId, gameId, seasonId) as LeaderboardEntry[];
 }
 
 /**
@@ -96,18 +102,16 @@ function expectedScore(ratingA: number, ratingB: number): number {
 }
 
 /**
- * Calculate average Elo for a team.
+ * Calculate effective Elo for a team.
+ * We sum the team so "unfair" line-ups (e.g. 1v2) work.
  */
 function averageTeamElo(ratings: number[]): number {
   if (ratings.length === 0) return DEFAULT_ELO;
-  // We used to average the team but that wouldn't support "unfair" 
-  // line-ups (e.g. 1v2) so instead just sum them
   return ratings.reduce((sum, r) => sum + r, 0);
 }
 
 /**
  * Calculate point ratio for each team.
- * Returns array of actual results: team_score / total_score for each team.
  */
 function getPointRatios(teams: CreateMatchInput['teams']): number[] {
   const totalScore = teams.reduce((sum, t) => sum + t.score, 0);
@@ -118,41 +122,23 @@ function getPointRatios(teams: CreateMatchInput['teams']): number[] {
   return teams.map(t => t.score / totalScore);
 }
 
-export interface ProcessedMatch {
-  matchId: number;
-  skillChanges: Map<number, { before: number; after: number; change: number }>;
-}
-
-export function processMatch(input: CreateMatchInput, matchTimestamp?: Date): ProcessedMatch {
-  const { game_id, notes, teams } = input;
-  const matchDate = matchTimestamp || new Date();
-
-  // Get or create ratings for all players
-  const ratingsByPlayer: Map<number, number> = new Map();
-
-  for (const team of teams) {
-    for (const playerId of team.player_ids) {
-      const rating = getOrCreatePlayerRating(playerId, game_id);
-      ratingsByPlayer.set(playerId, rating.elo);
-    }
-  }
-
-  // Calculate average Elo for each team
+/**
+ * Compute the rating change for each team from a single ledger's ratings.
+ * Each ledger (season / all-time) computes its deltas independently from its
+ * own seeded ratings — deltas are NEVER shared between ledgers.
+ */
+function computeTeamRatingChanges(
+  teams: CreateMatchInput['teams'],
+  ratingsByPlayer: Map<number, number>,
+  results: number[]
+): number[] {
   const teamAverageElos = teams.map(team =>
-    averageTeamElo(team.player_ids.map(id => ratingsByPlayer.get(id)!))
+    averageTeamElo(team.player_ids.map(id => ratingsByPlayer.get(id) ?? DEFAULT_ELO))
   );
 
-  // Get point ratios (team_score / total_score)
-  const results = getPointRatios(teams);
-
-  // Calculate rating changes for each team
   const ratingChanges: number[] = [];
-
   for (let i = 0; i < teams.length; i++) {
-    // Find opponent team(s) - for 2-team games, just use the other team
-    // For multi-team games, use average of all other teams
     let opponentElo: number;
-
     if (teams.length === 2) {
       opponentElo = teamAverageElos[1 - i];
     } else {
@@ -163,28 +149,66 @@ export function processMatch(input: CreateMatchInput, matchTimestamp?: Date): Pr
 
     const expected = expectedScore(teamAverageElos[i], opponentElo);
     const actual = results[i];
-
-    // Each player's rating change is based on team performance
-    // This ensures all team members move together
     ratingChanges.push(K_FACTOR * (actual - expected));
   }
+  return ratingChanges;
+}
 
-  // Update ratings in database
-  const updateStmt = db.prepare(`
-    UPDATE player_ratings SET elo = ? WHERE player_id = ? AND game_id = ?
-  `);
+export interface ProcessedMatch {
+  matchId: number;
+  /** Season-ledger skill changes (the live competition). */
+  skillChanges: Map<number, { before: number; after: number; change: number }>;
+  /** All-time-leader skill changes. */
+  skillChangesAllTime: Map<number, { before: number; after: number; change: number }>;
+  /** Season the match was assigned to (resolved from played_at). */
+  seasonId: number;
+}
+
+/**
+ * Process a match into BOTH ledgers:
+ *  - Season ledger: seeded from that season's ratings (0 at season start).
+ *  - All-time ledger: seeded from continuous all-time ratings.
+ * Expected-score inputs come from each ledger's own ratings.
+ * `elo_before/elo_after` on participants = the match's own SEASON ledger;
+ * `alltime_elo_before/after` = the never-resetting all-time ledger.
+ */
+export function processMatch(input: CreateMatchInput, matchTimestamp?: Date): ProcessedMatch {
+  const { game_id, notes, teams } = input;
+  const matchDate = matchTimestamp || new Date();
+  // Season is resolved from played_at, not insert date — late-entered
+  // matches slot into the correct season.
+  const seasonId = resolveSeason(matchDate);
+
+  // Seed both ledgers for every player
+  const seasonRatingsByPlayer: Map<number, number> = new Map();
+  const alltimeRatingsByPlayer: Map<number, number> = new Map();
+
+  for (const team of teams) {
+    for (const playerId of team.player_ids) {
+      seasonRatingsByPlayer.set(playerId, getOrCreatePlayerRating(playerId, game_id, seasonId).elo);
+      alltimeRatingsByPlayer.set(playerId, getOrCreatePlayerRating(playerId, game_id, ALLTIME_SEASON_ID).elo);
+    }
+  }
+
+  // Get point ratios (team_score / total_score)
+  const results = getPointRatios(teams);
+
+  // Calculate rating changes independently per ledger
+  const seasonRatingChanges = computeTeamRatingChanges(teams, seasonRatingsByPlayer, results);
+  const alltimeRatingChanges = computeTeamRatingChanges(teams, alltimeRatingsByPlayer, results);
 
   const insertMatch = db.prepare(`
-    INSERT INTO matches (game_id, notes, played_at) VALUES (?, ?, ?)
+    INSERT INTO matches (game_id, notes, played_at, season_id) VALUES (?, ?, ?, ?)
   `);
 
   const insertParticipant = db.prepare(`
-    INSERT INTO match_participants (match_id, player_id, team, score, elo_before, elo_after)
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT INTO match_participants (match_id, player_id, team, score, elo_before, elo_after, alltime_elo_before, alltime_elo_after)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   // Store skill changes for return
   const skillChanges: Map<number, { before: number; after: number; change: number }> = new Map();
+  const skillChangesAllTime: Map<number, { before: number; after: number; change: number }> = new Map();
 
   // Use transaction for atomicity
   let matchId: number = 0;
@@ -192,36 +216,44 @@ export function processMatch(input: CreateMatchInput, matchTimestamp?: Date): Pr
   const updateRatings = db.transaction(() => {
     // Create match record with timestamp
     const playedAt = matchDate.toISOString().replace('T', ' ').replace(/\.\d+Z$/, '');
-    const matchResult = insertMatch.run(game_id, notes || null, playedAt);
+    const matchResult = insertMatch.run(game_id, notes || null, playedAt, seasonId);
     matchId = matchResult.lastInsertRowid as number;
 
-    // Update each team's players
+    // Update each team's players in both ledgers
     for (let teamIndex = 0; teamIndex < teams.length; teamIndex++) {
       const team = teams[teamIndex];
-      const change = ratingChanges[teamIndex];
+      const change = seasonRatingChanges[teamIndex];
+      const alltimeChange = alltimeRatingChanges[teamIndex];
 
       for (const playerId of team.player_ids) {
-        const oldElo = ratingsByPlayer.get(playerId)!;
-        const newElo = oldElo + change;
+        const seasonBefore = seasonRatingsByPlayer.get(playerId)!;
+        const seasonAfter = seasonBefore + change;
+        const alltimeBefore = alltimeRatingsByPlayer.get(playerId)!;
+        const alltimeAfter = alltimeBefore + alltimeChange;
 
-        updateStmt.run(newElo, playerId, game_id);
+        savePlayerRating(playerId, game_id, seasonId, seasonAfter);
+        savePlayerRating(playerId, game_id, ALLTIME_SEASON_ID, alltimeAfter);
+
         insertParticipant.run(
           matchId,
           playerId,
           team.team,
           team.score,
-          oldElo,
-          newElo
+          seasonBefore,
+          seasonAfter,
+          alltimeBefore,
+          alltimeAfter
         );
 
-        skillChanges.set(playerId, { before: oldElo, after: newElo, change });
+        skillChanges.set(playerId, { before: seasonBefore, after: seasonAfter, change });
+        skillChangesAllTime.set(playerId, { before: alltimeBefore, after: alltimeAfter, change: alltimeChange });
       }
     }
   });
 
   updateRatings();
 
-  // Check and save achievements
+  // Check and save achievements (scoped to the match's own season)
   const participants = teams.flatMap(team =>
     team.player_ids.map(playerId => ({
       player_id: playerId,
@@ -235,6 +267,7 @@ export function processMatch(input: CreateMatchInput, matchTimestamp?: Date): Pr
   const achievementResults = checkAchievements({
     matchId,
     gameId: game_id,
+    seasonId,
     playedAt: matchDate,
     teams,
     participants,
@@ -242,121 +275,312 @@ export function processMatch(input: CreateMatchInput, matchTimestamp?: Date): Pr
   });
 
   if (achievementResults.length > 0) {
-    saveAchievements(achievementResults, game_id);
+    saveAchievements(achievementResults, game_id, seasonId);
   }
 
-  return { matchId, skillChanges };
+  return { matchId, skillChanges, skillChangesAllTime, seasonId };
+}
+
+// ---------------------------------------------------------------------------
+// Replay machinery (used by correctMatch / deleteMatchAndReplay)
+// ---------------------------------------------------------------------------
+
+interface ReplayableMatch {
+  /** Original match id (so old->new ids can be mapped for achievement re-checks). */
+  matchId: number;
+  teams: { team: number; player_ids: number[]; score: number }[];
+  /** Original played_at string (preserved verbatim). */
+  timestamp: string;
+  notes: string | null;
 }
 
 /**
- * Correct a match result and replay all subsequent matches.
- * This recalculates all Elo ratings from the corrected match forward.
+ * Preserve the original timestamp string exactly to avoid timezone drift.
+ */
+function normalisePlayedAt(ts: string): string {
+  return ts.replace('T', ' ').replace(/\.\d+Z$/, '').substring(0, 19);
+}
+
+/**
+ * Parse a stored 'YYYY-MM-DD HH:MM:SS' datetime (UTC) as a Date.
+ */
+function parseDbDate(ts: string): Date {
+  const s = ts.replace('T', ' ');
+  return new Date(s.length === 19 ? `${s}Z` : s);
+}
+
+/**
+ * Seed an in-memory ratings map for replaying matches after a given point.
+ * Takes each player's most recent rating BEFORE the anchor point:
+ *  - season ledger: only matches in that same season count (a boundary
+ *    resets to 0, so anchors from earlier seasons yield DEFAULT_ELO);
+ *  - all-time ledger (seasonId === 0): any match before the anchor.
+ * Rows with the same played_at are ordered by id, matching replay order.
+ */
+function seedRatingsBefore(
+  gameId: number,
+  anchorTimestamp: string,
+  anchorMatchId: number,
+  playerIds: Iterable<number>,
+  seasonId: number
+): Map<number, number> {
+  const valueCol = seasonId === ALLTIME_SEASON_ID ? 'mp.alltime_elo_after' : 'mp.elo_after';
+  const seasonFilter = seasonId === ALLTIME_SEASON_ID ? '' : 'AND m.season_id = ?';
+
+  const ids = [...playerIds];
+  if (ids.length === 0) return new Map();
+  const placeholders = ids.map(() => '?').join(',');
+
+  const params: (string | number)[] = [
+    gameId,
+    ...ids,
+    anchorTimestamp,
+    anchorTimestamp,
+    anchorMatchId,
+  ];
+  if (seasonId !== ALLTIME_SEASON_ID) params.push(seasonId);
+
+  const rows = db.prepare(`
+    SELECT mp.player_id, ${valueCol} as value
+    FROM match_participants mp
+    JOIN matches m ON mp.match_id = m.id
+    WHERE m.game_id = ?
+      AND mp.player_id IN (${placeholders})
+      AND (m.played_at < ? OR (m.played_at = ? AND m.id < ?))
+      ${seasonFilter}
+    ORDER BY m.played_at DESC, m.id DESC
+  `).all(...params) as { player_id: number; value: number | null }[];
+
+  const seed = new Map<number, number>();
+  for (const row of rows) {
+    if (!seed.has(row.player_id)) {
+      seed.set(row.player_id, row.value ?? DEFAULT_ELO);
+    }
+  }
+  for (const pid of ids) {
+    if (!seed.has(pid)) seed.set(pid, DEFAULT_ELO);
+  }
+  return seed;
+}
+
+/**
+ * Re-check achievements for replayed matches (each scoped to its own season).
+ */
+interface ReplayContext {
+  gameId: number;
+  matchesToReplay: ReplayableMatch[];
+  seasonSeed: Map<number, number>;
+  alltimeSeed: Map<number, number>;
+  /** Season the seed ratings belong to (season of the anchor match). */
+  seedSeason: number;
+}
+
+/**
+ * Core dual-ledger replay: replays matches through BOTH ledgers in order.
+ *  - All-time ledger replays straight through with no resets.
+ *  - Season ledger resolves each match's season from its timestamp; when the
+ *    replay crosses into a new season, every in-memory rating resets to 0.
+ * Per-match ledger rows are written as we go, so every season's ratings end
+ * up consistent (including seasons the replay passes through and closes).
+ * Returns the old->new match id map for achievement re-checks.
+ */
+function replayCore(ctx: ReplayContext): Map<number, number> {
+  const { gameId, matchesToReplay, seasonSeed, alltimeSeed, seedSeason } = ctx;
+
+  const oldToNewMatchIds: Map<number, number> = new Map();
+
+  const deleteParticipantsForMatch = db.prepare(`DELETE FROM match_participants WHERE match_id = ?`);
+  const deleteMatch = db.prepare(`DELETE FROM matches WHERE id = ?`);
+  const insertMatch = db.prepare(`
+    INSERT INTO matches (game_id, notes, played_at, season_id) VALUES (?, ?, ?, ?)
+  `);
+  const insertParticipant = db.prepare(`
+    INSERT INTO match_participants (match_id, player_id, team, score, elo_before, elo_after, alltime_elo_before, alltime_elo_after)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  const seasonMap: Map<number, number> = new Map(seasonSeed);
+  const alltimeMap: Map<number, number> = new Map(alltimeSeed);
+  let currentReplaySeason: number = seedSeason;
+
+  const run = db.transaction(() => {
+    // Remove the replayed matches (they get re-created with fresh deltas)
+    for (const m of matchesToReplay) {
+      deleteParticipantsForMatch.run(m.matchId);
+      deleteMatch.run(m.matchId);
+    }
+
+    for (const matchData of matchesToReplay) {
+      const matchSeason = resolveSeason(matchData.timestamp);
+
+      if (matchSeason !== currentReplaySeason) {
+        // Crossing a season boundary: flat reset of the SEASON ledger only.
+        for (const pid of seasonMap.keys()) {
+          seasonMap.set(pid, DEFAULT_ELO);
+        }
+        currentReplaySeason = matchSeason;
+      }
+
+      // Read each ledger's current ratings for the participants
+      const seasonRatingsByPlayer = new Map<number, number>();
+      const alltimeRatingsByPlayer = new Map<number, number>();
+      for (const team of matchData.teams) {
+        for (const playerId of team.player_ids) {
+          seasonRatingsByPlayer.set(playerId, seasonMap.get(playerId) ?? DEFAULT_ELO);
+          alltimeRatingsByPlayer.set(playerId, alltimeMap.get(playerId) ?? DEFAULT_ELO);
+        }
+      }
+
+      const totalScore = matchData.teams.reduce((sum, t) => sum + t.score, 0);
+      const results = totalScore === 0
+        ? matchData.teams.map(() => 1 / matchData.teams.length)
+        : matchData.teams.map(t => t.score / totalScore);
+
+      // Independent deltas per ledger
+      const seasonChanges = computeTeamRatingChanges(matchData.teams, seasonRatingsByPlayer, results);
+      const alltimeChanges = computeTeamRatingChanges(matchData.teams, alltimeRatingsByPlayer, results);
+
+      const playedAt = normalisePlayedAt(matchData.timestamp);
+      const result = insertMatch.run(gameId, matchData.notes ?? null, playedAt, matchSeason);
+      const newMatchId = result.lastInsertRowid as number;
+      oldToNewMatchIds.set(matchData.matchId, newMatchId);
+
+      const seen = new Set<number>();
+      for (let teamIndex = 0; teamIndex < matchData.teams.length; teamIndex++) {
+        const team = matchData.teams[teamIndex];
+        const seasonChange = seasonChanges[teamIndex];
+        const alltimeChange = alltimeChanges[teamIndex];
+
+        for (const playerId of team.player_ids) {
+          if (seen.has(playerId)) continue; // same player listed on two teams guard
+          seen.add(playerId);
+
+          const seasonBefore = seasonRatingsByPlayer.get(playerId)!;
+          const seasonAfter = seasonBefore + seasonChange;
+          const alltimeBefore = alltimeRatingsByPlayer.get(playerId)!;
+          const alltimeAfter = alltimeBefore + alltimeChange;
+
+          seasonMap.set(playerId, seasonAfter);
+          alltimeMap.set(playerId, alltimeAfter);
+
+          savePlayerRating(playerId, gameId, matchSeason, seasonAfter);
+          savePlayerRating(playerId, gameId, ALLTIME_SEASON_ID, alltimeAfter);
+
+          insertParticipant.run(
+            newMatchId,
+            playerId,
+            team.team,
+            team.score,
+            seasonBefore,
+            seasonAfter,
+            alltimeBefore,
+            alltimeAfter
+          );
+        }
+      }
+    }
+  });
+
+  run();
+
+  return oldToNewMatchIds;
+}
+
+/**
+ * Re-check achievements for replayed matches (each scoped to its own season).
+ */
+function recheckAchievementsForReplay(
+  gameId: number,
+  matchesToReplay: ReplayableMatch[],
+  oldToNewMatchIds: Map<number, number>
+): void {
+  for (const matchData of matchesToReplay) {
+    const newMatchId = oldToNewMatchIds.get(matchData.matchId);
+    if (!newMatchId) continue;
+
+    const participants = db.prepare(`
+      SELECT player_id, team, score, elo_before, elo_after
+      FROM match_participants WHERE match_id = ?
+    `).all(newMatchId) as { player_id: number; team: number; score: number; elo_before: number; elo_after: number }[];
+
+    const playedAt = parseDbDate(normalisePlayedAt(matchData.timestamp));
+    const seasonId = resolveSeason(matchData.timestamp);
+
+    const achievementResults = checkAchievements({
+      matchId: newMatchId,
+      gameId,
+      seasonId,
+      playedAt,
+      teams: matchData.teams,
+      participants,
+      playerNameMap: new Map()
+    });
+
+    if (achievementResults.length > 0) {
+      saveAchievements(achievementResults, gameId, seasonId);
+    }
+  }
+}
+
+/**
+ * Correct a match result and replay all subsequent matches through both
+ * ledgers. Ratings are recalculated from the corrected match forward.
  */
 export function correctMatch(
   matchId: number,
   newTeams: { team: number; player_ids: number[]; score: number }[]
 ): void {
-  // Get the original match
-  const matchStmt = db.prepare(`
+  const originalMatch = db.prepare(`
     SELECT * FROM matches WHERE id = ?
-  `);
-  const originalMatch = matchStmt.get(matchId) as { id: number; game_id: number; played_at: string; notes: string | null } | undefined;
+  `).get(matchId) as { id: number; game_id: number; played_at: string; notes: string | null; season_id: number } | undefined;
 
   if (!originalMatch) {
     throw new Error('Match not found');
   }
 
   const gameId = originalMatch.game_id;
-  const originalTimestamp = originalMatch.played_at;
+  const anchorTimestamp = originalMatch.played_at;
+  const anchorSeason = resolveSeason(anchorTimestamp);
 
-  // Get all matches for this game from the correction point forward (in chronological order)
-  const matchesToReplayStmt = db.prepare(`
+  // All matches for this game from the correction point forward,
+  // in deterministic chronological order.
+  const matchesFromAnchor = db.prepare(`
     SELECT id, played_at, notes FROM matches
-    WHERE game_id = ? AND played_at >= ?
-    ORDER BY played_at ASC
-  `);
-  const allMatchesFromPoint = matchesToReplayStmt.all(gameId, originalTimestamp) as { id: number; played_at: string; notes: string | null }[];
+    WHERE game_id = ? AND (played_at > ? OR (played_at = ? AND id >= ?))
+    ORDER BY played_at ASC, id ASC
+  `).all(gameId, anchorTimestamp, anchorTimestamp, matchId) as { id: number; played_at: string; notes: string | null }[];
 
-  // Get all player_ids involved in all matches from this point forward
+  // Collect all players involved in the replay + the new line-up
   const playerIds = new Set<number>();
   const getMatchPlayersStmt = db.prepare(`SELECT DISTINCT player_id FROM match_participants WHERE match_id = ?`);
-  for (const m of allMatchesFromPoint) {
-    const players = getMatchPlayersStmt.all(m.id) as { player_id: number }[];
-    for (const p of players) {
+  for (const m of matchesFromAnchor) {
+    for (const p of getMatchPlayersStmt.all(m.id) as { player_id: number }[]) {
       playerIds.add(p.player_id);
     }
   }
-  // Also include players from the new teams
   for (const team of newTeams) {
     for (const pid of team.player_ids) {
       playerIds.add(pid);
     }
   }
 
-  // Get ratings before the correction point for each player
-  // Find the most recent match before this one
-  const prevMatchStmt = db.prepare(`
-    SELECT id FROM matches
-    WHERE game_id = ? AND played_at < ?
-    ORDER BY played_at DESC LIMIT 1
-  `);
-  const prevMatch = prevMatchStmt.get(gameId, originalTimestamp) as { id: number } | undefined;
-
-  // Get elo_before from the match being corrected, or from player_ratings
-  const ratingsBefore: Map<number, number> = new Map();
-
-  for (const playerId of playerIds) {
-    // Try to get elo_after from the previous match for this player
-    if (prevMatch) {
-      const prevEloStmt = db.prepare(`
-        SELECT elo_after FROM match_participants
-        WHERE match_id = ? AND player_id = ?
-      `);
-      const prevElo = prevEloStmt.get(prevMatch.id, playerId) as { elo_after: number } | undefined;
-      if (prevElo) {
-        ratingsBefore.set(playerId, prevElo.elo_after);
-        continue;
-      }
-    }
-
-    // Fall back to current rating from player_ratings
-    // For players who haven't played yet, use DEFAULT_ELO
-    const currentRatingStmt = db.prepare(`
-      SELECT elo FROM player_ratings WHERE player_id = ? AND game_id = ?
-    `);
-    const currentRating = currentRatingStmt.get(playerId, gameId) as { elo: number } | undefined;
-    ratingsBefore.set(playerId, currentRating?.elo ?? DEFAULT_ELO);
-  }
-
-  // Collect all matches to replay with their participant info
-  interface MatchToReplay {
-    matchId: number;
-    teams: { team: number; player_ids: number[]; score: number }[];
-    timestamp: string;
-    notes: string | null;
-  }
-
-  const matchesToReplay: MatchToReplay[] = [];
-
-  // First match is the corrected one
+  // Build the replay list: the corrected match first, then the originals
+  const matchesToReplay: ReplayableMatch[] = [];
   matchesToReplay.push({
-    matchId: matchId,
+    matchId,
     teams: newTeams,
-    timestamp: originalTimestamp,
+    timestamp: anchorTimestamp,
     notes: originalMatch.notes
   });
 
-  // Subsequent matches
   const getParticipantsStmt = db.prepare(`
     SELECT player_id, team, score FROM match_participants WHERE match_id = ?
   `);
 
-  for (const m of allMatchesFromPoint) {
-    if (m.id === matchId) continue; // Skip the match we're correcting (already added)
+  for (const m of matchesFromAnchor) {
+    if (m.id === matchId) continue;
 
     const participants = getParticipantsStmt.all(m.id) as { player_id: number; team: number; score: number }[];
-
-    // Group by team
     const teams: { team: number; player_ids: number[]; score: number }[] = [];
     for (const p of participants) {
       let team = teams.find(t => t.team === p.team);
@@ -375,155 +599,26 @@ export function correctMatch(
     });
   }
 
-  // Use transaction for atomic correction
-  // Track the new match ID for the corrected match
-  let correctedMatchNewId: number | null = null;
-  const oldToNewMatchIds: Map<number, number> = new Map();
-
   // Delete achievements for all matches being replayed
   deleteAchievementsForMatches(matchesToReplay.map(m => m.matchId));
 
-  const doCorrection = db.transaction(() => {
-    // Delete match_participants for all matches being replayed
-    const deleteParticipantsStmt = db.prepare(`DELETE FROM match_participants WHERE match_id = ?`);
-    for (const m of matchesToReplay) {
-      deleteParticipantsStmt.run(m.matchId);
-    }
+  // Seed both ledgers from just before the correction point
+  const seasonSeed = seedRatingsBefore(gameId, anchorTimestamp, matchId, playerIds, anchorSeason);
+  const alltimeSeed = seedRatingsBefore(gameId, anchorTimestamp, matchId, playerIds, ALLTIME_SEASON_ID);
 
-    // Reset player ratings to their values before the correction point
-    const resetRatingStmt = db.prepare(`
-      UPDATE player_ratings SET elo = ? WHERE player_id = ? AND game_id = ?
-    `);
-    for (const [playerId, elo] of ratingsBefore) {
-      resetRatingStmt.run(elo, playerId, gameId);
-    }
-
-    // Ensure all players have ratings
-    for (const playerId of playerIds) {
-      if (!ratingsBefore.has(playerId)) {
-        // Create rating if doesn't exist
-        createPlayerRating(playerId, gameId);
-      }
-    }
-
-    // Replay all matches in order
-    for (const matchData of matchesToReplay) {
-      // Delete existing match record (we'll recreate)
-      if (matchData.matchId !== matchId) {
-        db.prepare(`DELETE FROM matches WHERE id = ?`).run(matchData.matchId);
-      } else {
-        // For the original match, update scores in the match record
-        db.prepare(`DELETE FROM matches WHERE id = ?`).run(matchData.matchId);
-      }
-
-      // Create new match with the same timestamp (preserve original format to avoid timezone issues)
-      const insertMatch = db.prepare(`
-        INSERT INTO matches (game_id, notes, played_at) VALUES (?, ?, ?)
-      `);
-      // Use the original timestamp string directly to preserve time
-      const playedAt = matchData.timestamp.replace('T', ' ').replace(/\.\d+Z$/, '').substring(0, 19);
-      const result = insertMatch.run(gameId, matchData.notes ?? null, playedAt);
-      const newMatchId = result.lastInsertRowid as number;
-
-      // Track the new ID for the corrected match (first one)
-      if (matchData.matchId === matchId && correctedMatchNewId === null) {
-        correctedMatchNewId = newMatchId;
-      }
-
-      // Track all old to new match IDs
-      oldToNewMatchIds.set(matchData.matchId, newMatchId);
-
-      // Calculate and apply rating changes
-      const ratingsByPlayer: Map<number, number> = new Map();
-      for (const team of matchData.teams) {
-        for (const playerId of team.player_ids) {
-          const rating = getOrCreatePlayerRating(playerId, gameId);
-          ratingsByPlayer.set(playerId, rating.elo);
-        }
-      }
-
-      // Calculate average Elo for each team
-      const teamAverageElos = matchData.teams.map(team =>
-        averageTeamElo(team.player_ids.map(id => ratingsByPlayer.get(id)!))
-      );
-
-      // Get point ratios
-      const totalScore = matchData.teams.reduce((sum, t) => sum + t.score, 0);
-      const results = totalScore === 0
-        ? matchData.teams.map(() => 1 / matchData.teams.length)
-        : matchData.teams.map(t => t.score / totalScore);
-
-      // Calculate rating changes
-      const ratingChanges: number[] = [];
-      for (let i = 0; i < matchData.teams.length; i++) {
-        let opponentElo: number;
-        if (matchData.teams.length === 2) {
-          opponentElo = teamAverageElos[1 - i];
-        } else {
-          const otherElos = teamAverageElos.filter((_, j) => j !== i);
-          opponentElo = averageTeamElo(otherElos);
-        }
-        const expected = expectedScore(teamAverageElos[i], opponentElo);
-        ratingChanges.push(K_FACTOR * (results[i] - expected));
-      }
-
-      // Update ratings and insert participants
-      const updateRatingStmt = db.prepare(`
-        UPDATE player_ratings SET elo = ? WHERE player_id = ? AND game_id = ?
-      `);
-      const insertParticipantStmt = db.prepare(`
-        INSERT INTO match_participants (match_id, player_id, team, score, elo_before, elo_after)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `);
-
-      for (let teamIndex = 0; teamIndex < matchData.teams.length; teamIndex++) {
-        const team = matchData.teams[teamIndex];
-        const change = ratingChanges[teamIndex];
-
-        for (const playerId of team.player_ids) {
-          const oldElo = ratingsByPlayer.get(playerId)!;
-          const newElo = oldElo + change;
-
-          updateRatingStmt.run(newElo, playerId, gameId);
-          insertParticipantStmt.run(newMatchId, playerId, team.team, team.score, oldElo, newElo);
-
-          // Update the map for subsequent matches
-          ratingsByPlayer.set(playerId, newElo);
-        }
-      }
-    }
+  const oldToNewMatchIds = replayCore({
+    gameId,
+    matchesToReplay,
+    seasonSeed,
+    alltimeSeed,
+    seedSeason: anchorSeason
   });
 
-  doCorrection();
-
   // Re-check achievements for all replayed matches
-  for (const matchData of matchesToReplay) {
-    const matchDate = new Date(matchData.timestamp.replace(' ', 'T'));
-    const newMatchId = oldToNewMatchIds.get(matchData.matchId);
+  recheckAchievementsForReplay(gameId, matchesToReplay, oldToNewMatchIds);
 
-    if (!newMatchId) continue;
-
-    // Get participants for this match
-    const participants = db.prepare(`
-      SELECT player_id, team, score, elo_before, elo_after FROM match_participants WHERE match_id = ?
-    `).all(newMatchId) as { player_id: number; team: number; score: number; elo_before: number; elo_after: number }[];
-
-    // Build the achievement context
-    const achievementResults = checkAchievements({
-      matchId: newMatchId,
-      gameId: gameId,
-      playedAt: matchDate,
-      teams: matchData.teams,
-      participants,
-      playerNameMap: new Map()
-    });
-
-    if (achievementResults.length > 0) {
-      saveAchievements(achievementResults, gameId);
-    }
-  }
-
-  // Mark the corrected match as edited (after transaction commits)
+  // Mark the corrected match as edited
+  const correctedMatchNewId = oldToNewMatchIds.get(matchId);
   if (correctedMatchNewId) {
     const now = new Date().toISOString().replace('T', ' ').replace(/\.\d+Z$/, '');
     db.prepare(`UPDATE matches SET is_edited = 1, edited_at = ? WHERE id = ?`).run(now, correctedMatchNewId);
@@ -534,53 +629,51 @@ export function correctMatch(
  * Check if a match is within the edit window (24 hours).
  */
 export function isWithinEditWindow(playedAt: string): boolean {
-  const matchTime = new Date(playedAt.replace(' ', 'T'));
+  const matchTime = parseDbDate(playedAt);
   const now = new Date();
   const hoursSince = (now.getTime() - matchTime.getTime()) / (1000 * 60 * 60);
   return hoursSince <= 24;
 }
 
 /**
- * Delete a match and replay all subsequent matches to recalculate ratings.
+ * Delete a match and replay all subsequent matches through both ledgers.
  */
 export function deleteMatchAndReplay(matchId: number): void {
-  // Get the match to delete
-  const matchStmt = db.prepare(`SELECT * FROM matches WHERE id = ?`);
-  const matchToDelete = matchStmt.get(matchId) as { id: number; game_id: number; played_at: string } | undefined;
+  const matchToDelete = db.prepare(`SELECT * FROM matches WHERE id = ?`)
+    .get(matchId) as { id: number; game_id: number; played_at: string; notes: string | null; season_id: number } | undefined;
 
   if (!matchToDelete) {
     throw new Error('Match not found');
   }
 
   const gameId = matchToDelete.game_id;
-  const deleteTimestamp = matchToDelete.played_at;
+  const anchorTimestamp = matchToDelete.played_at;
+  const anchorSeason = resolveSeason(anchorTimestamp);
 
-  // Get all subsequent matches for this game (in chronological order)
-  const subsequentStmt = db.prepare(`
+  // Subsequent matches in deterministic chronological order
+  const subsequentMatches = db.prepare(`
     SELECT id, played_at, notes FROM matches
-    WHERE game_id = ? AND played_at > ?
-    ORDER BY played_at ASC
-  `);
-  const subsequentMatches = subsequentStmt.all(gameId, deleteTimestamp) as { id: number; played_at: string; notes: string | null }[];
+    WHERE game_id = ? AND (played_at > ? OR (played_at = ? AND id > ?))
+    ORDER BY played_at ASC, id ASC
+  `).all(gameId, anchorTimestamp, anchorTimestamp, matchId) as { id: number; played_at: string; notes: string | null }[];
 
-  // If no subsequent matches, just delete and adjust ratings based on the deleted match's effect
+  // Fast path: nothing to replay — just reverse this match's deltas in both ledgers.
   if (subsequentMatches.length === 0) {
-    // Get the ratings change from this match and reverse it
-    const participantsStmt = db.prepare(`
-      SELECT player_id, elo_before, elo_after FROM match_participants WHERE match_id = ?
-    `);
-    const participants = participantsStmt.all(matchId) as { player_id: number; elo_before: number; elo_after: number }[];
+    const participants = db.prepare(`
+      SELECT player_id, elo_before, elo_after, alltime_elo_before, alltime_elo_after
+      FROM match_participants WHERE match_id = ?
+    `).all(matchId) as { player_id: number; elo_before: number; elo_after: number; alltime_elo_before: number; alltime_elo_after: number }[];
 
-    // Delete achievements for this match
     deleteAchievementsForMatch(matchId);
 
     const deleteTransaction = db.transaction(() => {
-      // Reverse the rating changes
       for (const p of participants) {
-        db.prepare(`UPDATE player_ratings SET elo = ? WHERE player_id = ? AND game_id = ?`).run(p.elo_before, p.player_id, gameId);
+        // Season ledger: restore the anchor season's rating (elo_before is
+        // the pre-match value of the match's own season ledger)
+        savePlayerRating(p.player_id, gameId, matchToDelete.season_id || anchorSeason, p.elo_before);
+        // All-time ledger: continuous, restore directly
+        savePlayerRating(p.player_id, gameId, ALLTIME_SEASON_ID, p.alltime_elo_before);
       }
-
-      // Delete match participants and match
       db.prepare(`DELETE FROM match_participants WHERE match_id = ?`).run(matchId);
       db.prepare(`DELETE FROM matches WHERE id = ?`).run(matchId);
     });
@@ -589,7 +682,7 @@ export function deleteMatchAndReplay(matchId: number): void {
     return;
   }
 
-  // Get all player_ids involved in subsequent matches
+  // Collect players involved in subsequent matches
   const playerIds = new Set<number>();
   for (const m of subsequentMatches) {
     const participants = db.prepare(`SELECT DISTINCT player_id FROM match_participants WHERE match_id = ?`).all(m.id) as { player_id: number }[];
@@ -598,49 +691,12 @@ export function deleteMatchAndReplay(matchId: number): void {
     }
   }
 
-  // Get ratings before the deleted match for each player
-  const prevMatchStmt = db.prepare(`
-    SELECT id FROM matches
-    WHERE game_id = ? AND played_at < ?
-    ORDER BY played_at DESC LIMIT 1
-  `);
-  const prevMatch = prevMatchStmt.get(gameId, deleteTimestamp) as { id: number } | undefined;
-
-  const ratingsBefore: Map<number, number> = new Map();
-
-  for (const playerId of playerIds) {
-    if (prevMatch) {
-      const prevEloStmt = db.prepare(`
-        SELECT elo_after FROM match_participants
-        WHERE match_id = ? AND player_id = ?
-      `);
-      const prevElo = prevEloStmt.get(prevMatch.id, playerId) as { elo_after: number } | undefined;
-      if (prevElo) {
-        ratingsBefore.set(playerId, prevElo.elo_after);
-        continue;
-      }
-    }
-
-    // Fall back to current rating
-    const currentRating = db.prepare(`SELECT elo FROM player_ratings WHERE player_id = ? AND game_id = ?`).get(playerId, gameId) as { elo: number } | undefined;
-    ratingsBefore.set(playerId, currentRating?.elo ?? DEFAULT_ELO);
-  }
-
   // Collect subsequent matches to replay
-  interface MatchToReplay {
-    matchId: number;
-    teams: { team: number; player_ids: number[]; score: number }[];
-    timestamp: string;
-    notes: string | null;
-  }
-
-  const matchesToReplay: MatchToReplay[] = [];
-
+  const matchesToReplay: ReplayableMatch[] = [];
   const getParticipantsStmt = db.prepare(`SELECT player_id, team, score FROM match_participants WHERE match_id = ?`);
 
   for (const m of subsequentMatches) {
     const participants = getParticipantsStmt.all(m.id) as { player_id: number; team: number; score: number }[];
-
     const teams: { team: number; player_ids: number[]; score: number }[] = [];
     for (const p of participants) {
       let team = teams.find(t => t.team === p.team);
@@ -663,120 +719,18 @@ export function deleteMatchAndReplay(matchId: number): void {
   deleteAchievementsForMatch(matchId);
   deleteAchievementsForMatches(matchesToReplay.map(m => m.matchId));
 
-  // Track new match IDs for achievement recalculation
-  const oldToNewMatchIds: Map<number, number> = new Map();
+  // Seed both ledgers from just before the deleted match
+  const seasonSeed = seedRatingsBefore(gameId, anchorTimestamp, matchId, playerIds, anchorSeason);
+  const alltimeSeed = seedRatingsBefore(gameId, anchorTimestamp, matchId, playerIds, ALLTIME_SEASON_ID);
 
-  // Use transaction for atomic deletion
-  const doDelete = db.transaction(() => {
-    // Delete the match to be removed
-    db.prepare(`DELETE FROM match_participants WHERE match_id = ?`).run(matchId);
-    db.prepare(`DELETE FROM matches WHERE id = ?`).run(matchId);
-
-    // Delete match_participants for subsequent matches
-    for (const m of matchesToReplay) {
-      db.prepare(`DELETE FROM match_participants WHERE match_id = ?`).run(m.matchId);
-      db.prepare(`DELETE FROM matches WHERE id = ?`).run(m.matchId);
-    }
-
-    // Reset player ratings to their values before the deleted match
-    const resetRatingStmt = db.prepare(`UPDATE player_ratings SET elo = ? WHERE player_id = ? AND game_id = ?`);
-    for (const [playerId, elo] of ratingsBefore) {
-      resetRatingStmt.run(elo, playerId, gameId);
-    }
-
-    // Ensure all players have ratings
-    for (const playerId of playerIds) {
-      if (!ratingsBefore.has(playerId)) {
-        createPlayerRating(playerId, gameId);
-      }
-    }
-
-    // Replay all subsequent matches in order
-    for (const matchData of matchesToReplay) {
-      // Create new match (preserve original timestamp format to avoid timezone issues)
-      const insertMatch = db.prepare(`INSERT INTO matches (game_id, notes, played_at) VALUES (?, ?, ?)`);
-      const playedAt = matchData.timestamp.replace('T', ' ').replace(/\.\d+Z$/, '').substring(0, 19);
-      const result = insertMatch.run(gameId, matchData.notes ?? null, playedAt);
-      const newMatchId = result.lastInsertRowid as number;
-
-      // Track the new match ID
-      oldToNewMatchIds.set(matchData.matchId, newMatchId);
-
-      // Calculate and apply rating changes
-      const ratingsByPlayer: Map<number, number> = new Map();
-      for (const team of matchData.teams) {
-        for (const playerId of team.player_ids) {
-          const rating = getOrCreatePlayerRating(playerId, gameId);
-          ratingsByPlayer.set(playerId, rating.elo);
-        }
-      }
-
-      const teamAverageElos = matchData.teams.map(team =>
-        averageTeamElo(team.player_ids.map(id => ratingsByPlayer.get(id)!))
-      );
-
-      const totalScore = matchData.teams.reduce((sum, t) => sum + t.score, 0);
-      const results = totalScore === 0
-        ? matchData.teams.map(() => 1 / matchData.teams.length)
-        : matchData.teams.map(t => t.score / totalScore);
-
-      const ratingChanges: number[] = [];
-      for (let i = 0; i < matchData.teams.length; i++) {
-        let opponentElo: number;
-        if (matchData.teams.length === 2) {
-          opponentElo = teamAverageElos[1 - i];
-        } else {
-          const otherElos = teamAverageElos.filter((_, j) => j !== i);
-          opponentElo = averageTeamElo(otherElos);
-        }
-        const expected = expectedScore(teamAverageElos[i], opponentElo);
-        ratingChanges.push(K_FACTOR * (results[i] - expected));
-      }
-
-      const updateRatingStmt = db.prepare(`UPDATE player_ratings SET elo = ? WHERE player_id = ? AND game_id = ?`);
-      const insertParticipantStmt = db.prepare(`INSERT INTO match_participants (match_id, player_id, team, score, elo_before, elo_after) VALUES (?, ?, ?, ?, ?, ?)`);
-
-      for (let teamIndex = 0; teamIndex < matchData.teams.length; teamIndex++) {
-        const team = matchData.teams[teamIndex];
-        const change = ratingChanges[teamIndex];
-
-        for (const playerId of team.player_ids) {
-          const oldElo = ratingsByPlayer.get(playerId)!;
-          const newElo = oldElo + change;
-
-          updateRatingStmt.run(newElo, playerId, gameId);
-          insertParticipantStmt.run(newMatchId, playerId, team.team, team.score, oldElo, newElo);
-
-          ratingsByPlayer.set(playerId, newElo);
-        }
-      }
-    }
+  const oldToNewMatchIds = replayCore({
+    gameId,
+    matchesToReplay,
+    seasonSeed,
+    alltimeSeed,
+    seedSeason: anchorSeason
   });
 
-  doDelete();
-
   // Re-check achievements for all replayed matches
-  for (const matchData of matchesToReplay) {
-    const matchDate = new Date(matchData.timestamp.replace(' ', 'T'));
-    const newMatchId = oldToNewMatchIds.get(matchData.matchId);
-
-    if (!newMatchId) continue;
-
-    const participants = db.prepare(`
-      SELECT player_id, team, score, elo_before, elo_after FROM match_participants WHERE match_id = ?
-    `).all(newMatchId) as { player_id: number; team: number; score: number; elo_before: number; elo_after: number }[];
-
-    const achievementResults = checkAchievements({
-      matchId: newMatchId,
-      gameId: gameId,
-      playedAt: matchDate,
-      teams: matchData.teams,
-      participants,
-      playerNameMap: new Map()
-    });
-
-    if (achievementResults.length > 0) {
-      saveAchievements(achievementResults, gameId);
-    }
-  }
+  recheckAchievementsForReplay(gameId, matchesToReplay, oldToNewMatchIds);
 }

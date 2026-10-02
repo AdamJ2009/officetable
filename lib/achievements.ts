@@ -1,8 +1,11 @@
 import db from './db';
+import { resolveSeason } from './seasons';
 
 export interface AchievementContext {
   matchId: number;
   gameId: number;
+  /** Season the match belongs to (= its season ledger). */
+  seasonId: number;
   playedAt: Date;
   teams: {
     team: number;
@@ -26,61 +29,38 @@ export interface AchievementResult {
   metadata?: object;
 }
 
-// Get rankings before a match (for boss_fight, the_best, the_worst)
-function getRankingsBeforeMatch(gameId: number, matchId: number): Map<number, number> {
-  // Get the match timestamp
-  const match = db.prepare('SELECT played_at FROM matches WHERE id = ?').get(matchId) as { played_at: string } | undefined;
-  if (!match) return new Map();
+// (Removed: stale unscoped elo read; rankings come from the season ledger
+// inside checkAchievements below.)
 
-  // Get all player ratings at the time BEFORE this match
-  // We use elo_after from the most recent match before this one for each player
-  const rankings = new Map<number, number>();
-
-  const playerRatings = db.prepare(`
-    SELECT player_id, elo FROM player_ratings WHERE game_id = ?
-  `).all(gameId) as { player_id: number; elo: number }[];
-
-  // For each player, find their elo_before from this match or their current rating
-  for (const pr of playerRatings) {
-    const participant = db.prepare(`
-      SELECT elo_before FROM match_participants
-      WHERE player_id = ? AND match_id = ?
-    `).get(pr.player_id, matchId) as { elo_before: number } | undefined;
-
-    if (participant) {
-      rankings.set(pr.player_id, participant.elo_before);
-    }
-  }
-
-  return rankings;
-}
-
-// Get player's total games in a game type, up to and including a specific match
-function getTotalGames(playerId: number, gameId: number, matchId: number): number {
+// Get player's total games in a game type within the match's season,
+// up to and including a specific match
+function getTotalGames(playerId: number, gameId: number, matchId: number, seasonId: number): number {
   const result = db.prepare(`
     SELECT COUNT(DISTINCT mp.match_id) as count
     FROM match_participants mp
     JOIN matches m ON mp.match_id = m.id
-    WHERE mp.player_id = ? AND m.game_id = ? AND m.id <= ?
-  `).get(playerId, gameId, matchId) as { count: number };
+    WHERE mp.player_id = ? AND m.game_id = ? AND m.id <= ? AND m.season_id = ?
+  `).get(playerId, gameId, matchId, seasonId) as { count: number };
   return result.count;
 }
 
-// Get player's lowest elo ever in a game type
-function getLowestElo(playerId: number, gameId: number): number | null {
+// Get player's lowest elo ever in a game type within a season (season ledger)
+function getLowestElo(playerId: number, gameId: number, seasonId: number): number | null {
   const result = db.prepare(`
     SELECT MIN(elo_before) as lowest FROM (
-      SELECT elo_before FROM match_participants mp
+      SELECT mp.elo_before FROM match_participants mp
       JOIN matches m ON mp.match_id = m.id
-      WHERE mp.player_id = ? AND m.game_id = ?
+      WHERE mp.player_id = ? AND m.game_id = ? AND m.season_id = ?
       UNION
-      SELECT elo as elo_before FROM player_ratings WHERE player_id = ? AND game_id = ?
+      SELECT elo as elo_before FROM player_ratings WHERE player_id = ? AND game_id = ? AND season_id = ?
     )
-  `).get(playerId, gameId, playerId, gameId) as { lowest: number | null } | null;
+  `).get(playerId, gameId, seasonId, playerId, gameId, seasonId) as { lowest: number | null } | null;
   return result?.lowest ?? null;
 }
 
-// Check if this is opponent's first game in this game type
+// Check if this is opponent's first game EVER in this game type (all-time
+// definition — season-scoping would let everyone re-farm this achievement
+// at every season opener). Deliberately NOT season-scoped.
 function isFirstGameForOpponent(playerId: number, gameId: number, matchId: number): boolean {
   const result = db.prepare(`
     SELECT COUNT(*) as count FROM match_participants mp
@@ -113,7 +93,7 @@ function getRankAtTime(gameId: number, playerIds: number[], eloMap: Map<number, 
 
 export function checkAchievements(context: AchievementContext): AchievementResult[] {
   const results: AchievementResult[] = [];
-  const { matchId, gameId, playedAt, teams, participants, playerNameMap } = context;
+  const { matchId, gameId, seasonId, playedAt, teams, participants, playerNameMap } = context;
 
   // Determine winners and losers
   const maxScore = Math.max(...teams.map(t => t.score));
@@ -139,10 +119,14 @@ export function checkAchievements(context: AchievementContext): AchievementResul
     eloAfterMap.set(p.player_id, p.elo_after);
   }
 
-  // Get all player IDs in this game for ranking calculation
+  // Get all player IDs in this game for ranking calculation.
+  // Rankings (boss_fight, the_best, the_worst) run on the SEASON ledger —
+  // that's the live competition. Player ratings rows for a season are
+  // current values; participants of this match override with their
+  // pre/post-match season deltas.
   const allPlayerRatings = db.prepare(`
-    SELECT player_id, elo FROM player_ratings WHERE game_id = ?
-  `).all(gameId) as { player_id: number; elo: number }[];
+    SELECT player_id, elo FROM player_ratings WHERE game_id = ? AND season_id = ?
+  `).all(gameId, seasonId) as { player_id: number; elo: number }[];
 
   const allPlayerIds = allPlayerRatings.map(r => r.player_id);
 
@@ -338,7 +322,7 @@ export function checkAchievements(context: AchievementContext): AchievementResul
   ];
 
   for (const p of participants) {
-    const totalGames = getTotalGames(p.player_id, gameId, matchId);
+    const totalGames = getTotalGames(p.player_id, gameId, matchId, seasonId);
     for (const [threshold, name] of milestones) {
       if (totalGames === threshold) {
         results.push({
@@ -351,9 +335,9 @@ export function checkAchievements(context: AchievementContext): AchievementResul
     }
   }
 
-  // Improver: Gain 100 skill points from lowest point (awarded once only)
+  // Improver: Gain 100 skill points from lowest point within the season ledger
   for (const p of participants) {
-    const lowestElo = getLowestElo(p.player_id, gameId);
+    const lowestElo = getLowestElo(p.player_id, gameId, seasonId);
     if (lowestElo !== null) {
       const currentElo = p.elo_after;
       const justReached = currentElo >= lowestElo + 100 && p.elo_before < lowestElo + 100;
@@ -361,8 +345,8 @@ export function checkAchievements(context: AchievementContext): AchievementResul
         const existing = db.prepare(`
           SELECT COUNT(*) as count FROM player_achievements pa
           JOIN achievements a ON pa.achievement_id = a.id
-          WHERE pa.player_id = ? AND pa.game_id = ? AND a.name = 'improver'
-        `).get(p.player_id, gameId) as { count: number };
+          WHERE pa.player_id = ? AND pa.game_id = ? AND pa.season_id = ? AND a.name = 'improver'
+        `).get(p.player_id, gameId, seasonId) as { count: number };
 
         if (existing.count === 0) {
           results.push({
@@ -385,10 +369,10 @@ export function checkAchievements(context: AchievementContext): AchievementResul
       SELECT mp.elo_before, mp.elo_after, m.played_at
       FROM match_participants mp
       JOIN matches m ON mp.match_id = m.id
-      WHERE mp.player_id = ? AND m.game_id = ? AND m.id <= ?
+      WHERE mp.player_id = ? AND m.game_id = ? AND m.id <= ? AND m.season_id = ?
       ORDER BY m.played_at DESC
       LIMIT 2
-    `).all(p.player_id, gameId, matchId) as { elo_before: number; elo_after: number; played_at: string }[];
+    `).all(p.player_id, gameId, matchId, seasonId) as { elo_before: number; elo_after: number; played_at: string }[];
 
     if (recentMatches.length >= 2) {
       const change1 = recentMatches[0].elo_after - recentMatches[0].elo_before;
@@ -428,9 +412,10 @@ export function checkAchievements(context: AchievementContext): AchievementResul
             AND mp1.player_id = ? AND mp2.player_id = ?
             AND mp1.team != mp2.team
             AND m.id <= ?
+            AND m.season_id = ?
           ORDER BY m.played_at DESC
           LIMIT 10
-        `).all(gameId, winnerId, loserId, matchId) as {
+        `).all(gameId, winnerId, loserId, matchId, seasonId) as {
           match_id: number;
           player1_id: number;
           player1_score: number;
@@ -449,9 +434,9 @@ export function checkAchievements(context: AchievementContext): AchievementResul
             const existingStreak = db.prepare(`
               SELECT COUNT(*) as count FROM player_achievements pa
               JOIN achievements a ON pa.achievement_id = a.id
-              WHERE pa.player_id = ? AND pa.game_id = ? AND a.name = 'the_dominator'
+              WHERE pa.player_id = ? AND pa.game_id = ? AND pa.season_id = ? AND a.name = 'the_dominator'
                 AND JSON_EXTRACT(pa.metadata, '$.victim') = ?
-            `).get(winnerId, gameId, playerNameMap.get(loserId) ?? '') as { count: number };
+            `).get(winnerId, gameId, seasonId, playerNameMap.get(loserId) ?? '') as { count: number };
 
             if (existingStreak.count === 0) {
               results.push({
@@ -475,10 +460,10 @@ export function checkAchievements(context: AchievementContext): AchievementResul
         (SELECT MAX(mp2.score) FROM match_participants mp2 WHERE mp2.match_id = mp.match_id AND mp2.team != mp.team) as opponent_score
       FROM match_participants mp
       JOIN matches m ON mp.match_id = m.id
-      WHERE mp.player_id = ? AND m.game_id = ? AND m.id <= ?
+      WHERE mp.player_id = ? AND m.game_id = ? AND m.id <= ? AND m.season_id = ?
       ORDER BY m.played_at DESC
       LIMIT 5
-    `).all(p.player_id, gameId, matchId) as { player_score: number; opponent_score: number }[];
+    `).all(p.player_id, gameId, matchId, seasonId) as { player_score: number; opponent_score: number }[];
 
     if (recentMatches.length === 5) {
       const firstMatch = recentMatches[0];
@@ -507,9 +492,9 @@ export function checkAchievements(context: AchievementContext): AchievementResul
           const existingAchievement = db.prepare(`
             SELECT COUNT(*) as count FROM player_achievements pa
             JOIN achievements a ON pa.achievement_id = a.id
-            WHERE pa.player_id = ? AND pa.game_id = ? AND a.name = 'comrades'
+            WHERE pa.player_id = ? AND pa.game_id = ? AND pa.season_id = ? AND a.name = 'comrades'
               AND JSON_EXTRACT(pa.metadata, '$.opponent') = ?
-          `).get(playerId, gameId, playerNameMap.get(opponentId) ?? '') as { count: number };
+          `).get(playerId, gameId, seasonId, playerNameMap.get(opponentId) ?? '') as { count: number };
 
           if (existingAchievement.count > 0) continue;
 
@@ -522,7 +507,8 @@ export function checkAchievements(context: AchievementContext): AchievementResul
               AND mp1.player_id = ? AND mp2.player_id = ?
               AND mp1.team != mp2.team
               AND m.id <= ?
-          `).get(gameId, playerId, opponentId, matchId) as { count: number };
+              AND m.season_id = ?
+          `).get(gameId, playerId, opponentId, matchId, seasonId) as { count: number };
 
           if (gamesAgainst.count === 100) {
             results.push({
@@ -543,9 +529,9 @@ export function checkAchievements(context: AchievementContext): AchievementResul
       SELECT DISTINCT DATE(m.played_at) as play_date
       FROM match_participants mp
       JOIN matches m ON mp.match_id = m.id
-      WHERE mp.player_id = ? AND m.game_id = ? AND m.id <= ?
+      WHERE mp.player_id = ? AND m.game_id = ? AND m.id <= ? AND m.season_id = ?
       ORDER BY play_date ASC
-    `).all(p.player_id, gameId, matchId) as { play_date: string }[];
+    `).all(p.player_id, gameId, matchId, seasonId) as { play_date: string }[];
 
     if (matchDates.length > 0) {
       const dates = matchDates.map(d => new Date(d.play_date));
@@ -568,8 +554,8 @@ export function checkAchievements(context: AchievementContext): AchievementResul
           const existing = db.prepare(`
             SELECT COUNT(*) as count FROM player_achievements pa
             JOIN achievements a ON pa.achievement_id = a.id
-            WHERE pa.player_id = ? AND pa.game_id = ? AND a.name = 'dedication'
-          `).get(p.player_id, gameId) as { count: number };
+            WHERE pa.player_id = ? AND pa.game_id = ? AND pa.season_id = ? AND a.name = 'dedication'
+          `).get(p.player_id, gameId, seasonId) as { count: number };
 
           if (existing.count === 0) {
             results.push({
@@ -588,10 +574,10 @@ export function checkAchievements(context: AchievementContext): AchievementResul
   const matchDate = playedAt.toISOString().split('T')[0];
   const firstGameOfDay = db.prepare(`
     SELECT m.id FROM matches m
-    WHERE m.game_id = ? AND DATE(m.played_at) = ?
+    WHERE m.game_id = ? AND DATE(m.played_at) = ? AND m.season_id = ?
     ORDER BY m.played_at ASC
     LIMIT 1
-  `).get(gameId, matchDate) as { id: number } | undefined;
+  `).get(gameId, matchDate, seasonId) as { id: number } | undefined;
 
   if (firstGameOfDay?.id === matchId && !isDraw) {
     for (const winnerId of winnerIds) {
@@ -607,10 +593,14 @@ export function checkAchievements(context: AchievementContext): AchievementResul
   return results;
 }
 
-export function saveAchievements(results: AchievementResult[], gameId: number): void {
+export function saveAchievements(results: AchievementResult[], gameId: number, seasonId: number): void {
+  // Re-earnable per season: rows are unique per (player, game, achievement, season)
+  // for the "awarded-once" achievements, which is enforced by the per-season
+  // dedup checks inside checkAchievements. Multiple-earn achievements (like
+  // fresh_blood) legitimately produce multiple rows.
   const insertStmt = db.prepare(`
-    INSERT INTO player_achievements (player_id, game_id, achievement_id, match_id, metadata)
-    VALUES (?, ?, (SELECT id FROM achievements WHERE name = ?), ?, ?)
+    INSERT INTO player_achievements (player_id, game_id, achievement_id, match_id, metadata, season_id)
+    VALUES (?, ?, (SELECT id FROM achievements WHERE name = ?), ?, ?, ?)
   `);
 
   for (const result of results) {
@@ -619,7 +609,8 @@ export function saveAchievements(results: AchievementResult[], gameId: number): 
       gameId,
       result.achievementName,
       result.matchId,
-      result.metadata ? JSON.stringify(result.metadata) : null
+      result.metadata ? JSON.stringify(result.metadata) : null,
+      seasonId
     );
   }
 }
@@ -634,7 +625,7 @@ export function deleteAchievementsForMatches(matchIds: number[]): void {
   db.prepare(`DELETE FROM player_achievements WHERE match_id IN (${placeholders})`).run(...matchIds);
 }
 
-export function getAchievementsForPlayer(playerId: number, gameId?: number): { achievement_id: number; achievement_name: string; achievement_description: string; achievement_category: string; count: number; first_earned_at: string }[] {
+export function getAchievementsForPlayer(playerId: number, gameId?: number, seasonId?: number): { achievement_id: number; achievement_name: string; achievement_description: string; achievement_category: string; count: number; first_earned_at: string }[] {
   let query = `
     SELECT
       a.id as achievement_id,
@@ -652,6 +643,11 @@ export function getAchievementsForPlayer(playerId: number, gameId?: number): { a
   if (gameId) {
     query += ' AND pa.game_id = ?';
     params.push(gameId);
+  }
+
+  if (seasonId !== undefined) {
+    query += ' AND pa.season_id = ?';
+    params.push(seasonId);
   }
 
   query += ' GROUP BY a.id ORDER BY a.category, a.name';
@@ -679,20 +675,26 @@ export function getAchievementsForMatch(matchId: number): { achievement_name: st
 
 /**
  * Recalculate all achievements for a game.
- * This deletes all existing achievements for the game and replays them from match history.
+ * This deletes existing achievements for the game and replays them from match
+ * history, resolving each match's season so achievements get re-earned per
+ * season correctly. Pass seasonId to restrict to a single season.
  * Returns the number of achievements awarded.
  */
-export function recalculateAchievementsForGame(gameId: number): { matchesProcessed: number; achievementsAwarded: number } {
-  // Delete all existing achievements for this game
-  db.prepare('DELETE FROM player_achievements WHERE game_id = ?').run(gameId);
+export function recalculateAchievementsForGame(gameId: number, seasonId?: number): { matchesProcessed: number; achievementsAwarded: number } {
+  // Delete existing achievements for this game (optionally one season only)
+  if (seasonId !== undefined) {
+    db.prepare('DELETE FROM player_achievements WHERE game_id = ? AND season_id = ?').run(gameId, seasonId);
+  } else {
+    db.prepare('DELETE FROM player_achievements WHERE game_id = ?').run(gameId);
+  }
 
   // Get all matches for this game in chronological order
   const matches = db.prepare(`
-    SELECT m.id, m.played_at, m.notes
+    SELECT m.id, m.played_at, m.notes, m.season_id
     FROM matches m
-    WHERE m.game_id = ?
-    ORDER BY m.played_at ASC
-  `).all(gameId) as { id: number; played_at: string; notes: string | null }[];
+    WHERE m.game_id = ?${seasonId !== undefined ? ' AND m.season_id = ?' : ''}
+    ORDER BY m.played_at ASC, m.id ASC
+  `).all(...(seasonId !== undefined ? [gameId, seasonId] : [gameId])) as { id: number; played_at: string; notes: string | null; season_id: number }[];
 
   // Get player name map
   const players = db.prepare('SELECT id, name FROM players').all() as { id: number; name: string }[];
@@ -725,10 +727,16 @@ export function recalculateAchievementsForGame(gameId: number): { matchesProcess
 
     const playedAt = new Date(match.played_at.replace(' ', 'T'));
 
+    // Season: resolve from the match's played_at (canonical), falling back to
+    // the stored season_id if the timestamp can't resolve (e.g. before the
+    // first season start).
+    const matchSeasonId = resolveSeason(match.played_at) || match.season_id || 0;
+
     // Check achievements
     const achievementResults = checkAchievements({
       matchId: match.id,
       gameId,
+      seasonId: matchSeasonId,
       playedAt,
       teams,
       participants,
@@ -736,7 +744,7 @@ export function recalculateAchievementsForGame(gameId: number): { matchesProcess
     });
 
     if (achievementResults.length > 0) {
-      saveAchievements(achievementResults, gameId);
+      saveAchievements(achievementResults, gameId, matchSeasonId);
       achievementsAwarded += achievementResults.length;
     }
   }

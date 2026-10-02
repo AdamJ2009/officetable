@@ -128,10 +128,12 @@ Queued seasons are promoted in Google Chat automatically (scheduler in
   09:00 that day, or at the start time if it's later)
 
 Messages go out at 09:00 office time (the server's local timezone) — never
-at midnight. A milestone stays sendable for 72 hours after its scheduled
-time (covers evenings/weekends) and is then skipped as stale; countdown
-messages are never sent after the season has actually begun. Sends are
-logged in `season_hype` so nothing ever posts twice.
+at midnight — and scheduling is weekday-aware: when a milestone would land
+on a weekend, it nudges back to Friday 09:00 (the copy adapts, e.g. "starts
+Monday!"). A milestone stays sendable for 72 hours after its scheduled time
+and is then skipped as stale; countdown messages are never sent after the
+season has actually begun. Sends are logged in `season_hype` so nothing
+ever posts twice.
 
 Test it with: `npx tsx scripts/test-season-hype.ts` (queues a throwaway
 season, forces each milestone's clock so the cards send immediately to the

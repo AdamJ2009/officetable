@@ -42,11 +42,31 @@ function scheduledFor(seasonStart: Date, daysBefore: number): Date {
   const scheduled = new Date(seasonStart.getTime());
   scheduled.setDate(scheduled.getDate() - daysBefore);
   scheduled.setHours(SEND_HOUR, 0, 0, 0);
+  // Weekend? Countdown hype lands in working hours instead: nudge the
+  // milestone back to Friday 09:00 (sending later would defeat the point).
+  if (daysBefore > 0) {
+    const weekday = scheduled.getDay();
+    if (weekday === 6) scheduled.setDate(scheduled.getDate() - 1); // Sat -> Fri
+    else if (weekday === 0) scheduled.setDate(scheduled.getDate() - 2); // Sun -> Fri
+  }
   // "It's live!" only makes sense once the season has actually rolled over
   if (daysBefore === 0 && scheduled < seasonStart) {
     return new Date(seasonStart.getTime());
   }
   return scheduled;
+}
+
+/** Calendar days between two moments' local dates (DST-safe). */
+function calendarDaysBetween(from: Date, to: Date): number {
+  const a = new Date(from.getTime());
+  a.setHours(0, 0, 0, 0);
+  const b = new Date(to.getTime());
+  b.setHours(0, 0, 0, 0);
+  return Math.round((b.getTime() - a.getTime()) / 86400000);
+}
+
+function weekdayName(date: Date): string {
+  return date.toLocaleDateString('en-GB', { weekday: 'long' });
 }
 
 function parseDbDateUtc(dateStr: string): Date {
@@ -61,31 +81,47 @@ function formatDbDate(dateStr: string): string {
   });
 }
 
-function buildHypeMessage(milestone: Milestone, season: Season, currentSeason: Season | null) {
+function buildHypeMessage(
+  milestone: Milestone,
+  season: Season,
+  currentSeason: Season | null,
+  scheduled: Date
+) {
   const kickoff = formatDbDate(season.start_date);
   const baseUrl = process.env.NEXT_PUBLIC_BASE_URL;
   const seasonLabel = `<b>${season.name}</b>`;
   const currentLabel = currentSeason ? `<b>${currentSeason.name}</b>` : 'the current season';
+  // Calendar days between the send date and the season start (copy stays
+  // truthful even when a weekend nudge moved the milestone to Friday)
+  const seasonStart = parseDbDateUtc(season.start_date);
+  const daysAhead = Math.max(1, calendarDaysBetween(scheduled, seasonStart));
+  const weekday = weekdayName(seasonStart);
 
   switch (milestone.key) {
-    case 'week':
+    case 'week': {
+      const daysPhrase = daysAhead === 7 ? 'In one week' : `In ${daysAhead} days`;
       return {
-        title: `⏳ One week to go until ${season.name}!`,
+        title: daysAhead === 7
+          ? `⏳ One week to go until ${season.name}!`
+          : `⏳ ${daysAhead} days to go until ${season.name}!`,
         subtitle: `New season begins ${kickoff}`,
         paragraphs: [
-          `In one week, ${seasonLabel} kicks off and the board resets to zero.`,
+          `${daysPhrase}, ${seasonLabel} kicks off and the board resets to zero.`,
           `Make it count: finish as high as you can in ${currentLabel} before the reset — every point between now and then is permanent bragging rights. 🏆`,
         ],
         linkUrl: baseUrl,
         linkText: 'See the current standings',
       };
+    }
     case 'day':
       return {
-        title: `🚨 ${season.name} starts tomorrow!`,
-        subtitle: `Final day of ${currentSeason?.name ?? 'the current season'}`,
+        title: daysAhead === 1
+          ? `🚨 ${season.name} starts tomorrow!`
+          : `🚨 ${season.name} starts ${weekday}!`,
+        subtitle: `Final days of ${currentSeason?.name ?? 'the current season'}`,
         paragraphs: [
-          `${seasonLabel} begins ${kickoff} — one last day to climb.`,
-          `Whether you're chasing the top or scrambling off the bottom, ${currentLabel} won't wait. A win today matters forever. 💪`,
+          `${seasonLabel} begins ${kickoff} — the final stretch to climb.`,
+          `Whether you're chasing the top or scrambling off the bottom, ${currentLabel} won't wait. A win before the reset matters forever. 💪`,
         ],
         linkUrl: baseUrl,
         linkText: 'Check where you stand',
@@ -136,7 +172,8 @@ export async function checkSeasonHype(nowOverride?: Date): Promise<HypeCheckResu
       const startMs = seasonStart.getTime();
 
       for (const milestone of MILESTONES) {
-        const scheduledMs = scheduledFor(seasonStart, milestone.daysBefore).getTime();
+        const scheduled = scheduledFor(seasonStart, milestone.daysBefore);
+        const scheduledMs = scheduled.getTime();
 
         if (nowMs < scheduledMs) { result.skipped++; continue; } // not due yet
         if (nowMs > scheduledMs + GRACE_HOURS * 3600000) { result.skipped++; continue; } // stale
@@ -149,7 +186,7 @@ export async function checkSeasonHype(nowOverride?: Date): Promise<HypeCheckResu
           continue;
         }
 
-        const message = buildHypeMessage(milestone, season, currentSeason);
+        const message = buildHypeMessage(milestone, season, currentSeason, scheduled);
         try {
           await sendAnnouncementNotification(message);
         } catch (err) {

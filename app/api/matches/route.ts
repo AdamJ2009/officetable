@@ -27,6 +27,11 @@ export async function GET(request: NextRequest) {
   // Season scoping: scope=season (default, current season) | alltime;
   // optional season_id selects a specific (past) season.
   const targetSeasonId = resolveScopeSeasonId(searchParams.get('scope'), searchParams.get('season_id'));
+  const isAllTime = targetSeasonId === 0;
+  // The Elo deltas shown per match belong to the ledger being viewed:
+  // season views show that ledger's swing, all time shows the continuous one.
+  const eloBeforeCol = isAllTime ? 'mp.alltime_elo_before' : 'mp.elo_before';
+  const eloAfterCol = isAllTime ? 'mp.alltime_elo_after' : 'mp.elo_after';
 
   // Parse player_ids (comma-separated)
   const playerIds = playerIdsStr
@@ -79,10 +84,10 @@ export async function GET(request: NextRequest) {
     whereConditions.push('EXISTS (SELECT 1 FROM player_achievements pa WHERE pa.match_id = m.id)');
   }
 
-  // Min skill change filter
+  // Min skill change filter — interpreted in the viewed ledger
   if (minSkillChange) {
     const minChange = parseFloat(minSkillChange);
-    whereConditions.push('EXISTS (SELECT 1 FROM match_participants mp WHERE mp.match_id = m.id AND ABS(mp.elo_after - mp.elo_before) >= ?)');
+    whereConditions.push(`EXISTS (SELECT 1 FROM match_participants mp WHERE mp.match_id = m.id AND ABS(${eloAfterCol} - ${eloBeforeCol}) >= ?)`);
     params.push(minChange);
   }
 
@@ -114,9 +119,14 @@ export async function GET(request: NextRequest) {
   const stmt = db.prepare(matchesQuery);
   const matches = stmt.all(...params);
 
-  // Get participants for each match
+  // Get participants for each match, with the viewed ledger's deltas aliased
+  // to elo_before/elo_after (raw season + all-time values included too)
   const participantsStmt = db.prepare(`
-    SELECT mp.*, p.name as player_name, p.avatar_url
+    SELECT mp.id, mp.match_id, mp.player_id, mp.team, mp.score,
+           ${eloBeforeCol} as elo_before, ${eloAfterCol} as elo_after,
+           mp.elo_before as season_elo_before, mp.elo_after as season_elo_after,
+           mp.alltime_elo_before, mp.alltime_elo_after,
+           p.name as player_name, p.avatar_url
     FROM match_participants mp
     JOIN players p ON mp.player_id = p.id
     WHERE mp.match_id = ?

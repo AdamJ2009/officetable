@@ -278,7 +278,7 @@ export default function LeaderboardClient({
         const [leaderboardData, statsData, recordsData] = await Promise.all([
           fetch(`/api/leaderboard?game_id=${selectedGameId}&include_retired=${showRetired}&include_inactive=${showInactive}${scopeParams}`).then(res => res.json()),
           fetch(`/api/game-stats?game_id=${selectedGameId}${scopeParams}`).then(res => res.json()),
-          fetch(`/api/game-records?game_id=${selectedGameId}`).then(res => res.json())
+          fetch(`/api/game-records?game_id=${selectedGameId}${scopeParams}`).then(res => res.json())
         ]);
         setLeaderboard(leaderboardData);
         if (statsData && !statsData.error) setGameStats(statsData);

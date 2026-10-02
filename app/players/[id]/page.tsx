@@ -155,14 +155,33 @@ export default function PlayerProfilePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedGameId, setSelectedGameId] = useState<number | null>(null);
-  // season = current season ledger (default); alltime = never-resetting ledger
-  const [scope, setScope] = useState<'season' | 'alltime'>('season');
+  // season view: 'current' (default) | 'alltime' | a specific season id
+  const [seasonView, setSeasonView] = useState<'current' | 'alltime' | number>('current');
+  const [seasons, setSeasons] = useState<{ id: number; name: string; start_date: string; end_date: string | null; is_current: boolean }[]>([]);
+  const [currentSeasonId, setCurrentSeasonId] = useState<number | null>(null);
+
+  // Scope params for stats/head-to-head fetches
+  const scopeParams = seasonView === 'alltime'
+    ? '&scope=alltime'
+    : seasonView !== 'current'
+      ? `&season_id=${seasonView}`
+      : '';
   const [headToHeadData, setHeadToHeadData] = useState<Map<number, HeadToHeadOpponent[]>>(new Map());
   const [headToHeadLoading, setHeadToHeadLoading] = useState<Set<number>>(new Set());
   const [expandedGames, setExpandedGames] = useState<Set<number>>(new Set());
 
   useEffect(() => {
-    fetch(`/api/player-stats?player_id=${playerId}&scope=${scope}`)
+    fetch('/api/seasons')
+      .then((res) => res.json())
+      .then((data) => {
+        setSeasons(data.seasons || []);
+        setCurrentSeasonId(data.current_season_id ?? null);
+      })
+      .catch((err) => console.error('Failed to load seasons:', err));
+  }, []);
+
+  useEffect(() => {
+    fetch(`/api/player-stats?player_id=${playerId}${scopeParams}`)
       .then((res) => {
         if (!res.ok) throw new Error("Player not found");
         return res.json();
@@ -175,13 +194,13 @@ export default function PlayerProfilePage() {
         setError(err.message);
         setLoading(false);
       });
-  }, [playerId, scope]);
+  }, [playerId, seasonView]);
 
   const loadHeadToHead = (gameId: number) => {
     if (headToHeadData.has(gameId) || headToHeadLoading.has(gameId)) return;
 
     setHeadToHeadLoading(prev => new Set(prev).add(gameId));
-    fetch(`/api/head-to-head?player_id=${playerId}&game_id=${gameId}&scope=${scope}`)
+    fetch(`/api/head-to-head?player_id=${playerId}&game_id=${gameId}${scopeParams}`)
       .then(res => res.json())
       .then(data => {
         setHeadToHeadData(prev => {
@@ -205,16 +224,7 @@ export default function PlayerProfilePage() {
     if (selectedGameId !== null) {
       loadHeadToHead(selectedGameId);
     }
-  }, [selectedGameId, scope]);
-
-  // Reload head-to-head cache when the scope changes
-  const switchScope = (next: 'season' | 'alltime') => {
-    if (next !== scope) {
-      setHeadToHeadData(new Map());
-      setHeadToHeadLoading(new Set());
-      setScope(next);
-    }
-  };
+  }, [selectedGameId, seasonView, scopeParams]);
 
   // Group matches by game
   const matchesByGame: Record<number, RecentMatch[]> = {};
@@ -304,28 +314,36 @@ export default function PlayerProfilePage() {
         }}
       />
 
-      {/* Season / All-time scope toggle */}
-      <div className="mb-6 flex items-center gap-2">
-        <div className="flex bg-gray-100 rounded-lg p-1">
-          <button
-            onClick={() => switchScope('season')}
-            className={`px-4 py-1.5 text-sm rounded-md transition-colors ${
-              scope === 'season' ? 'bg-white shadow font-semibold text-gray-900' : 'text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            Current Season
-          </button>
-          <button
-            onClick={() => switchScope('alltime')}
-            className={`px-4 py-1.5 text-sm rounded-md transition-colors ${
-              scope === 'alltime' ? 'bg-white shadow font-semibold text-gray-900' : 'text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            All Time
-          </button>
-        </div>
-        {scope === 'season' && (
-          <span className="text-xs text-gray-400">season skill resets to 0 at each season start</span>
+      {/* Season scope picker: current season, any past season, or all time */}
+      <div className="mb-6 flex items-center gap-3">
+        <select
+          value={seasonView === 'alltime' ? 'alltime' : seasonView === 'current' ? `current:${currentSeasonId}` : String(seasonView)}
+          onChange={(e) => {
+            const val = e.target.value;
+            setHeadToHeadData(new Map());
+            setHeadToHeadLoading(new Set());
+            if (val === 'alltime') {
+              setSeasonView('alltime');
+            } else if (val.startsWith('current:') || val === String(currentSeasonId)) {
+              setSeasonView('current');
+            } else {
+              setSeasonView(parseInt(val, 10));
+            }
+          }}
+          className="bg-gray-200 text-gray-800 px-4 py-2 rounded-lg hover:bg-gray-300 transition-colors text-sm font-medium"
+        >
+          <option value={`current:${currentSeasonId}`}>
+            {seasons.find(s => s.id === currentSeasonId)?.name ?? 'Current Season'}
+          </option>
+          {seasons.filter(s => s.id !== currentSeasonId).map(s => (
+            <option key={s.id} value={s.id}>{s.name}</option>
+          ))}
+          <option value="alltime">🏆 All Time</option>
+        </select>
+        {seasonView !== 'alltime' && (
+          <span className="text-xs text-gray-400">
+            {seasonView === 'current' ? 'season skill resets to 0 at each season start' : 'viewing a past season'}
+          </span>
         )}
       </div>
 

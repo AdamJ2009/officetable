@@ -289,7 +289,35 @@ export function getGameStats(gameId: number, options: { scope?: 'season' | 'allt
   };
 }
 
-export function getGameRecords(gameId: number): GameRecords {
+export interface GameRecordsOptions {
+  scope?: 'season' | 'alltime';
+  /** Explicit season id (takes precedence over scope). */
+  seasonId?: number;
+}
+
+export function getGameRecords(gameId: number, options: GameRecordsOptions = {}): GameRecords {
+  // Records are computed in the scope being viewed: for a season, every
+  // query filters to that season's matches and uses its ledger's elo columns;
+  // for all-time, matches run free and the continuous alltime ledger is used.
+  const { scope = 'season' } = options;
+  const currentSeasonRow = getCurrentSeason();
+  let targetSeasonId: number;
+  if (options.seasonId !== undefined) {
+    targetSeasonId = options.seasonId === ALLTIME_SEASON_ID || getSeason(options.seasonId)
+      ? options.seasonId
+      : (currentSeasonRow?.id ?? ALLTIME_SEASON_ID);
+  } else {
+    targetSeasonId = scope === 'alltime' ? ALLTIME_SEASON_ID : (currentSeasonRow?.id ?? ALLTIME_SEASON_ID);
+  }
+  const isAllTime = targetSeasonId === ALLTIME_SEASON_ID;
+  const seasonFilter = isAllTime ? '' : 'AND m.season_id = ?';
+  const eloAfterCol = isAllTime ? 'mp.alltime_elo_after' : 'mp.elo_after';
+  const eloDeltaExpr = isAllTime
+    ? 'mp.alltime_elo_after - mp.alltime_elo_before'
+    : 'mp.elo_after - mp.elo_before';
+  const scopeParams = (base: (string | number)[]): (string | number)[] =>
+    isAllTime ? base : [...base, targetSeasonId];
+
   const records: GameRecords = {
     highest_skill: null,
     lowest_skill: null,
@@ -304,72 +332,72 @@ export function getGameRecords(gameId: number): GameRecords {
     biggest_skill_loss: null
   };
 
-  // Highest current skill (current-season ledger, active players only)
+  // Highest skill in the viewed ledger (active players only)
   const highestSkill = db.prepare(`
     SELECT pr.player_id, p.name as player_name, pr.elo as value
     FROM player_ratings pr
     JOIN players p ON pr.player_id = p.id
-    WHERE pr.game_id = ? AND pr.season_id = (SELECT id FROM seasons WHERE start_date <= datetime('now') ORDER BY start_date DESC, id DESC LIMIT 1)
+    WHERE pr.game_id = ? AND pr.season_id = ?
       AND (p.status IS NULL OR p.status = 'active')
     ORDER BY pr.elo DESC, p.name ASC
     LIMIT 1
-  `).get(gameId) as Record | undefined;
+  `).get(gameId, targetSeasonId) as Record | undefined;
   records.highest_skill = highestSkill || null;
 
-  // Lowest current skill (current-season ledger, active players with at least 5 games)
+  // Lowest skill in the viewed ledger (active players with at least 5 in-scope games)
   const lowestSkill = db.prepare(`
     SELECT pr.player_id, p.name as player_name, pr.elo as value
     FROM player_ratings pr
     JOIN players p ON pr.player_id = p.id
-    WHERE pr.game_id = ? AND pr.season_id = (SELECT id FROM seasons WHERE start_date <= datetime('now') ORDER BY start_date DESC, id DESC LIMIT 1)
+    WHERE pr.game_id = ? AND pr.season_id = ?
       AND (p.status IS NULL OR p.status = 'active')
     AND (
       SELECT COUNT(*) FROM match_participants mp
       JOIN matches m ON mp.match_id = m.id
-      WHERE mp.player_id = pr.player_id AND m.game_id = ?
+      WHERE mp.player_id = pr.player_id AND m.game_id = ?${seasonFilter}
     ) >= 5
     ORDER BY pr.elo ASC, p.name ASC
     LIMIT 1
-  `).get(gameId, gameId) as Record | undefined;
+  `).get(...scopeParams([gameId, targetSeasonId, gameId])) as Record | undefined;
   records.lowest_skill = lowestSkill || null;
 
-  // Peak skill ever reached (all-time ledger — never resets)
+  // Peak skill reached in the viewed ledger
   const peakSkillEver = db.prepare(`
     SELECT
       mp.player_id,
       p.name as player_name,
-      mp.alltime_elo_after as value,
+      ${eloAfterCol} as value,
       m.played_at as date
     FROM match_participants mp
     JOIN players p ON mp.player_id = p.id
     JOIN matches m ON mp.match_id = m.id
-    WHERE m.game_id = ?
-    ORDER BY mp.alltime_elo_after DESC, p.name ASC
+    WHERE m.game_id = ?${seasonFilter}
+    ORDER BY value DESC, p.name ASC
     LIMIT 1
-  `).get(gameId) as Record | undefined;
+  `).get(...scopeParams([gameId])) as Record | undefined;
   records.peak_skill_ever = peakSkillEver || null;
 
-  // Trough skill ever (all-time ledger, min 5 games at that point)
+  // Trough skill in the viewed ledger (min 5 in-scope games at that point)
   const troughSkillEver = db.prepare(`
     SELECT
       mp.player_id,
       p.name as player_name,
-      mp.alltime_elo_after as value,
+      ${eloAfterCol} as value,
       m.played_at as date
     FROM match_participants mp
     JOIN players p ON mp.player_id = p.id
     JOIN matches m ON mp.match_id = m.id
-    WHERE m.game_id = ? AND (
+    WHERE m.game_id = ?${seasonFilter} AND (
       SELECT COUNT(*) FROM match_participants mp2
       JOIN matches m2 ON mp2.match_id = m2.id
-      WHERE mp2.player_id = mp.player_id AND m2.game_id = ? AND m2.played_at <= m.played_at
+      WHERE mp2.player_id = mp.player_id AND m2.game_id = ?${seasonFilter.replace(/\bm\.season_id/g, 'm2.season_id')} AND m2.played_at <= m.played_at
     ) >= 5
-    ORDER BY mp.alltime_elo_after ASC, p.name ASC
+    ORDER BY value ASC, p.name ASC
     LIMIT 1
-  `).get(gameId, gameId) as Record | undefined;
+  `).get(...(isAllTime ? [gameId, gameId] : [gameId, targetSeasonId, gameId, targetSeasonId])) as Record | undefined;
   records.trough_skill_ever = troughSkillEver || null;
 
-  // Most games played
+  // Most games played (in scope)
   const mostGames = db.prepare(`
     SELECT
       mp.player_id,
@@ -378,11 +406,11 @@ export function getGameRecords(gameId: number): GameRecords {
     FROM match_participants mp
     JOIN players p ON mp.player_id = p.id
     JOIN matches m ON mp.match_id = m.id
-    WHERE m.game_id = ?
+    WHERE m.game_id = ?${seasonFilter}
     GROUP BY mp.player_id
-    ORDER BY value DESC
+    ORDER BY value DESC, p.name ASC
     LIMIT 1
-  `).get(gameId) as Record | undefined;
+  `).get(...scopeParams([gameId])) as Record | undefined;
   records.most_games = mostGames || null;
 
   // Highest win rate (min 20 games)
@@ -397,15 +425,15 @@ export function getGameRecords(gameId: number): GameRecords {
     FROM match_participants mp
     JOIN players p ON mp.player_id = p.id
     JOIN matches m ON mp.match_id = m.id
-    WHERE m.game_id = ?
+    WHERE m.game_id = ?${seasonFilter}
     GROUP BY mp.player_id
     HAVING COUNT(*) >= 20
-    ORDER BY value DESC
+    ORDER BY value DESC, p.name ASC
     LIMIT 1
-  `).get(gameId) as Record | undefined;
+  `).get(...scopeParams([gameId])) as Record | undefined;
   records.highest_win_rate = highestWinRate || null;
 
-  // Calculate streaks - fetch all match data in a single query (avoiding N+1)
+  // Calculate streaks - fetch all in-scope match data in a single query (avoiding N+1)
   const allMatchResults = db.prepare(`
     SELECT
       mp.player_id,
@@ -417,9 +445,9 @@ export function getGameRecords(gameId: number): GameRecords {
     FROM match_participants mp
     JOIN players p ON mp.player_id = p.id
     JOIN matches m ON mp.match_id = m.id
-    WHERE m.game_id = ?
-    ORDER BY m.played_at ASC
-  `).all(gameId) as { player_id: number; player_name: string; played_at: string; score: number; team: number; match_id: number }[];
+    WHERE m.game_id = ?${seasonFilter}
+    ORDER BY m.played_at ASC, m.id ASC
+  `).all(...scopeParams([gameId])) as { player_id: number; player_name: string; played_at: string; score: number; team: number; match_id: number }[];
 
   // Build a map of match_id -> team scores for quick lookup
   const matchTeamScores: Map<number, Map<number, number>> = new Map();
@@ -546,36 +574,36 @@ export function getGameRecords(gameId: number): GameRecords {
     };
   }
 
-  // Biggest single game skill gain
+  // Biggest single game skill gain (viewed ledger)
   const biggestGain = db.prepare(`
     SELECT
       mp.player_id,
       p.name as player_name,
-      (mp.elo_after - mp.elo_before) as value,
+      ${eloDeltaExpr} as value,
       m.played_at as date
     FROM match_participants mp
     JOIN players p ON mp.player_id = p.id
     JOIN matches m ON mp.match_id = m.id
-    WHERE m.game_id = ?
-    ORDER BY value DESC
+    WHERE m.game_id = ?${seasonFilter}
+    ORDER BY value DESC, p.name ASC
     LIMIT 1
-  `).get(gameId) as Record | undefined;
+  `).get(...scopeParams([gameId])) as Record | undefined;
   records.biggest_skill_gain = biggestGain || null;
 
-  // Biggest single game skill loss
+  // Biggest single game skill loss (viewed ledger)
   const biggestLoss = db.prepare(`
     SELECT
       mp.player_id,
       p.name as player_name,
-      (mp.elo_before - mp.elo_after) as value,
+      -(${eloDeltaExpr}) as value,
       m.played_at as date
     FROM match_participants mp
     JOIN players p ON mp.player_id = p.id
     JOIN matches m ON mp.match_id = m.id
-    WHERE m.game_id = ?
-    ORDER BY value DESC
+    WHERE m.game_id = ?${seasonFilter}
+    ORDER BY value DESC, p.name ASC
     LIMIT 1
-  `).get(gameId) as Record | undefined;
+  `).get(...scopeParams([gameId])) as Record | undefined;
   records.biggest_skill_loss = biggestLoss || null;
 
   return records;

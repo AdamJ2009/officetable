@@ -78,7 +78,7 @@ export function PlayerHeader({ player, achievementUnlocked, achievementTotal, on
                 {player.name}
               </h1>
               {player.status === "retired" && (
-                <span className="px-3 py-1 bg-gray-600 text-gray-200 text-sm rounded-full font-medium">
+                <span className="px-3 py-1 bg-gray-600 text-gray-200 dark:bg-[#333c4f] dark:text-[#a7aebb] text-sm rounded-full font-medium">
                   Retired
                 </span>
               )}

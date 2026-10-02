@@ -161,7 +161,7 @@ export function GameSection({
   const rivalsOpponents = headToHeadData.get(game.game_id) || [];
 
   return (
-    <div className={showHeader ? "bg-white rounded-2xl shadow-lg overflow-hidden" : ""}>
+    <div className={showHeader ? "bg-card rounded-2xl shadow-lg overflow-hidden" : ""}>
       {/* Game header */}
       {showHeader && (
       <div className="px-6 py-4 bg-gradient-to-r from-slate-100 to-slate-50 flex items-center justify-between">
@@ -193,15 +193,15 @@ export function GameSection({
 
       {/* Stats Grid */}
       <div className="grid grid-cols-3 sm:grid-cols-6 gap-px bg-gray-100">
-        <div className="bg-white p-4 text-center">
+        <div className="bg-card p-4 text-center">
           <div className="text-2xl font-bold font-mono text-primary">{game.elo.toFixed(3)}</div>
           <div className="text-xs text-gray-500 mt-1">Rating</div>
         </div>
-        <div className="bg-white p-4 text-center">
+        <div className="bg-card p-4 text-center">
           <div className="text-2xl font-bold">{game.total_matches}</div>
           <div className="text-xs text-gray-500 mt-1">Matches</div>
         </div>
-        <div className="bg-white p-4 text-center">
+        <div className="bg-card p-4 text-center">
           <div className="text-2xl font-bold">
             <span className="text-green-600">{game.wins}</span>
             <span className="text-gray-300">/</span>
@@ -211,11 +211,11 @@ export function GameSection({
           </div>
           <div className="text-xs text-gray-500 mt-1">W/L/D</div>
         </div>
-        <div className="bg-white p-4 text-center">
+        <div className="bg-card p-4 text-center">
           <div className="text-2xl font-bold">{winRate}%</div>
           <div className="text-xs text-gray-500 mt-1">Win Rate</div>
         </div>
-        <div className="bg-white p-4 text-center">
+        <div className="bg-card p-4 text-center">
           <div className="text-2xl font-bold">
             <span className="text-green-600">{game.points_scored}</span>
             <span className="text-gray-300">-</span>
@@ -223,7 +223,7 @@ export function GameSection({
           </div>
           <div className="text-xs text-gray-500 mt-1">Points</div>
         </div>
-        <div className="bg-white p-4 text-center">
+        <div className="bg-card p-4 text-center">
           <div className={`text-2xl font-bold ${pointRatio >= 1 ? "text-green-600" : "text-red-600"}`}>
             {pointRatio >= 999 ? '∞' : pointRatio.toFixed(3)}
           </div>
@@ -238,21 +238,21 @@ export function GameSection({
           <span className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Records</span>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-          <div className="bg-white rounded-xl p-3 shadow-sm">
+          <div className="bg-card rounded-xl p-3 shadow-sm">
             <div className="text-xs text-gray-500 mb-1">Peak Rating</div>
             <div className="font-bold font-mono text-green-700 text-lg">{game.records.highest_elo.toFixed(3)}</div>
             {game.records.highest_elo_date && (
               <div className="text-xs text-gray-400">{formatDate(game.records.highest_elo_date)}</div>
             )}
           </div>
-          <div className="bg-white rounded-xl p-3 shadow-sm">
+          <div className="bg-card rounded-xl p-3 shadow-sm">
             <div className="text-xs text-gray-500 mb-1">Lowest Rating</div>
             <div className="font-bold font-mono text-red-700 text-lg">{game.records.lowest_elo.toFixed(3)}</div>
             {game.records.lowest_elo_date && (
               <div className="text-xs text-gray-400">{formatDate(game.records.lowest_elo_date)}</div>
             )}
           </div>
-          <div className="bg-white rounded-xl p-3 shadow-sm">
+          <div className="bg-card rounded-xl p-3 shadow-sm">
             <div className="text-xs text-gray-500 mb-1">Best Win Streak</div>
             <div className="font-bold text-green-700 text-lg">{game.records.longest_win_streak} 🔥</div>
             {game.records.longest_win_streak_start && game.records.longest_win_streak_end && (
@@ -264,7 +264,7 @@ export function GameSection({
               </div>
             )}
           </div>
-          <div className="bg-white rounded-xl p-3 shadow-sm">
+          <div className="bg-card rounded-xl p-3 shadow-sm">
             <div className="text-xs text-gray-500 mb-1">Worst Lose Streak</div>
             <div className="font-bold text-red-700 text-lg">{game.records.longest_lose_streak} 😢</div>
             {game.records.longest_lose_streak_start && game.records.longest_lose_streak_end && (
@@ -276,7 +276,7 @@ export function GameSection({
               </div>
             )}
           </div>
-          <div className="bg-white rounded-xl p-3 shadow-sm">
+          <div className="bg-card rounded-xl p-3 shadow-sm">
             <div className="text-xs text-gray-500 mb-1">Unbeaten Run</div>
             <div className="font-bold text-blue-700 text-lg">{game.records.longest_unbeaten_streak} 💪</div>
             {game.records.longest_unbeaten_streak_start && game.records.longest_unbeaten_streak_end && (

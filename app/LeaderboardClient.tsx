@@ -176,12 +176,12 @@ function LeaderboardEmptyState({
           <h2 className="text-2xl font-bold mb-1">
             {viewedSeason.name} kicks off {formatDbDate(viewedSeason.start_date)}
           </h2>
-          <p className="text-amber-100 mb-8">Everyone starts from zero — a clean slate for glory.</p>
+          <p className="text-white/85 mb-8">Everyone starts from zero — a clean slate for glory.</p>
           <div className="flex justify-center gap-3">
             {units.map((unit) => (
-              <div key={unit.label} className="bg-white/15 rounded-xl px-5 py-4 min-w-[80px]">
+              <div key={unit.label} className="bg-card/15 rounded-xl px-5 py-4 min-w-[80px]">
                 <div className="text-4xl font-bold tabular-nums">{unit.value}</div>
-                <div className="text-xs uppercase tracking-wide text-amber-100 mt-1">{unit.label}</div>
+                <div className="text-xs uppercase tracking-wide text-white/85 mt-1">{unit.label}</div>
               </div>
             ))}
           </div>
@@ -194,7 +194,7 @@ function LeaderboardEmptyState({
   if (viewedSeason?.is_current || seasonView === 'current') {
     if (seasonMatchCount > 0) {
       return (
-        <div className="bg-white rounded-2xl shadow-lg p-10 text-center">
+        <div className="bg-card rounded-2xl shadow-lg p-10 text-center">
           <div className="text-6xl mb-4">💤</div>
           <h2 className="text-2xl font-bold text-gray-900 mb-2">Everyone&apos;s gone quiet...</h2>
           <p className="text-gray-500 mb-2">
@@ -215,7 +215,7 @@ function LeaderboardEmptyState({
     }
 
     return (
-      <div className="bg-white rounded-2xl shadow-lg p-10 text-center">
+      <div className="bg-card rounded-2xl shadow-lg p-10 text-center">
         <div className="text-6xl mb-4">🏁</div>
         <h2 className="text-2xl font-bold text-gray-900 mb-2">
           {viewedSeason ? `${viewedSeason.name} is live!` : 'A new season is live!'}
@@ -236,7 +236,7 @@ function LeaderboardEmptyState({
   // All-time / closed season / nothing loaded yet
   const seasonName = seasonView === 'alltime' ? null : viewedSeason?.name ?? null;
   return (
-    <div className="bg-white rounded-2xl shadow-lg p-10 text-center">
+    <div className="bg-card rounded-2xl shadow-lg p-10 text-center">
       <div className="text-6xl mb-4">🏏</div>
       <h2 className="text-2xl font-bold text-gray-900 mb-2">Nothing on the board yet</h2>
       {seasonName ? (
@@ -360,7 +360,7 @@ export default function LeaderboardClient({
       {(viewedSeason || nextSeason) && (
         <div className="mb-4 flex flex-wrap items-center gap-3">
           {viewedSeason && (
-            <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-600">
+            <div className="flex items-center gap-2 bg-card border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-600">
               <span>🗓️</span>
               <span className="font-semibold text-gray-800">{viewedSeason.name}</span>
               <span>
@@ -457,31 +457,31 @@ export default function LeaderboardClient({
           <div className="bg-gradient-to-br from-slate-800 to-slate-900 rounded-xl p-5 text-white shadow-lg">
             <div className="flex items-center gap-2 mb-2">
               <span className="text-2xl">🎮</span>
-              <span className="text-sm font-medium text-slate-300 uppercase tracking-wide">Matches</span>
+              <span className="text-sm font-medium text-slate-200 uppercase tracking-wide">Matches</span>
             </div>
             <div className="text-3xl font-bold">{gameStats.total_matches.toLocaleString()}</div>
           </div>
           <div className="bg-gradient-to-br from-emerald-600 to-emerald-700 rounded-xl p-5 text-white shadow-lg">
             <div className="flex items-center gap-2 mb-2">
               <span className="text-2xl">👥</span>
-              <span className="text-sm font-medium text-emerald-200 uppercase tracking-wide">Players</span>
+              <span className="text-sm font-medium text-white/80 uppercase tracking-wide">Players</span>
             </div>
             <div className="text-3xl font-bold">{gameStats.active_players}</div>
             {gameStats.total_players > gameStats.active_players && (
-              <div className="text-xs text-emerald-200 mt-1">{gameStats.total_players} total</div>
+              <div className="text-xs text-white/80 mt-1">{gameStats.total_players} total</div>
             )}
           </div>
           <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl p-5 text-white shadow-lg">
             <div className="flex items-center gap-2 mb-2">
               <span className="text-2xl">🔵</span>
-              <span className="text-sm font-medium text-blue-200 uppercase tracking-wide">Team 1</span>
+              <span className="text-sm font-medium text-white/80 uppercase tracking-wide">Team 1</span>
             </div>
             <div className="text-3xl font-bold">{gameStats.team0_points.toLocaleString()}</div>
           </div>
           <div className="bg-gradient-to-br from-red-500 to-red-600 rounded-xl p-5 text-white shadow-lg">
             <div className="flex items-center gap-2 mb-2">
               <span className="text-2xl">🔴</span>
-              <span className="text-sm font-medium text-red-200 uppercase tracking-wide">Team 2</span>
+              <span className="text-sm font-medium text-white/80 uppercase tracking-wide">Team 2</span>
             </div>
             <div className="text-3xl font-bold">{gameStats.team1_points.toLocaleString()}</div>
           </div>
@@ -489,7 +489,7 @@ export default function LeaderboardClient({
       )}
 
       {gameRecords && (
-        <div className="mb-8 bg-white rounded-xl shadow-lg overflow-hidden">
+        <div className="mb-8 bg-card rounded-xl shadow-lg overflow-hidden">
           <div className={`px-6 py-4 bg-gradient-to-r ${effectiveTheme.headerGradient} border-b border-black/20`}>
             <h2 className="text-lg font-bold text-white flex items-center gap-2">
               <span>🏆</span> Game Records
@@ -687,7 +687,7 @@ export default function LeaderboardClient({
           now={now}
         />
       ) : (
-        <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+        <div className="bg-card rounded-xl shadow-lg overflow-hidden">
           <table className="min-w-full">
             <thead>
               <tr className={`bg-gradient-to-r ${effectiveTheme.headerGradient} border-b border-black/20`}>
@@ -729,7 +729,7 @@ export default function LeaderboardClient({
                               rank === 2 ? 'bg-gradient-to-r from-slate-50 to-gray-50' :
                               rank === 3 ? 'bg-gradient-to-r from-orange-50 to-amber-50' :
                               isRetired ? 'bg-gray-50' :
-                              isInactive ? 'bg-gray-50' : 'bg-white';
+                              isInactive ? 'bg-gray-50' : 'bg-card';
 
                 return (
                   <tr

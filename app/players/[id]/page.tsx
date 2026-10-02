@@ -370,7 +370,7 @@ export default function PlayerProfilePage() {
 
       {/* Game Content */}
       {stats.gameStats.length === 0 ? (
-        <div className="text-center py-16 bg-white rounded-2xl shadow-lg">
+        <div className="text-center py-16 bg-card rounded-2xl shadow-lg">
           <div className="text-6xl mb-4">🎮</div>
           <p className="text-gray-500 text-lg">No games played yet</p>
           <Link
@@ -402,7 +402,7 @@ export default function PlayerProfilePage() {
             const gameMatches = matchesByGame[game.game_id] || [];
 
             return (
-              <div key={game.game_id} className="bg-white rounded-2xl shadow-lg overflow-hidden">
+              <div key={game.game_id} className="bg-card rounded-2xl shadow-lg overflow-hidden">
                 {/* Game header - clickable */}
                 <button
                   onClick={() => {

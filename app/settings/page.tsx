@@ -336,12 +336,12 @@ export default function SettingsPage() {
       </div>
 
       {/* Branding Section */}
-      <div className="bg-white rounded-xl shadow-lg overflow-hidden mb-6">
+      <div className="bg-card rounded-xl shadow-lg overflow-hidden mb-6">
         <div className="px-6 py-4 bg-gradient-to-r from-slate-800 to-slate-900">
           <h2 className="text-lg font-bold text-white flex items-center gap-2">
             <span className="text-xl">✏️</span> Branding
           </h2>
-          <p className="text-slate-300 text-sm mt-1">Customize the app name and logo</p>
+          <p className="text-gray-400 text-sm mt-1">Customize the app name and logo</p>
         </div>
         <div className="p-6 space-y-6">
           <div>
@@ -397,12 +397,12 @@ export default function SettingsPage() {
       </div>
 
       {/* Colors Section */}
-      <div className="bg-white rounded-xl shadow-lg overflow-hidden mb-6">
+      <div className="bg-card rounded-xl shadow-lg overflow-hidden mb-6">
         <div className="px-6 py-4 bg-gradient-to-r from-purple-600 to-pink-600">
           <h2 className="text-lg font-bold text-white flex items-center gap-2">
             <span className="text-xl">🎨</span> Colors
           </h2>
-          <p className="text-purple-200 text-sm mt-1">Choose your app's color scheme</p>
+          <p className="text-white/85 text-sm mt-1">Choose your app's color scheme</p>
         </div>
         <div className="p-6 space-y-6">
           {/* Presets */}
@@ -488,7 +488,7 @@ export default function SettingsPage() {
             <label className="block text-sm font-semibold text-gray-500 mb-4 uppercase tracking-wide">
               Live Preview
             </label>
-            <div className="bg-white rounded-xl shadow-lg p-4">
+            <div className="bg-card rounded-xl shadow-lg p-4">
               <div className="flex items-center justify-between mb-4 pb-4 border-b border-gray-100">
                 <div className="flex items-center gap-3">
                   <div
@@ -534,12 +534,12 @@ export default function SettingsPage() {
       </div>
 
       {/* Seasonal Flair Section */}
-      <div className="bg-white rounded-xl shadow-lg overflow-hidden mb-6">
+      <div className="bg-card rounded-xl shadow-lg overflow-hidden mb-6">
         <div className="px-6 py-4 bg-gradient-to-r from-emerald-500 to-teal-500">
           <h2 className="text-lg font-bold text-white flex items-center gap-2">
             <span className="text-xl">🎄</span> Seasonal Flair
           </h2>
-          <p className="text-teal-100 text-sm mt-1">Festive decorations on the leaderboard</p>
+          <p className="text-white/85 text-sm mt-1">Festive decorations on the leaderboard</p>
         </div>
         <div className="p-6">
           <div className="flex items-start justify-between gap-4 max-w-2xl">
@@ -565,7 +565,7 @@ export default function SettingsPage() {
               }`}
             >
               <span
-                className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                className={`absolute top-0.5 left-0.5 w-5 h-5 bg-card rounded-full shadow transition-transform ${
                   seasonalEnabled === false ? 'translate-x-0' : 'translate-x-6'
                 }`}
               />
@@ -575,12 +575,12 @@ export default function SettingsPage() {
       </div>
 
       {/* Game Images Section */}
-      <div className="bg-white rounded-xl shadow-lg overflow-hidden mb-6">
+      <div className="bg-card rounded-xl shadow-lg overflow-hidden mb-6">
         <div className="px-6 py-4 bg-gradient-to-r from-blue-500 to-cyan-500">
           <h2 className="text-lg font-bold text-white flex items-center gap-2">
             <span className="text-xl">🎮</span> Game Images
           </h2>
-          <p className="text-blue-100 text-sm mt-1">Set images for each game (used in notifications)</p>
+          <p className="text-white/85 text-sm mt-1">Set images for each game (used in notifications)</p>
         </div>
         <div className="p-6">
           {loading ? (
@@ -630,12 +630,12 @@ export default function SettingsPage() {
       </div>
 
       {/* Player Avatars Section */}
-      <div className="bg-white rounded-xl shadow-lg overflow-hidden mb-6">
+      <div className="bg-card rounded-xl shadow-lg overflow-hidden mb-6">
         <div className="px-6 py-4 bg-gradient-to-r from-indigo-500 to-violet-500">
           <h2 className="text-lg font-bold text-white flex items-center gap-2">
             <span className="text-xl">👤</span> Player Avatars
           </h2>
-          <p className="text-indigo-100 text-sm mt-1">Set an image link for each player (shown on leaderboards, profiles &amp; chat notifications)</p>
+          <p className="text-white/85 text-sm mt-1">Set an image link for each player (shown on leaderboards, profiles &amp; chat notifications)</p>
         </div>
         <div className="p-6">
           {players.length === 0 ? (
@@ -692,8 +692,8 @@ export default function SettingsPage() {
       </div>
 
       {/* Inactivity Threshold Section */}
-      <div className="bg-white rounded-xl shadow-lg overflow-hidden mb-6">
-        <div className="px-6 py-4 bg-gradient-to-r from-gray-600 to-gray-700">
+      <div className="bg-card rounded-xl shadow-lg overflow-hidden mb-6">
+        <div className="px-6 py-4 bg-gradient-to-r from-gray-600 to-gray-700 dark:from-[#3a4356] dark:to-[#2e3644]">
           <h2 className="text-lg font-bold text-white flex items-center gap-2">
             <span className="text-xl">💤</span> Inactivity
           </h2>
@@ -729,12 +729,12 @@ export default function SettingsPage() {
       </div>
 
       {/* Seasons Section */}
-      <div className="bg-white rounded-xl shadow-lg overflow-hidden mb-6">
+      <div className="bg-card rounded-xl shadow-lg overflow-hidden mb-6">
         <div className="px-6 py-4 bg-gradient-to-r from-indigo-500 to-violet-600">
           <h2 className="text-lg font-bold text-white flex items-center gap-2">
             <span className="text-xl">🗓️</span> Seasons
           </h2>
-          <p className="text-indigo-100 text-sm mt-1">Queue the next season&apos;s start — season skill resets to 0 when it begins</p>
+          <p className="text-white/85 text-sm mt-1">Queue the next season&apos;s start — season skill resets to 0 when it begins</p>
         </div>
         <div className="p-6">
           <div className="mb-6 space-y-2">
@@ -799,12 +799,12 @@ export default function SettingsPage() {
       </div>
 
       {/* Achievements Section */}
-      <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+      <div className="bg-card rounded-xl shadow-lg overflow-hidden">
         <div className="px-6 py-4 bg-gradient-to-r from-amber-500 to-orange-500">
           <h2 className="text-lg font-bold text-white flex items-center gap-2">
             <span className="text-xl">🏆</span> Achievements
           </h2>
-          <p className="text-amber-100 text-sm mt-1">Recalculate achievement data</p>
+          <p className="text-white/85 text-sm mt-1">Recalculate achievement data</p>
         </div>
         <div className="p-6">
           <p className="text-gray-600 mb-4">

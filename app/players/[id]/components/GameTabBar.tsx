@@ -17,7 +17,7 @@ function formatGameName(name: string) {
 
 export function GameTabBar({ games, selectedGameId, onSelect }: GameTabBarProps) {
   return (
-    <div className="bg-white rounded-2xl shadow-lg overflow-hidden mb-6">
+    <div className="bg-card rounded-2xl shadow-lg overflow-hidden mb-6">
       <div className="flex overflow-x-auto scrollbar-hide">
         {/* All Games tab */}
         <button

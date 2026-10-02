@@ -1,9 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useSelectedGame } from '../lib/hooks/useSelectedGame';
-import { useTheme } from '../lib/contexts/ThemeContext';
+import { useTheme, type ColorMode } from '../lib/contexts/ThemeContext';
 
 function formatGameName(name: string): string {
   return name
@@ -13,12 +13,20 @@ function formatGameName(name: string): string {
 }
 
 export function Nav() {
-  const { settings } = useTheme();
+  const { settings, colorMode, setColorMode, resolvedTheme } = useTheme();
   const { selectedGame, selectedGameId, games, setSelectedGameId, isLoading } = useSelectedGame();
   const [showGameMenu, setShowGameMenu] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => setMounted(true), []);
+
+  const nextMode: Record<ColorMode, ColorMode> = { system: 'dark', dark: 'light', light: 'system' };
+  const modeLabel: Record<ColorMode, string> =
+    { system: 'System theme', dark: 'Dark theme', light: 'Light theme' };
+  const currentMode: ColorMode = mounted ? colorMode : 'system';
 
   return (
-    <nav className="bg-white/80 backdrop-blur-md border-b border-gray-200/50 sticky top-0 z-50">
+    <nav className="bg-card/80 backdrop-blur-md border-b border-gray-200/50 sticky top-0 z-50">
       <div className="max-w-6xl mx-auto px-6 py-3">
         <div className="flex items-center justify-between">
           {/* Brand and Game Selector */}
@@ -83,7 +91,7 @@ export function Nav() {
                         className="fixed inset-0 z-10"
                         onClick={() => setShowGameMenu(false)}
                       />
-                      <div className="absolute top-full left-0 mt-2 w-48 bg-white rounded-lg shadow-xl border border-gray-200 py-1 z-20">
+                      <div className="absolute top-full left-0 mt-2 w-48 bg-card rounded-lg shadow-xl border border-gray-200 py-1 z-20">
                         {games.map((game) => (
                           <button
                             key={game.id}
@@ -140,6 +148,21 @@ export function Nav() {
             >
               + Record Match
             </Link>
+            <button
+              onClick={() => setColorMode(nextMode[currentMode])}
+              className="p-2 text-sm text-gray-600 hover:text-primary hover:bg-gray-100 rounded-lg transition-all"
+              title={`Current: ${modeLabel[currentMode]} — click to switch to ${modeLabel[nextMode[currentMode]].replace(' theme', '')}`}
+              aria-label={`Switch to ${nextMode[currentMode].replace('system', 'system theme')}`}
+            >
+              {!mounted ? (
+                // Mode is unknown pre-hydration (rendered server-side too)
+                <span className="block w-5 h-5" aria-hidden>🌗</span>
+              ) : currentMode === 'dark' || (currentMode === 'system' && resolvedTheme === 'dark') ? (
+                <span className="block w-5 h-5" aria-hidden>🌙</span>
+              ) : (
+                <span className="block w-5 h-5" aria-hidden>☀️</span>
+              )}
+            </button>
           </div>
         </div>
       </div>

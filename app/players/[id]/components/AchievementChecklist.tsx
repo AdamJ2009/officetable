@@ -42,7 +42,7 @@ function AchievementCard({ achievement, isUnlocked, details }: {
     <div
       className={`rounded-xl p-3 border transition-all ${
         isUnlocked
-          ? 'bg-white border-amber-200 shadow-sm hover:shadow-md'
+          ? 'bg-card border-amber-200 shadow-sm hover:shadow-md'
           : 'bg-gray-50/50 border-dashed border-gray-200'
       }`}
     >

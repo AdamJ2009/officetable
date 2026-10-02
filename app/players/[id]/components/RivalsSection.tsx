@@ -74,7 +74,7 @@ export function RivalsSection({ gameId, gameName, playerId, opponents, isLoading
           {nemesis && (
             <Link
               href={`/matches?player_ids=${playerId},${nemesis.opponent_id}&game_id=${gameId}`}
-              className="group bg-white rounded-xl border border-red-200 p-4 hover:shadow-lg hover:border-red-300 transition-all"
+              className="group bg-card rounded-xl border border-red-200 p-4 hover:shadow-lg hover:border-red-300 transition-all"
             >
               <div className="flex items-center gap-2 mb-2">
                 <span className="text-xl">🎯</span>
@@ -112,7 +112,7 @@ export function RivalsSection({ gameId, gameName, playerId, opponents, isLoading
           {bunny && (
             <Link
               href={`/matches?player_ids=${playerId},${bunny.opponent_id}&game_id=${gameId}`}
-              className="group bg-white rounded-xl border border-green-200 p-4 hover:shadow-lg hover:border-green-300 transition-all"
+              className="group bg-card rounded-xl border border-green-200 p-4 hover:shadow-lg hover:border-green-300 transition-all"
             >
               <div className="flex items-center gap-2 mb-2">
                 <span className="text-xl">🐇</span>
@@ -166,7 +166,7 @@ export function RivalsSection({ gameId, gameName, playerId, opponents, isLoading
             <Link
               key={`${opp.opponent_id}-${opp.game_id}`}
               href={`/matches?player_ids=${playerId},${opp.opponent_id}&game_id=${gameId}`}
-              className={`group bg-white rounded-xl border ${borderColor} border-l-4 ${borderLeft} p-3 hover:shadow-lg transition-all duration-200`}
+              className={`group bg-card rounded-xl border ${borderColor} border-l-4 ${borderLeft} p-3 hover:shadow-lg transition-all duration-200`}
             >
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">

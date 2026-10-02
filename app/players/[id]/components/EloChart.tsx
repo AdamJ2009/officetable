@@ -18,7 +18,7 @@ export function EloChart({ eloHistory }: { eloHistory: EloHistoryPoint[] }) {
   }));
 
   return (
-    <div className="px-6 py-4 bg-white border-t border-gray-100">
+    <div className="px-6 py-4 bg-card border-t border-gray-100">
       <div className="flex items-center gap-2 mb-4">
         <span className="text-lg">📈</span>
         <span className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Skill History</span>

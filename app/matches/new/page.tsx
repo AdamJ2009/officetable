@@ -235,7 +235,7 @@ function NewMatchContent() {
             </div>
             <div className="space-y-2 min-h-[80px]">
               {team1Players.length === 0 ? (
-                <p className="text-blue-200 text-sm">Select players below</p>
+                <p className="text-white/80 text-sm">Select players below</p>
               ) : (
                 team1Players.map((playerId) => {
                   const player = players.find((p) => p.id === playerId);
@@ -243,7 +243,7 @@ function NewMatchContent() {
                   return (
                     <div
                       key={playerId}
-                      className="flex items-center justify-between bg-white/20 backdrop-blur px-3 py-2 rounded-lg"
+                      className="flex items-center justify-between bg-card/20 backdrop-blur px-3 py-2 rounded-lg"
                     >
                       <div className="flex items-center gap-2">
                         <PlayerAvatar
@@ -256,7 +256,7 @@ function NewMatchContent() {
                       <button
                         type="button"
                         onClick={() => togglePlayer(1, playerId)}
-                        className="text-blue-200 hover:text-white text-sm"
+                        className="text-white/80 hover:text-white text-sm"
                       >
                         ✕
                       </button>
@@ -275,14 +275,14 @@ function NewMatchContent() {
             </div>
             <div className="space-y-2 min-h-[80px]">
               {team2Players.length === 0 ? (
-                <p className="text-red-200 text-sm">Select players below</p>
+                <p className="text-white/80 text-sm">Select players below</p>
               ) : (
                 team2Players.map((playerId) => {
                   const player = players.find((p) => p.id === playerId);
                   return (
                     <div
                       key={playerId}
-                      className="flex items-center justify-between bg-white/20 backdrop-blur px-3 py-2 rounded-lg"
+                      className="flex items-center justify-between bg-card/20 backdrop-blur px-3 py-2 rounded-lg"
                     >
                       <div className="flex items-center gap-2">
                         <PlayerAvatar
@@ -295,7 +295,7 @@ function NewMatchContent() {
                       <button
                         type="button"
                         onClick={() => togglePlayer(2, playerId)}
-                        className="text-red-200 hover:text-white text-sm"
+                        className="text-white/80 hover:text-white text-sm"
                       >
                         ✕
                       </button>
@@ -308,7 +308,7 @@ function NewMatchContent() {
         </div>
 
         {/* Score Input */}
-        <div className="bg-white rounded-xl shadow-lg p-6">
+        <div className="bg-card rounded-xl shadow-lg p-6">
           <h3 className="text-lg font-semibold mb-4 text-center">Score</h3>
           <div className="flex items-center justify-center gap-8">
             <div className="text-center">
@@ -377,7 +377,7 @@ function NewMatchContent() {
 
         {/* Add Players */}
         {availablePlayers.length > 0 && (
-          <div className="bg-white rounded-xl shadow-lg p-5">
+          <div className="bg-card rounded-xl shadow-lg p-5">
             <h3 className="text-sm font-semibold mb-3 text-gray-500 uppercase tracking-wide">Add Players</h3>
             <div className="flex flex-wrap gap-2">
               {availablePlayers.map((player) => {
@@ -394,7 +394,7 @@ function NewMatchContent() {
                     <button
                       type="button"
                       onClick={() => togglePlayer(1, player.id)}
-                      className="px-2 py-1.5 text-sm font-medium bg-white text-gray-700 hover:bg-blue-50 hover:text-blue-700 transition-colors"
+                      className="px-2 py-1.5 text-sm font-medium bg-card text-gray-700 hover:bg-blue-50 hover:text-blue-700 transition-colors"
                     >
                       {player.name}
                     </button>

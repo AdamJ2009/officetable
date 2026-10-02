@@ -41,7 +41,7 @@ export function GameIndicator() {
       <select
         value={selectedGameId || ''}
         onChange={(e) => setSelectedGameId(Number(e.target.value))}
-        className="px-2 py-1 text-sm border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent bg-white"
+        className="px-2 py-1 text-sm border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent bg-card"
         aria-label="Select game"
       >
         {games.map((game) => (

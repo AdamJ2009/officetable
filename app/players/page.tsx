@@ -121,7 +121,7 @@ export default function PlayersPage() {
       </div>
 
       {/* Add Player Form */}
-      <div className="bg-white rounded-xl shadow-lg p-6 mb-8">
+      <div className="bg-card rounded-xl shadow-lg p-6 mb-8">
         <h2 className="text-lg font-semibold mb-4">Add New Player</h2>
         <form onSubmit={handleSubmit} className="flex gap-4">
           <input
@@ -149,7 +149,7 @@ export default function PlayersPage() {
       {loading ? (
         <div className="text-gray-500">Loading...</div>
       ) : players.length === 0 ? (
-        <div className="text-center py-12 bg-white rounded-xl shadow-lg">
+        <div className="text-center py-12 bg-card rounded-xl shadow-lg">
           <div className="text-6xl mb-4">👥</div>
           <p className="text-gray-500 text-lg">No players yet</p>
           <p className="text-gray-400">Add your first player above to get started!</p>
@@ -164,7 +164,7 @@ export default function PlayersPage() {
                 className="group relative"
               >
                 <Link href={`/players/${player.id}`}>
-                  <div className="bg-white rounded-xl shadow hover:shadow-lg transition-all p-4 text-center">
+                  <div className="bg-card rounded-xl shadow hover:shadow-lg transition-all p-4 text-center">
                     <div className="relative w-16 h-16 mx-auto mb-3 group/avatar">
                       <PlayerAvatar
                         name={player.name}
@@ -192,7 +192,7 @@ export default function PlayersPage() {
                 </Link>
                 <button
                   onClick={(e) => { e.preventDefault(); togglePlayerStatus(player); }}
-                  className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity text-xs text-gray-400 hover:text-red-500 bg-white/80 rounded px-1.5 py-0.5 backdrop-blur-sm"
+                  className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity text-xs text-gray-400 hover:text-red-500 bg-card/80 rounded px-1.5 py-0.5 backdrop-blur-sm"
                   title="Retire player"
                 >
                   👋
@@ -257,7 +257,7 @@ export default function PlayersPage() {
                 </Link>
                 <Link
                   href="/"
-                  className="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg font-medium hover:bg-gray-100 transition-colors"
+                  className="px-4 py-2 bg-card border border-gray-300 text-gray-700 rounded-lg font-medium hover:bg-gray-100 transition-colors"
                 >
                   View Leaderboard
                 </Link>

@@ -350,7 +350,7 @@ function MatchesPageContent() {
               else if (val.startsWith('current:') || val === String(currentSeasonId)) selectSeasonView('current');
               else selectSeasonView(parseInt(val, 10));
             }}
-            className="bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 transition-colors font-medium"
+            className="bg-card border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 transition-colors font-medium"
           >
             {currentSeasonId === null ? (
               <option value="current:0">Loading seasons…</option>
@@ -382,7 +382,7 @@ function MatchesPageContent() {
                 ? 'bg-slate-800 text-white'
                 : hasActiveFilters
                 ? 'bg-primary text-white'
-                : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'
+                : 'bg-card border border-gray-300 text-gray-700 hover:bg-gray-50'
             }`}
           >
             {showFilters ? '✕ Hide Filters' : hasActiveFilters ? '🔍 Filters (active)' : '🔍 Filters'}
@@ -399,7 +399,7 @@ function MatchesPageContent() {
         </div>
 
         {showFilters && (
-          <div className="bg-white rounded-xl shadow-lg p-5 space-y-5">
+          <div className="bg-card rounded-xl shadow-lg p-5 space-y-5">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-2">Date From</label>
@@ -458,7 +458,7 @@ function MatchesPageContent() {
                     className={`px-3 py-1.5 text-sm font-medium rounded-full transition-all ${
                       selectedPlayerIds.includes(player.id)
                         ? 'bg-primary text-white shadow-sm'
-                        : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-100'
+                        : 'bg-card border border-gray-300 text-gray-700 hover:bg-gray-100'
                     }`}
                   >
                     {player.name}
@@ -507,7 +507,7 @@ function MatchesPageContent() {
             const editable = canEdit(match);
 
             return (
-              <div key={match.id} className="bg-white rounded-xl shadow-lg overflow-hidden hover:shadow-xl transition-shadow">
+              <div key={match.id} className="bg-card rounded-xl shadow-lg overflow-hidden hover:shadow-xl transition-shadow">
                 {/* Match Header */}
                 <div className="flex justify-between items-center px-5 py-3 bg-gray-50 border-b border-gray-100">
                   <div className="flex items-center gap-3">
@@ -557,7 +557,7 @@ function MatchesPageContent() {
                     }`}>
                       <div className="flex items-center justify-between mb-3">
                         <span className={`text-xs font-semibold uppercase tracking-wide ${
-                          team0Result.result === "win" ? "text-blue-200" : "text-gray-500"
+                          team0Result.result === "win" ? "text-white/80" : "text-gray-500"
                         }`}>
                           {team0Result.result === "win" ? "🏆 Winner" : "Team 1"}
                         </span>
@@ -586,10 +586,10 @@ function MatchesPageContent() {
                             {!isEditing && (
                               <span className={`text-sm font-mono ${
                                 p.elo_after > p.elo_before
-                                  ? team0Result.result === "win" ? "text-blue-200" : "text-green-600"
+                                  ? team0Result.result === "win" ? "text-white/80" : "text-green-600"
                                   : p.elo_after < p.elo_before
-                                  ? team0Result.result === "win" ? "text-blue-200" : "text-red-500"
-                                  : team0Result.result === "win" ? "text-blue-200" : "text-gray-400"
+                                  ? team0Result.result === "win" ? "text-white/80" : "text-red-500"
+                                  : team0Result.result === "win" ? "text-white/80" : "text-gray-400"
                               }`}>
                                 {formatRatingChange(p.elo_before, p.elo_after)}
                               </span>
@@ -616,7 +616,7 @@ function MatchesPageContent() {
                     }`}>
                       <div className="flex items-center justify-between mb-3">
                         <span className={`text-xs font-semibold uppercase tracking-wide ${
-                          team1Result.result === "win" ? "text-red-200" : "text-gray-500"
+                          team1Result.result === "win" ? "text-white/80" : "text-gray-500"
                         }`}>
                           {team1Result.result === "win" ? "🏆 Winner" : "Team 2"}
                         </span>
@@ -645,10 +645,10 @@ function MatchesPageContent() {
                             {!isEditing && (
                               <span className={`text-sm font-mono ${
                                 p.elo_after > p.elo_before
-                                  ? team1Result.result === "win" ? "text-red-200" : "text-green-600"
+                                  ? team1Result.result === "win" ? "text-white/80" : "text-green-600"
                                   : p.elo_after < p.elo_before
-                                  ? team1Result.result === "win" ? "text-red-200" : "text-red-500"
-                                  : team1Result.result === "win" ? "text-red-200" : "text-gray-400"
+                                  ? team1Result.result === "win" ? "text-white/80" : "text-red-500"
+                                  : team1Result.result === "win" ? "text-white/80" : "text-gray-400"
                               }`}>
                                 {formatRatingChange(p.elo_before, p.elo_after)}
                               </span>
@@ -667,7 +667,7 @@ function MatchesPageContent() {
                       {match.achievements.map((achievement, idx) => (
                         <span
                           key={idx}
-                          className="inline-flex items-center gap-1.5 text-xs bg-white text-amber-900 border border-amber-200 rounded-full px-3 py-1.5 shadow-sm hover:shadow transition-shadow"
+                          className="inline-flex items-center gap-1.5 text-xs bg-card text-amber-900 border border-amber-200 rounded-full px-3 py-1.5 shadow-sm hover:shadow transition-shadow"
                           title={achievement.achievement_description}
                         >
                           <span className="text-base">{achievement.achievement_icon || '🏅'}</span>
@@ -713,7 +713,7 @@ function MatchesPageContent() {
 
       {/* Pagination */}
       {totalMatches > 0 && (
-        <div className="mt-8 flex flex-wrap items-center justify-between gap-4 bg-white rounded-xl shadow-lg p-5">
+        <div className="mt-8 flex flex-wrap items-center justify-between gap-4 bg-card rounded-xl shadow-lg p-5">
           <div className="text-sm text-gray-600">
             Showing <span className="font-semibold text-gray-900">{((page - 1) * limit) + 1}</span>
             {' '}-{' '}

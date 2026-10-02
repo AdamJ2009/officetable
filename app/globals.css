@@ -1,5 +1,8 @@
 @import "tailwindcss";
 
+/* Enable the `dark:` variant, driven by a `.dark` class on <html> */
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
   --background: #ffffff;
   --foreground: #171717;
@@ -23,17 +26,158 @@
   --color-accent-light: var(--accent-light);
   --color-muted: var(--muted);
   --color-border: var(--border);
+  --color-card: var(--card-bg);
   --color-card-bg: var(--card-bg);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #ffffff;
-    --foreground: #171717;
-  }
+/*
+ * Dark mode.
+ *
+ * Tailwind v4 utilities compile to `var(--color-...)` references, so we can
+ * re-skin the entire app (which uses mostly hardcoded gray utilities) by
+ * overriding the gray/slate scale variables within the `.dark` scope.
+ * The scale below stays monotonic: dark surfaces for -50..-300 (backgrounds,
+ * borders, skeletons) and light values for -500..-900 (text).
+ */
+.dark {
+  color-scheme: dark;
+
+  --background: #0c111a;
+  --foreground: #e7ebf3;
+  --card-bg: #151b28;
+  --muted: #1a2231;
+  --border: #2b3444;
+
+  --color-gray-50: #101927;
+  --color-gray-100: #1a2231;
+  --color-gray-200: #252e40;
+  --color-gray-300: #333c4f;
+  --color-gray-400: #667083;
+  --color-gray-500: #8b93a2;
+  --color-gray-600: #9aa2b1;
+  --color-gray-700: #c2c8d3;
+  --color-gray-800: #dde2ea;
+  --color-gray-900: #f2f4f8;
+
+  --color-slate-50: #101927;
+  --color-slate-100: #1a2231;
+  --color-slate-200: #252e40;
+  --color-slate-300: #3a455d;
+  --color-slate-400: #6e788c;
+  --color-slate-500: #556072;
+
+  /*
+   * Colored tints. In light mode the -50/-100/-200 range is used for pastel
+   * card surfaces, badges and hover borders; map them to deep tinted surfaces
+   * so the (now light) default text stays readable on top of them.
+   */
+  --color-emerald-50: #0c2a22;
+  --color-emerald-100: #123a2e;
+  --color-emerald-200: #1c5240;
+  --color-emerald-300: #24694f;
+
+  --color-green-50: #0d2a1e;
+  --color-green-100: #123a2a;
+  --color-green-200: #1c523a;
+  --color-green-300: #246946;
+
+  --color-red-50: #2d1114;
+  --color-red-100: #3d181d;
+  --color-red-200: #551b23;
+  --color-red-300: #6b222c;
+
+  --color-rose-50: #2d1013;
+  --color-rose-100: #3b171f;
+  --color-rose-200: #531a26;
+  --color-rose-300: #69212f;
+
+  --color-orange-50: #2f1a0e;
+  --color-orange-100: #3f2612;
+  --color-orange-200: #5a351a;
+  --color-orange-300: #71431f;
+
+  --color-amber-50: #2f2410;
+  --color-amber-100: #423715;
+  --color-amber-200: #5c4c1c;
+  --color-amber-300: #746024;
+
+  --color-yellow-50: #322b0e;
+  --color-yellow-100: #453a12;
+  --color-yellow-200: #5e4f1c;
+  --color-yellow-300: #756224;
+
+  --color-blue-50: #0e1c3a;
+  --color-blue-100: #16294c;
+  --color-blue-200: #1d3a6b;
+  --color-blue-300: #24497f;
+
+  --color-indigo-50: #171d3f;
+  --color-indigo-100: #232651;
+  --color-indigo-200: #2d3268;
+
+  --color-cyan-50: #0a262e;
+  --color-cyan-100: #0f3437;
+  --color-cyan-200: #14494e;
+  --color-cyan-300: #1a5b60;
+
+  --color-teal-50: #0a2a26;
+  --color-teal-100: #0e342f;
+  --color-teal-200: #124c43;
+  --color-teal-300: #185c50;
+
+  --color-lime-50: #1e2a10;
+  --color-lime-100: #2b3a16;
+  --color-lime-200: #3f5520;
+  --color-lime-300: #4d6826;
+
+  --color-pink-50: #2d1220;
+  --color-pink-100: #3a1830;
+  --color-pink-200: #512442;
+  --color-pink-300: #612b4f;
+
+  --color-purple-50: #241440;
+  --color-purple-100: #2e1d52;
+  --color-purple-200: #3d2a6b;
+
+  --color-violet-50: #22143c;
+  --color-violet-100: #2c1c4f;
+  --color-violet-200: #3a2968;
 }
+
+/*
+ * Dark-only polish for colored text that sits on (now dark) tinted surfaces:
+ * brighten the dark -600..-900 shades so they stay legible.
+ */
+.dark .text-emerald-600 { color: #34d399; }
+.dark .text-emerald-700 { color: #34d399; }
+.dark .text-emerald-800 { color: #6ee7b7; }
+.dark .text-emerald-900 { color: #a7f3d0; }
+
+/* Dark-only polish for colored labels that sit on (now dark) surfaces */
+.dark .text-emerald-700 { color: #34d399; }
+.dark .text-amber-700 { color: #fbbf24; }
+.dark .text-amber-800 { color: #fcd34d; }
+.dark .text-amber-900 { color: #fde68a; }
+.dark .text-green-600 { color: #4ade80; }
+.dark .text-green-700 { color: #4ade80; }
+.dark .text-green-800 { color: #86efac; }
+.dark .text-green-900 { color: #bbf7d0; }
+.dark .text-blue-600 { color: #93c5fd; }
+.dark .text-blue-700 { color: #93c5fd; }
+.dark .text-orange-600 { color: #fb923c; }
+.dark .text-orange-700 { color: #fb923c; }
+.dark .text-orange-800 { color: #fdba74; }
+.dark .text-rose-600 { color: #fb7185; }
+.dark .text-rose-700 { color: #fb7185; }
+.dark .text-teal-700 { color: #2dd4bf; }
+.dark .text-purple-700 { color: #d8b4fe; }
+.dark .text-lime-700 { color: #a3e635; }
+.dark .text-cyan-700 { color: #22d3ee; }
+.dark .text-red-600 { color: #f87171; }
+.dark .text-red-700 { color: #f87171; }
+.dark .text-red-800 { color: #fca5a5; }
 
 body {
   background: var(--background);

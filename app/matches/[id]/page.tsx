@@ -244,18 +244,18 @@ export default function MatchDetailsPage() {
       </div>
 
       {/* Score Display */}
-      <div className="bg-white rounded-2xl shadow-lg overflow-hidden mb-6">
+      <div className="bg-card rounded-2xl shadow-lg overflow-hidden mb-6">
         <div className="grid grid-cols-2">
           {/* Team 1 */}
           <div className={`p-6 ${
             team1Result.result === 'win' ? 'bg-gradient-to-br from-blue-500 to-blue-600' :
             team1Result.result === 'loss' ? 'bg-gradient-to-br from-red-500 to-red-600' :
-            'bg-gradient-to-br from-gray-400 to-gray-500'
+            'bg-gradient-to-br from-gray-400 to-gray-500 dark:from-[#3f4756] dark:to-[#333a46]'
           }`}>
             <div className="text-center mb-4">
               <div className={`text-sm font-semibold uppercase tracking-wide mb-1 ${
-                team1Result.result === 'win' ? 'text-blue-100' :
-                team1Result.result === 'loss' ? 'text-red-100' : 'text-gray-100'
+                team1Result.result === 'win' ? 'text-white/85' :
+                team1Result.result === 'loss' ? 'text-white/85' : 'text-white'
               }`}>
                 Team 1
               </div>
@@ -263,9 +263,9 @@ export default function MatchDetailsPage() {
                 {team1Result.score}
               </div>
               <div className={`mt-2 inline-block px-3 py-1 rounded-full text-sm font-bold ${
-                team1Result.result === 'win' ? 'bg-white/20 text-white' :
-                team1Result.result === 'loss' ? 'bg-white/20 text-white' :
-                'bg-white/20 text-white'
+                team1Result.result === 'win' ? 'bg-card/20 text-white' :
+                team1Result.result === 'loss' ? 'bg-card/20 text-white' :
+                'bg-card/20 text-white'
               }`}>
                 {team1Result.result === 'win' ? '🏆 Winner' : team1Result.result === 'loss' ? 'Defeat' : '🤝 Draw'}
               </div>
@@ -280,12 +280,12 @@ export default function MatchDetailsPage() {
             <div className={`p-6 ${
               team2Result.result === 'win' ? 'bg-gradient-to-br from-blue-500 to-blue-600' :
               team2Result.result === 'loss' ? 'bg-gradient-to-br from-red-500 to-red-600' :
-              'bg-gradient-to-br from-gray-400 to-gray-500'
+              'bg-gradient-to-br from-gray-400 to-gray-500 dark:from-[#3f4756] dark:to-[#333a46]'
             }`}>
               <div className="text-center mb-4">
                 <div className={`text-sm font-semibold uppercase tracking-wide mb-1 ${
-                  team2Result.result === 'win' ? 'text-blue-100' :
-                  team2Result.result === 'loss' ? 'text-red-100' : 'text-gray-100'
+                  team2Result.result === 'win' ? 'text-white/85' :
+                  team2Result.result === 'loss' ? 'text-white/85' : 'text-white'
                 }`}>
                   Team 2
                 </div>
@@ -293,9 +293,9 @@ export default function MatchDetailsPage() {
                   {team2Result.score}
                 </div>
                 <div className={`mt-2 inline-block px-3 py-1 rounded-full text-sm font-bold ${
-                  team2Result.result === 'win' ? 'bg-white/20 text-white' :
-                  team2Result.result === 'loss' ? 'bg-white/20 text-white' :
-                  'bg-white/20 text-white'
+                  team2Result.result === 'win' ? 'bg-card/20 text-white' :
+                  team2Result.result === 'loss' ? 'bg-card/20 text-white' :
+                  'bg-card/20 text-white'
                 }`}>
                   {team2Result.result === 'win' ? '🏆 Winner' : team2Result.result === 'loss' ? 'Defeat' : '🤝 Draw'}
                 </div>
@@ -312,7 +312,7 @@ export default function MatchDetailsPage() {
               <button
                 onClick={() => setDeltaView('season')}
                 className={`px-3 py-1 text-xs rounded-md transition-colors ${
-                  deltaView === 'season' ? 'bg-white shadow text-gray-900 font-semibold' : 'text-gray-500 hover:text-gray-700'
+                  deltaView === 'season' ? 'bg-card shadow text-gray-900 font-semibold' : 'text-gray-500 hover:text-gray-700'
                 }`}
               >
                 Season
@@ -320,7 +320,7 @@ export default function MatchDetailsPage() {
               <button
                 onClick={() => setDeltaView('alltime')}
                 className={`px-3 py-1 text-xs rounded-md transition-colors ${
-                  deltaView === 'alltime' ? 'bg-white shadow text-gray-900 font-semibold' : 'text-gray-500 hover:text-gray-700'
+                  deltaView === 'alltime' ? 'bg-card shadow text-gray-900 font-semibold' : 'text-gray-500 hover:text-gray-700'
                 }`}
               >
                 All Time
@@ -407,7 +407,7 @@ export default function MatchDetailsPage() {
               {match.achievements.map((achievement, idx) => (
                 <div
                   key={idx}
-                  className="flex items-center gap-2 bg-white border border-amber-200 rounded-xl px-4 py-3 hover:shadow-md transition-all cursor-default"
+                  className="flex items-center gap-2 bg-card border border-amber-200 rounded-xl px-4 py-3 hover:shadow-md transition-all cursor-default"
                   title={achievement.achievement_description}
                 >
                   <span className="text-2xl">{achievement.achievement_icon || "🏅"}</span>
@@ -424,7 +424,7 @@ export default function MatchDetailsPage() {
 
       {/* Punditry */}
       {match.punditry && match.punditry.length > 0 && (
-        <div className="bg-white rounded-2xl shadow-lg overflow-hidden mb-6">
+        <div className="bg-card rounded-2xl shadow-lg overflow-hidden mb-6">
           <div className="px-6 py-4 bg-gradient-to-r from-slate-800 to-slate-900">
             <div className="flex items-center gap-3">
               <span className="text-2xl">🎙️</span>

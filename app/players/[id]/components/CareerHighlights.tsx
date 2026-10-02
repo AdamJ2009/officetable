@@ -103,7 +103,7 @@ export function CareerHighlights({ gameStats, totalAchievementsUnlocked, totalAc
   return (
     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-6">
       {highlights.map((highlight, idx) => (
-        <div key={idx} className="bg-white rounded-xl shadow-lg p-4 text-center">
+        <div key={idx} className="bg-card rounded-xl shadow-lg p-4 text-center">
           <div className="text-2xl mb-1">{highlight.icon}</div>
           <div className="text-2xl font-bold text-gray-900">{highlight.value}</div>
           <div className="text-sm font-semibold text-primary">{highlight.label}</div>

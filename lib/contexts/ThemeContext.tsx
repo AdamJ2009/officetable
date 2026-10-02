@@ -9,10 +9,19 @@ interface ThemeSettings {
   accent_color: string;
 }
 
+export type ColorMode = 'light' | 'dark' | 'system';
+
+const COLOR_MODE_KEY = 'colorMode';
+
 interface ThemeContextType {
   settings: ThemeSettings;
   updateSettings: (newSettings: Partial<ThemeSettings>) => Promise<void>;
   isLoading: boolean;
+  /** User-selected color mode ('system' follows the OS). */
+  colorMode: ColorMode;
+  setColorMode: (mode: ColorMode) => void;
+  /** What is actually rendered right now. */
+  resolvedTheme: 'light' | 'dark';
 }
 
 const ThemeContext = createContext<ThemeContextType | null>(null);
@@ -62,9 +71,75 @@ interface ThemeProviderProps {
   children: ReactNode;
 }
 
+function getSystemPrefersDark(): boolean {
+  if (typeof window === 'undefined') return false;
+  return window.matchMedia('(prefers-color-scheme: dark)').matches;
+}
+
+/** Resolve a color mode to a concrete theme and toggle the `.dark` class on <html>. */
+function applyColorMode(mode: ColorMode): 'light' | 'dark' {
+  const resolved: 'light' | 'dark' =
+    mode === 'dark' || (mode === 'system' && getSystemPrefersDark()) ? 'dark' : 'light';
+  if (typeof document !== 'undefined') {
+    document.documentElement.classList.toggle('dark', resolved === 'dark');
+  }
+  return resolved;
+}
+
 export function ThemeProvider({ children }: ThemeProviderProps) {
   const [settings, setSettings] = useState<ThemeSettings>(defaultSettings);
   const [isLoading, setIsLoading] = useState(true);
+  // The inline no-flash script in the root layout has already applied the
+  // correct class by the time we hydrate, so mirror its decision here.
+  const [colorMode, setColorModeState] = useState<ColorMode>(() => {
+    if (typeof window === 'undefined') return 'system';
+    if (document.documentElement.classList.contains('dark')) {
+      try {
+        const stored = window.localStorage.getItem(COLOR_MODE_KEY);
+        if (stored === 'light' || stored === 'dark' || stored === 'system') return stored;
+      } catch {}
+    }
+    return 'system';
+  });
+  const [systemDark, setSystemDark] = useState(false);
+  // The inline no-flash script in the root layout has already applied the
+  // correct `.dark` class by the time we hydrate; mirror its decision.
+  const [resolvedTheme, setResolvedTheme] = useState<'light' | 'dark'>(
+    typeof document !== 'undefined'
+      ? document.documentElement.classList.contains('dark')
+        ? 'dark'
+        : 'light'
+      : 'light'
+  );
+
+  // Keep the `.dark` class in sync whenever the selected mode changes.
+  useEffect(() => {
+    setResolvedTheme(applyColorMode(colorMode));
+  }, [colorMode]);
+
+  // Track OS preference changes while in 'system' mode.
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    setSystemDark(mq.matches);
+    const onChange = (e: MediaQueryListEvent) => {
+      setSystemDark(e.matches);
+      if (colorMode === 'system') {
+        setResolvedTheme(applyColorMode('system'));
+      }
+    };
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, [colorMode]);
+
+  const setColorMode = useCallback((mode: ColorMode) => {
+    setColorModeState(mode);
+    setResolvedTheme(applyColorMode(mode));
+    try {
+      window.localStorage.setItem(COLOR_MODE_KEY, mode);
+    } catch {
+      // Storage unavailable (private mode etc.); the toggle still works this session.
+    }
+  }, []);
 
   // Apply CSS variables when settings change
   const applyTheme = useCallback((newSettings: ThemeSettings) => {
@@ -130,7 +205,16 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
   };
 
   return (
-    <ThemeContext.Provider value={{ settings, updateSettings, isLoading }}>
+    <ThemeContext.Provider
+      value={{
+        settings,
+        updateSettings,
+        isLoading,
+        colorMode,
+        setColorMode,
+        resolvedTheme: colorMode === 'system' ? (systemDark ? 'dark' : 'light') : colorMode,
+      }}
+    >
       {children}
     </ThemeContext.Provider>
   );

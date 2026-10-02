@@ -98,17 +98,24 @@ The first migration splits history into **Season 0** (everything before the
 new season opens) and **Season 1** (the new, empty season). The Season 1
 start date is configurable:
 
-1. Setting the `season_1_start` key in the settings table (e.g. via
-   `PUT /api/settings` `{"settings": {"season_1_start": "2026-11-01"}}`)
-   — before first launch, or
+1. The `season_1_start` settings key (e.g. via `PUT /api/settings`
+   `{"settings": {"season_1_start": "2026-11-02"}}`) — before first launch, or
 2. The `SEASON_1_START_DATE` environment variable, or
 3. Defaults to 00:00 UTC, 28 days after the migration first runs.
 
 Every match's season is resolved from its played-at timestamp (not its insert
-date), so late-entered matches slot into the correct season. Seasons live in
-the `seasons` table; update it to close the current season and open the next
-one (`end_date` on the closing season, a new row with `start_date` and a null
-`end_date`).
+date), so late-entered matches slot into the correct season.
+
+### Queueing future seasons
+
+**Settings → Seasons** lets you queue a future season (pick a start
+date/time; the name defaults to the next "Season N"). Seasons never gap or
+overlap: queueing a season closes the current one exactly where the new one
+starts, and the leaderboard shows a countdown to the big moment. Queued
+seasons can be removed from the same screen until they begin.
+
+Equivalently via API: `POST /api/seasons` `{"start_date": "2027-03-01"}` and
+`DELETE /api/seasons` `{"id": <queued season id>}`.
 
 ## Skill System
 

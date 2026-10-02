@@ -20,6 +20,31 @@ interface SeasonInfo {
   start_date: string;
   end_date: string | null;
   is_current: boolean;
+  is_queued?: boolean;
+}
+
+/** Parse a DB datetime string (UTC) for display/countdowns. */
+function parseDbDate(dateStr: string): Date {
+  return new Date(`${dateStr.replace(' ', 'T')}Z`);
+}
+
+function formatDbDate(dateStr: string): string {
+  return parseDbDate(dateStr).toLocaleDateString('en-GB', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  });
+}
+
+/** Human countdown from now to a future date. */
+function formatCountdown(target: Date, now: Date): string {
+  const ms = Math.max(0, target.getTime() - now.getTime());
+  const days = Math.floor(ms / 86400000);
+  const hours = Math.floor((ms % 86400000) / 3600000);
+  const minutes = Math.floor((ms % 3600000) / 60000);
+  if (days >= 1) return `${days}d ${hours}h`;
+  if (hours >= 1) return `${hours}h ${minutes}m`;
+  return `${Math.max(minutes, 1)}m`;
 }
 
 function TrendSparkline({ deltas }: { deltas: number[] }) {
@@ -82,15 +107,30 @@ export default function LeaderboardClient({
   const [seasons, setSeasons] = useState<SeasonInfo[]>([]);
   // 'current' = current season (default); number = a past season; 'alltime'
   const [seasonView, setSeasonView] = useState<'current' | 'alltime' | number>('current');
+  // Ticking clock for the next-season countdown (client-only to avoid hydration issues)
+  const [now, setNow] = useState<Date | null>(null);
 
-  // Load the season list once for the picker
   useEffect(() => {
-    fetch('/api/seasons')
-      .then(res => res.json())
-      .then(data => {
-        setSeasons(data.seasons || []);
-      })
-      .catch(err => console.error('Failed to load seasons:', err));
+    const loadSeasons = () =>
+      fetch('/api/seasons')
+        .then(res => res.json())
+        .then(data => {
+          setSeasons(data.seasons || []);
+        })
+        .catch(err => console.error('Failed to load seasons:', err));
+    loadSeasons();
+
+    // Tick every second for the countdown; refresh the season list (which
+    // may have gained a queued next season) roughly every minute
+    let lastSeasonsLoad = Date.now();
+    const interval = setInterval(() => {
+      setNow(new Date());
+      if (Date.now() - lastSeasonsLoad > 60000) {
+        lastSeasonsLoad = Date.now();
+        loadSeasons();
+      }
+    }, 1000);
+    return () => clearInterval(interval);
   }, []);
 
   // Fetch data when selected game or season scope changes
@@ -122,8 +162,46 @@ export default function LeaderboardClient({
     fetchData();
   }, [selectedGameId, showRetired, showInactive, seasonView]);
 
+  // Resolve the season being viewed + metadata for the banner
+  const viewedSeasonId = seasonView === 'alltime'
+    ? null
+    : seasonView === 'current'
+      ? currentSeasonId
+      : seasonView;
+  const viewedSeason = viewedSeasonId !== null
+    ? seasons.find(s => s.id === viewedSeasonId) ?? null
+    : null;
+  // Queued (not-yet-started) season for the countdown
+  const nextSeason = seasons.find(s => parseDbDate(s.start_date) > (now ?? new Date(0))) ?? null;
+
   return (
     <div>
+      {(viewedSeason || nextSeason) && (
+        <div className="mb-4 flex flex-wrap items-center gap-3">
+          {viewedSeason && (
+            <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-600">
+              <span>🗓️</span>
+              <span className="font-semibold text-gray-800">{viewedSeason.name}</span>
+              <span>
+                {formatDbDate(viewedSeason.start_date)}
+                {' — '}
+                {viewedSeason.end_date
+                  ? formatDbDate(viewedSeason.end_date)
+                  : 'ongoing'}
+              </span>
+            </div>
+          )}
+          {nextSeason && now && (
+            <div className="flex items-center gap-2 bg-gradient-to-r from-amber-400 to-orange-400 text-white rounded-lg px-3 py-1.5 text-sm font-semibold shadow">
+              <span>⏳</span>
+              <span>
+                {nextSeason.name} starts in {formatCountdown(parseDbDate(nextSeason.start_date), now)}
+              </span>
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="flex items-center justify-between mb-8">
         <div className="flex items-center gap-4">
           <h1 className="text-3xl font-bold">Leaderboard</h1>

@@ -71,6 +71,120 @@ export function getCurrentSeason(): Season | null {
 }
 
 /**
+ * Next (queued, not-yet-started) season = the earliest season whose
+ * start_date is still in the future. Null when nothing is queued.
+ */
+export function getNextSeason(now: Date = new Date()): Season | null {
+  const nowStr = toDbDate(now);
+  return (
+    (db
+      .prepare(
+        `SELECT id, name, start_date, end_date FROM seasons
+         WHERE start_date > ?
+         ORDER BY start_date ASC, id ASC
+         LIMIT 1`
+      )
+      .get(nowStr) as Season | undefined) ?? null
+  );
+}
+
+/**
+ * Derive the next season number from existing names ("Season 3" etc.).
+ */
+function nextSeasonName(): string {
+  const seasons = getSeasons();
+  let max = 0;
+  let fallback = 0;
+  for (const s of seasons) {
+    fallback++;
+    const m = s.name.match(/\d+/);
+    if (m) max = Math.max(max, parseInt(m[0], 10));
+  }
+  return `Season ${max + 1 || fallback + 1}`;
+}
+
+/**
+ * Queue a new season starting at `startRaw`. Seasons never overlap or gap:
+ * the currently-latest season is closed exactly at the new season's start.
+ * The new start must be strictly in the future and after every existing start.
+ * Returns the created season.
+ */
+export function createSeason(startRaw: string, name?: string): Season {
+  const startDate = normaliseStartDate(startRaw);
+  const nowStr = toDbDate(new Date());
+
+  if (startDate <= nowStr) {
+    throw new Error('Season start must be in the future');
+  }
+
+  const seasons = getSeasons();
+  const latest = seasons.length > 0 ? seasons[seasons.length - 1] : null;
+  if (latest && startDate <= latest.start_date) {
+    throw new Error(`Season start must be after ${latest.name} (starts ${latest.start_date})`);
+  }
+
+  const seasonName = name?.trim() || nextSeasonName();
+
+  const tx = db.transaction(() => {
+    // Align: close the latest season exactly where the new one begins
+    if (latest) {
+      db.prepare('UPDATE seasons SET end_date = ? WHERE id = ?').run(startDate, latest.id);
+    }
+    const result = db
+      .prepare('INSERT INTO seasons (name, start_date, end_date) VALUES (?, ?, NULL)')
+      .run(seasonName, startDate);
+    return db
+      .prepare('SELECT id, name, start_date, end_date FROM seasons WHERE id = ?')
+      .get(result.lastInsertRowid as number) as Season;
+  });
+
+  return tx();
+}
+
+/**
+ * Un-queue (delete) a season that hasn't started yet, re-opening the
+ * previous season (its end_date goes back to NULL).
+ */
+export function deleteQueuedSeason(id: number): void {
+  const season = getSeason(id);
+  if (!season) throw new Error('Season not found');
+  const nowStr = toDbDate(new Date());
+  if (season.start_date <= nowStr) {
+    throw new Error('Only queued (not-yet-started) seasons can be removed');
+  }
+
+  const tx = db.transaction(() => {
+    const prev = db
+      .prepare('SELECT id FROM seasons WHERE start_date < ? ORDER BY start_date DESC, id DESC LIMIT 1')
+      .get(season.start_date) as { id: number } | undefined;
+    if (prev) {
+      db.prepare('UPDATE seasons SET end_date = NULL WHERE id = ?').run(prev.id);
+    }
+    db.prepare('DELETE FROM seasons WHERE id = ?').run(id);
+  });
+
+  tx();
+}
+
+/**
+ * Parse a season start input to a DB datetime string.
+ * Date-only ('YYYY-MM-DD') is treated as UTC midnight; anything with an
+ * explicit time (e.g. datetime-local 'YYYY-MM-DDTHH:mm') is treated as local
+ * time (office wall-clock) and converted to UTC.
+ */
+export function normaliseStartDate(input: string): string {
+  const trimmed = input.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    return `${trimmed} 00:00:00`;
+  }
+  const parsed = new Date(trimmed);
+  if (isNaN(parsed.getTime())) {
+    throw new Error(`Invalid date: ${input}`);
+  }
+  return toDbDate(parsed);
+}
+
+/**
  * Resolve which season a match belongs to, based on its played_at timestamp
  * (NOT the insert date — late-entered matches slot correctly).
  *

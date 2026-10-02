@@ -184,6 +184,17 @@ try {
   // Migration failed or already done, ignore
 }
 
+// Records which season-hype milestones have been sent (see lib/seasonHype.ts)
+db.exec(`
+  CREATE TABLE IF NOT EXISTS season_hype (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    season_id INTEGER NOT NULL,
+    milestone TEXT NOT NULL,
+    sent_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(season_id, milestone)
+  )
+`);
+
 // Settings table for app configuration (branding, theming, etc.)
 db.exec(`
   CREATE TABLE IF NOT EXISTS settings (

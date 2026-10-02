@@ -304,3 +304,74 @@ export function buildMatchNotification(
     timestamp: new Date().toISOString()
   };
 }
+
+// ============================================================
+// Announcement cards (e.g. season hype) — simple text cards that
+// don't have a match face-off at their centre.
+// ============================================================
+
+export interface AnnouncementMessage {
+  /** Header title (can include emoji). */
+  title: string;
+  /** Header subtitle, e.g. a date. */
+  subtitle?: string;
+  /** HTML paragraphs (safe markup: <b>, <i>, <font color=...>, <a>). */
+  paragraphs: string[];
+  /** Optional footer link. */
+  linkUrl?: string;
+  linkText?: string;
+}
+
+export function buildAnnouncementCardsPayload(message: AnnouncementMessage): Record<string, unknown> {
+  const widgets: Record<string, unknown>[] = message.paragraphs.map(p => ({
+    textParagraph: { text: p }
+  }));
+
+  widgets.push({ divider: {} });
+  if (message.linkUrl) {
+    widgets.push({
+      textParagraph: {
+        text: `<a href="${message.linkUrl}">${message.linkText || 'Find out more'}</a>`
+      }
+    });
+  }
+
+  return {
+    cardsV2: [
+      {
+        cardId: 'announcement',
+        card: {
+          header: {
+            title: message.title,
+            ...(message.subtitle ? { subtitle: message.subtitle } : {})
+          },
+          sections: [{ widgets }]
+        }
+      }
+    ]
+  };
+}
+
+export async function sendAnnouncementNotification(message: AnnouncementMessage): Promise<'sent' | 'skipped'> {
+  const webhookUrl = process.env.GOOGLE_CHAT_WEBHOOK_URL;
+
+  if (!webhookUrl) {
+    console.log('Google Chat webhook URL not configured, skipping announcement');
+    return 'skipped';
+  }
+
+  const payload = buildAnnouncementCardsPayload(message);
+
+  const response = await fetch(webhookUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => '');
+    throw new Error(`Google Chat announcement failed: ${response.status} ${response.statusText} ${body}`);
+  }
+
+  return 'sent';
+}

@@ -117,6 +117,26 @@ seasons can be removed from the same screen until they begin.
 Equivalently via API: `POST /api/seasons` `{"start_date": "2027-03-01"}` and
 `DELETE /api/seasons` `{"id": <queued season id>}`.
 
+### Season hype notifications
+
+Queued seasons are promoted in Google Chat automatically (scheduler in
+`instrumentation.ts`, checking every 5 minutes while the server runs):
+
+- **One week before** — "make every point count in the current season"
+- **The day before** — final-chance rally to climb the board
+- **Day of the start** — "the board is open, everyone's at zero" (sent at
+  09:00 that day, or at the start time if it's later)
+
+Messages go out at 09:00 office time (the server's local timezone) — never
+at midnight. A milestone stays sendable for 72 hours after its scheduled
+time (covers evenings/weekends) and is then skipped as stale; countdown
+messages are never sent after the season has actually begun. Sends are
+logged in `season_hype` so nothing ever posts twice.
+
+Test it with: `npx tsx scripts/test-season-hype.ts` (queues a throwaway
+season, forces each milestone's clock so the cards send immediately to the
+configured webhook, then cleans up).
+
 ## Skill System
 
 This uses a modified Elo rating system. The rating change after each game uses:

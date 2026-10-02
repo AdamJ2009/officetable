@@ -83,37 +83,52 @@ export async function GET(request: NextRequest) {
       points_conceded: number;
     };
 
-    // Get Elo history for this game to calculate records + chart.
-    // All-time: one continuous series from the continuous ledger.
-    // Season: segmented per season so resets show as discontinuities.
-    const eloHistoryStmt = db.prepare(`
+    // Chart history: scoped per ledger view
+    //  - all-time: ONE continuous series (no breaks) of alltime ledger values
+    //  - season: every season's season-ledger values, segmented with null
+    //    break points so the flat resets are visible discontinuities
+    // Stats/records below stay scoped to the target season (or all-time).
+    const historyStmt = db.prepare(`
       SELECT ${eloAfterCol} as elo_after, m.played_at, m.season_id
       FROM match_participants mp
       JOIN matches m ON mp.match_id = m.id
-      WHERE mp.player_id = ? AND m.game_id = ?${seasonFilter}
+      WHERE mp.player_id = ? AND m.game_id = ?
       ORDER BY m.played_at ASC, m.id ASC
     `);
-    const historyRows = eloHistoryStmt.all(...scopeParams([parseInt(playerId), game.id])) as {
+    const historyRows = historyStmt.all(parseInt(playerId), game.id) as {
       elo_after: number; played_at: string; season_id: number
     }[];
 
     const eloHistory: { elo_after: number; played_at: string }[] = [];
-    let lastHistorySeason: number | null = null;
-    for (const row of historyRows) {
-      if (lastHistorySeason !== null && row.season_id !== lastHistorySeason) {
-        // Null point breaks the line so the flat reset is visible
-        eloHistory.push({ elo_after: null as unknown as number, played_at: row.played_at });
+    if (isAllTime) {
+      for (const row of historyRows) {
+        eloHistory.push({ elo_after: row.elo_after, played_at: row.played_at });
       }
-      eloHistory.push({ elo_after: row.elo_after, played_at: row.played_at });
-      lastHistorySeason = row.season_id;
+    } else {
+      let lastHistorySeason: number | null = null;
+      for (const row of historyRows) {
+        if (lastHistorySeason !== null && row.season_id !== lastHistorySeason) {
+          // Null point breaks the line so the flat reset is visible
+          eloHistory.push({ elo_after: null as unknown as number, played_at: row.played_at });
+        }
+        eloHistory.push({ elo_after: row.elo_after, played_at: row.played_at });
+        lastHistorySeason = row.season_id;
+      }
     }
+
+    // Record series: the in-scope slice of the same data (season rows only
+    // for season scope; everything for all-time)
+    const recordHistory = isAllTime
+      ? eloHistory.filter(h => h.elo_after != null)
+      : historyRows
+          .filter(r => r.season_id === targetSeasonId)
+          .map(r => ({ elo_after: r.elo_after, played_at: r.played_at }));
 
     // Calculate highest and lowest Elo (in-scope series + rating row)
     const currentElo = rating?.elo ?? 0;
     let highestElo = currentElo;
     let lowestElo = currentElo;
-    for (const record of eloHistory) {
-      if (record.elo_after == null) continue; // segment break
+    for (const record of recordHistory) {
       if (record.elo_after > highestElo) highestElo = record.elo_after;
       if (record.elo_after < lowestElo) lowestElo = record.elo_after;
     }
@@ -196,8 +211,7 @@ export async function GET(request: NextRequest) {
     let highestEloDate: string | null = null;
     let lowestEloDate: string | null = null;
 
-    for (const record of eloHistory) {
-      if (record.elo_after == null) continue; // segment break
+    for (const record of recordHistory) {
       if (record.elo_after === highestElo) {
         highestEloDate = record.played_at;
       }

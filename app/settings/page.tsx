@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useTheme } from "@/lib/contexts/ThemeContext";
 import { PlayerAvatar } from "@/components/PlayerAvatar";
 import { setPlayerAvatarUrl, removePlayerAvatar } from "@/lib/avatarClient";
+import { useSeasonalEffects } from "@/lib/hooks/useSeasonalEffects";
 
 interface Game {
   id: number;
@@ -25,6 +26,7 @@ const COLOR_PRESETS = [
 
 export default function SettingsPage() {
   const { settings: themeSettings, updateSettings: updateTheme, isLoading: themeLoading } = useTheme();
+  const { enabled: seasonalEnabled, setEnabled: setSeasonalEnabled } = useSeasonalEffects();
   const [games, setGames] = useState<Game[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<number | null>(null);
@@ -526,6 +528,47 @@ export default function SettingsPage() {
               className="px-6 py-3 bg-primary text-white rounded-xl font-semibold hover:bg-primary-hover transition-all shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {savingTheme ? "Saving..." : "💾 Save Theme"}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Seasonal Flair Section */}
+      <div className="bg-white rounded-xl shadow-lg overflow-hidden mb-6">
+        <div className="px-6 py-4 bg-gradient-to-r from-emerald-500 to-teal-500">
+          <h2 className="text-lg font-bold text-white flex items-center gap-2">
+            <span className="text-xl">🎄</span> Seasonal Flair
+          </h2>
+          <p className="text-teal-100 text-sm mt-1">Festive decorations on the leaderboard</p>
+        </div>
+        <div className="p-6">
+          <div className="flex items-start justify-between gap-4 max-w-2xl">
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-2">
+                Show seasonal effects
+              </label>
+              <p className="text-xs text-gray-500">
+                Drifting decorations (snow, pumpkins, fireworks...) and seasonal colors on the leaderboard, appearing around Halloween, Valentine's Day and the winter holidays.
+              </p>
+              <p className="text-xs text-gray-400 mt-2">
+                This is a per-browser preference — each browser/device toggles independently.
+              </p>
+            </div>
+            {/* Toggle switch */}
+            <button
+              role="switch"
+              aria-checked={seasonalEnabled !== false}
+              onClick={() => setSeasonalEnabled(seasonalEnabled === false)}
+              disabled={seasonalEnabled === null}
+              className={`relative shrink-0 w-12 h-6 rounded-full transition-colors ${
+                seasonalEnabled === false ? 'bg-gray-300' : 'bg-primary'
+              }`}
+            >
+              <span
+                className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                  seasonalEnabled === false ? 'translate-x-0' : 'translate-x-6'
+                }`}
+              />
             </button>
           </div>
         </div>

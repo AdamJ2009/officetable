@@ -1,5 +1,6 @@
 import { getLeaderboard, getGameStats, getGameRecords, getGames } from "@/lib/data";
 import { getCurrentSeason } from "@/lib/seasons";
+import { getSeasonalTheme } from "@/lib/seasonalTheme";
 import LeaderboardClient from "./LeaderboardClient";
 
 // Revalidate every 30 seconds to pick up new matches
@@ -23,6 +24,7 @@ export default async function Home() {
       initialStats={initialStats}
       initialRecords={initialRecords}
       currentSeasonId={getCurrentSeason()?.id ?? 0}
+      seasonalTheme={getSeasonalTheme()}
     />
   );
 }

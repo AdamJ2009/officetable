@@ -4,7 +4,11 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useSelectedGame } from "@/lib/hooks/useSelectedGame";
 import { PlayerAvatar } from "@/components/PlayerAvatar";
+import { SeasonalDecor } from "@/components/SeasonalDecor";
 import type { LeaderboardEntry } from "@/lib/types";
+import type { SeasonalTheme } from "@/lib/seasonalTheme";
+import { NO_SEASONAL_THEME } from "@/lib/seasonalTheme";
+import { useSeasonalEffects } from "@/lib/hooks/useSeasonalEffects";
 import type { GameStats, GameRecords } from "@/lib/data";
 
 interface LeaderboardClientProps {
@@ -12,6 +16,42 @@ interface LeaderboardClientProps {
   initialStats: GameStats;
   initialRecords: GameRecords;
   currentSeasonId: number;
+  seasonalTheme: SeasonalTheme;
+}
+
+/**
+ * Small inline control next to the seasonal badge: lets people silence the
+ * festive effects without a trip to Settings, or undo it if they have.
+ */
+function SeasonalInlineToggle({
+  theme,
+  enabled,
+  onToggle,
+}: {
+  theme: SeasonalTheme;
+  enabled: boolean;
+  onToggle: () => void;
+}) {
+  if (enabled) {
+    return (
+      <button
+        onClick={onToggle}
+        title="Hide seasonal flair (your preference is saved per browser — re-enable any time in Settings)"
+        className="text-xs text-gray-400 hover:text-gray-600 transition-colors ml-0.5"
+      >
+        ✕
+      </button>
+    );
+  }
+  return (
+    <button
+      onClick={onToggle}
+      title="Seasonal flair is switched off for this browser — click to bring it back"
+      className="text-xs text-gray-400 hover:text-gray-600 transition-colors underline decoration-dotted underline-offset-4"
+    >
+      {theme.titleEmoji} Seasonal flair hidden — show
+    </button>
+  );
 }
 
 interface SeasonInfo {
@@ -225,8 +265,16 @@ export default function LeaderboardClient({
   initialStats,
   initialRecords,
   currentSeasonId,
+  seasonalTheme,
 }: LeaderboardClientProps) {
   const { selectedGameId, selectedGame, games } = useSelectedGame();
+  const { enabled: seasonalEnabled, setEnabled: setSeasonalEnabled } = useSeasonalEffects();
+  // null = preference not loaded yet; treat as enabled so the hydration
+  // render matches what the server produced
+  const seasonalOn = seasonalEnabled !== false;
+  // All render-time seasonal styling flows through this: it becomes the
+  // plain/slate theme when the user has seasonal effects switched off
+  const effectiveTheme = seasonalOn ? seasonalTheme : NO_SEASONAL_THEME;
   const [leaderboard, setLeaderboard] = useState(initialLeaderboard);
   const [gameStats, setGameStats] = useState(initialStats);
   const [gameRecords, setGameRecords] = useState(initialRecords);
@@ -307,6 +355,8 @@ export default function LeaderboardClient({
 
   return (
     <div>
+      <SeasonalDecor theme={effectiveTheme} />
+
       {(viewedSeason || nextSeason) && (
         <div className="mb-4 flex flex-wrap items-center gap-3">
           {viewedSeason && (
@@ -335,7 +385,25 @@ export default function LeaderboardClient({
 
       <div className="flex items-center justify-between mb-8">
         <div className="flex items-center gap-4">
-          <h1 className="text-3xl font-bold">Leaderboard</h1>
+          <h1 className="text-3xl font-bold">
+            {effectiveTheme.titleEmoji ? `${effectiveTheme.titleEmoji} ` : ''}
+            Leaderboard
+          </h1>
+          {effectiveTheme.id !== 'none' && (
+            <span
+              className={`bg-gradient-to-r ${effectiveTheme.badgeGradient} text-white text-xs font-semibold px-2.5 py-1 rounded-full shadow hidden sm:inline-block`}
+              title={`Seasonal flair — ${effectiveTheme.label}`}
+            >
+              {effectiveTheme.label}
+            </span>
+          )}
+          {seasonalTheme.id !== 'none' && (
+            <SeasonalInlineToggle
+              theme={seasonalTheme}
+              enabled={seasonalOn}
+              onToggle={() => setSeasonalEnabled(!seasonalOn)}
+            />
+          )}
           {/* Season picker + all-time toggle */}
           <select
             value={seasonView === 'current' ? `current:${currentSeasonId}` : String(seasonView)}
@@ -422,7 +490,7 @@ export default function LeaderboardClient({
 
       {gameRecords && (
         <div className="mb-8 bg-white rounded-xl shadow-lg overflow-hidden">
-          <div className="px-6 py-4 bg-gradient-to-r from-slate-800 to-slate-900">
+          <div className={`px-6 py-4 bg-gradient-to-r ${effectiveTheme.headerGradient} border-b border-black/20`}>
             <h2 className="text-lg font-bold text-white flex items-center gap-2">
               <span>🏆</span> Game Records
             </h2>
@@ -622,25 +690,17 @@ export default function LeaderboardClient({
         <div className="bg-white rounded-xl shadow-lg overflow-hidden">
           <table className="min-w-full">
             <thead>
-              <tr className="bg-gray-50 border-b border-gray-200">
-                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                  Rank
-                </th>
-                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                  Player
-                </th>
-                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                  Rating
-                </th>
-                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                  Trend
-                </th>
-                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                  W/L/D
-                </th>
-                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                  Win Rate
-                </th>
+              <tr className={`bg-gradient-to-r ${effectiveTheme.headerGradient} border-b border-black/20`}>
+                {["Rank", "Player", "Rating", "Trend", "W/L/D", "Win Rate"].map((heading) => (
+                  <th
+                    key={heading}
+                    className={`px-6 py-4 text-left text-xs font-semibold uppercase tracking-wider ${
+                      effectiveTheme.id === 'none' ? 'text-gray-500' : 'text-white/80'
+                    }`}
+                  >
+                    {heading}
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">

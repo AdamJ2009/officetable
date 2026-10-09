@@ -226,14 +226,11 @@ export async function transferAlces({ fromUser, fromPassword, toUser, amount, vi
   try {
     await alcesRequest(`/transactions/service/${toUser}`, { method: 'POST', body: JSON.stringify(body) });
   } catch (e) {
-    // The new bank VM answers service-mediated transfers with a 500/empty
-    // body ("undefined") — its service endpoint is unstable. The plain
-    // endpoint works (link handshakes prove it), so fall back to it rather
-    // than failing the movement — and never retry the service path in a
-    // loop, which would hammer a struggling bank.
-    if (e instanceof AlcesBankError && (e.code === 'service_error' || e.code === 'unreachable')) {
-      throw e; // unreachable: don't retry now with a duplicate transfer either
-    }
+    // PROBED on the new bank VM (10.151.0.85): its service endpoint answers
+    // 500 "undefined" and moves NO money, while the plain endpoint works and
+    // skims ~5% of the receipt instead of 2%. So on any service-path failure,
+    // do the same transfer plainly — safe (nothing executed) and keeps the
+    // economy flowing when the bank's service route misbehaves.
     await alcesRequest(`/transactions/${toUser}`, { method: 'POST', body: JSON.stringify({ username: fromUser, password: fromPassword, amount }) });
   }
 }

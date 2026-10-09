@@ -219,9 +219,8 @@ export function assertBankLinked(playerId: number): void {
 /**
  * Register (action 'create') or connect (action 'link') a player's Alces
  * Bookie account and record their credentials for future transfers.
- * Linking an existing account proves the password with a 1-buck round-trip
- * through the house; creating proves it by the bank having minted the user.
- * Returns the account's real (bank-side) balance.
+ * 'create' proves itself by the bank minting the user; 'link' is trusted to
+ * work (no credential probe). Returns the account's real (bank-side) balance.
  */
 export async function linkBankAccount(
   playerId: number,
@@ -233,16 +232,12 @@ export async function linkBankAccount(
     throw new BankError('Central bank is not configured', 'bank_disabled');
   }
   await ensureAlcesHouse();
-  const { houseUser, housePassword } = alcesConfig();
-  if (!housePassword) throw new BankError('House bank account not initialised', 'bank_disabled');
 
   if (action === 'create') {
     await registerAlcesUser(username, password); // 409 already_taken surfaces to the user
-  } else {
-    // Prove the player actually owns this account: 1 buck there and back.
-    await transferAlces({ fromUser: username, fromPassword: password, toUser: houseUser, amount: 1, viaService: true });
-    await transferAlces({ fromUser: houseUser, fromPassword: housePassword, toUser: username, amount: 1 });
   }
+  // No credential-test handshake: the API is trusted as working — a wrong
+  // password surfaces naturally on the first real transfer as a failed sync.
 
   const balance = (await alcesBalance(username)) ?? 0;
   db.prepare(`

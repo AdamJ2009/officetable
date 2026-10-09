@@ -5,7 +5,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import db from '@/lib/db';
 import { syncStatuses, deriveStatus, getBetPool } from '@/lib/gamble';
-import { getBank } from '@/lib/bank';
+import { getBank, isBankLinked } from '@/lib/bank';
 import { gambleErrorResponse } from '@/lib/gambleApi';
 import type { Challenge, GambleMatch, OddsLadder } from '@/lib/types';
 
@@ -82,7 +82,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       me: Number.isInteger(playerId)
-        ? { player_id: playerId, balance: bank.getBalance(playerId) }
+        ? { player_id: playerId, balance: bank.getBalance(playerId), bank_linked: isBankLinked(playerId) }
         : null,
       house_balance: bank.getHouseBalance(),
       my_challenges: myChallenges,

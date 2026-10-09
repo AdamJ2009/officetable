@@ -4,6 +4,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import db from '@/lib/db';
+import { seedBalance } from '@/lib/bank';
 import { gambleErrorResponse } from '@/lib/gambleApi';
 
 interface Summary {
@@ -66,7 +67,7 @@ export async function GET(request: NextRequest) {
 
     // Summary — same tracking as the gambling leaderboard
     const s = db.prepare(`
-      SELECT COALESCE(bal.balance, 1000) as balance,
+      SELECT COALESCE(bal.balance, ${seedBalance()}) as balance,
         COALESCE((SELECT SUM(amount) FROM bank_transactions
           WHERE player_id = @pid AND ref_type NOT IN ('topup', 'seed')), 0) as net,
         COALESCE((SELECT SUM(-amount) FROM bank_transactions

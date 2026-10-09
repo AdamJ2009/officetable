@@ -600,6 +600,36 @@ db.exec(`
 
 db.prepare(`INSERT OR IGNORE INTO bank_house (id, balance) VALUES (1, 0)`).run();
 
+// Migration: Alces Bookie central-bank linking. Balances now REALLY live on
+// the shared office bank (http://10.151.0.132:3000 — "bank is the truth"), so
+// bankAccounts gain the player's own registered credentials (registration is
+// manual — the site has no mint of its own), and bank_sync is the outbox of
+// ledger rows still waiting to be pushed out as real transfers.
+try {
+  db.exec(`ALTER TABLE bank_accounts ADD COLUMN bank_username TEXT`);
+} catch (e) { /* column already exists */ }
+try {
+  db.exec(`ALTER TABLE bank_accounts ADD COLUMN bank_password TEXT`);
+} catch (e) { /* column already exists */ }
+try {
+  db.exec(`ALTER TABLE bank_accounts ADD COLUMN bank_linked_at TEXT`);
+} catch (e) { /* column already exists */ }
+// Enforced as an index, not an inline UNIQUE — SQLite cannot ALTER in a
+// UNIQUE column once rows exist (that failure previously disappeared into
+// the catches above), leaving accounts without the linking column at all.
+db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_bank_accounts_username ON bank_accounts(bank_username)`);
+db.exec(`
+  CREATE TABLE IF NOT EXISTS bank_sync (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    transaction_id INTEGER NOT NULL REFERENCES bank_transactions(id),
+    status TEXT NOT NULL DEFAULT 'pending',    -- pending | done | failed
+    attempts INTEGER NOT NULL DEFAULT 0,
+    error TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE INDEX IF NOT EXISTS idx_bank_sync_status ON bank_sync(status, id);
+`);
+
 // Migration: challenges gain a link to the gamble match opened on accept
 // (added after the table shipped, so existing DBs need the ALTER).
 try {
@@ -699,6 +729,14 @@ for (const stmt of [
 
 // Seed an account for every existing player (new players get accounted via
 // lib/bank.ensureAccount — same INSERT OR IGNORE, so repeated calls are free).
-db.prepare(`INSERT OR IGNORE INTO bank_accounts (player_id, balance) SELECT id, 1000 FROM players`).run();
+// Mock/offline mode mints 1000 each; when the central Alces bank is wired,
+// nobody locally mints — unlinked players hold zero until they register.
+const mirrorOn = !!(
+  process.env.ALCES_SERVICE_TOKEN
+  ?? (db.prepare(`SELECT value FROM settings WHERE key = 'alces_service_token'`).get() as
+    | { value: string } | undefined)?.value
+);
+db.prepare(`INSERT OR IGNORE INTO bank_accounts (player_id, balance) SELECT id, ? FROM players`)
+  .run(mirrorOn ? 0 : 1000);
 
 export default db;

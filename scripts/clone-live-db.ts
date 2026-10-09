@@ -24,7 +24,8 @@ const LIMIT = 100;
 
 // Base house pot after a clone — the bookie needs real reserves so the
 // two-pot payout cap (bet pool + house pot − 1) can pay big winners.
-const HOUSE_POT_SEED = 10000;
+// House reserve + player balances used to be seeded here; money now lives on
+// the central Alces Bookie bank — players register/link accounts at /gambling/bank.
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
@@ -84,7 +85,8 @@ async function main() {
     VALUES (?, ?, ?, ?, ?)`);
   for (const p of players) {
     insPlayer.run(p.id, p.name, p.status, p.created_at, p.avatar_url ?? null);
-    db.prepare('INSERT OR IGNORE INTO bank_accounts (player_id, balance) VALUES (?, 1000)').run(p.id);
+    // No bank seed: moose bucks live on the central Alces Bookie bank now —
+    // players link (or register) their bank account on /gambling/bank.
   }
   console.log(`players: ${players.length}`);
   const KNOWN = new Set(players.map(p => p.id));
@@ -151,13 +153,9 @@ async function main() {
   }
   console.log(`Elo calibrated to live values: ${calibrated} (player, game, season) rows`);
 
-  // --- base house pot --------------------------------------------------------
-  db.prepare(`
-    INSERT INTO bank_transactions (ref_type, ref_id, player_id, amount, memo)
-    VALUES ('topup', NULL, NULL, ?, 'clone: base house pot')
-  `).run(HOUSE_POT_SEED);
-  db.prepare(`UPDATE bank_house SET balance = ? WHERE id = 1`).run(HOUSE_POT_SEED);
-  console.log(`House pot seeded with ${HOUSE_POT_SEED} moose bucks`);
+  // No house-pot seed either: the house reserve is the 'officetablehouse'
+  // bank user's own balance on the central bank (its 500 mint), and the pot
+  // accumulates from fees/stakes as gambles run.
 
   // --- report: local should now mirror live --------------------------------
   const finalCount = (db.prepare('SELECT COUNT(*) n FROM matches').get() as { n: number }).n;

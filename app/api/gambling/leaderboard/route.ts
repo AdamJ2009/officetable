@@ -6,7 +6,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import db from '@/lib/db';
-import { getBank } from '@/lib/bank';
+import { getBank, seedBalance, alcesMirrorEnabled } from '@/lib/bank';
 import { gambleErrorResponse } from '@/lib/gambleApi';
 
 interface GamblerRow {
@@ -26,7 +26,7 @@ interface GamblerRow {
 
 const SQL = `
   SELECT p.id as player_id, p.name, p.avatar_url, p.status = 'retired' as retired,
-    COALESCE(bal.balance, 1000) as balance,
+    COALESCE(bal.balance, ${seedBalance()}) as balance,
     COALESCE(pl.net, 0) as net,
     COALESCE(pl.wagered, 0) as wagered,
     COALESCE(bb.won, 0) as bets_won,
@@ -67,7 +67,13 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const limitRaw = parseInt(searchParams.get('limit') ?? '', 10);
 
-    const rows = (db.prepare(`${SQL} ORDER BY net DESC, balance DESC`).all() as unknown) as GamblerRow[];
+    // With the central bank live, only players who registered a bank account
+    // are on the gambling table at all — unlinked players hold zero and never
+    // appear, whatever their active/retired status.
+    const linkedOnly = alcesMirrorEnabled()
+      ? `WHERE p.id IN (SELECT player_id FROM bank_accounts WHERE bank_username IS NOT NULL)`
+      : '';
+    const rows = (db.prepare(`${SQL} ${linkedOnly} ORDER BY net DESC, balance DESC`).all() as unknown) as GamblerRow[];
 
     // Inactivity: same rule as the office leaderboard — no match within the
     // settings' inactive_threshold_days (default 60), none at all ⇒ inactive.

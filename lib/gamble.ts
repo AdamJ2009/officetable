@@ -8,7 +8,7 @@
 
 import db from './db';
 import { processMatch } from './elo';
-import { getBank } from './bank';
+import { getBank, assertBankLinked, kickBankSync } from './bank';
 import { computeOddsLadder } from './gambleOdds';
 import { announceCancelled } from './gambleNotifications';
 import { normaliseStartDate, toDbDate } from './seasons';
@@ -93,6 +93,7 @@ export class GambleError extends Error {
  *  3. unsettled gamble matches are voided (full refunds) once the result is
  *     more than N minutes overdue — with a Chat note. */
 export function syncStatuses(): void {
+  kickBankSync(); // best-effort push of queued movements to the central bank
   db.prepare(`
     UPDATE gamble_matches SET status = 'awaiting_score'
     WHERE status = 'open' AND bet_close_at <= ?
@@ -194,6 +195,9 @@ export function createChallenge(
   if (!broadcast && challengerId === opponentId) {
     throw new GambleError('You cannot challenge yourself', 'same_player');
   }
+  // Money moves at accept — the bank (central or mock) has to know both
+  // parties by then, so gate it here for the challenger (opponent at accept).
+  assertBankLinked(challengerId);
 
   const known = broadcast
     ? db.prepare(`SELECT COUNT(*) as n FROM players WHERE id = ?`).get(challengerId) as { n: number }
@@ -368,6 +372,7 @@ export function respondToChallenge(
   // (the debitChecked guard inside is belt and braces, not the real check).
   const playerIds = broadcastAccept ? [challenge.challenger_id, playerId] : [challenge.challenger_id, challenge.opponent_id!];
   for (const pid of playerIds) {
+    assertBankLinked(pid); // both entry fees become real central-bank transfers
     bank.ensureAccount(pid);
     if (bank.getBalance(pid) < fee) {
       throw new GambleError(`Player ${pid} does not have ${fee} moose bucks to enter`, 'insufficient_funds');
@@ -488,9 +493,32 @@ export function placeBet(gambleMatchId: number, bettorId: number, redScore: numb
     .find(o => o.redScore === redScore && o.blueScore === blueScore);
   if (!outcome) throw new GambleError('Scoreline not on the odds board', 'bad_score');
 
+  assertBankLinked(bettorId); // a stake is a real central-bank transfer
   bank.ensureAccount(bettorId);
   if (bank.getBalance(bettorId) < stake) {
     throw new GambleError(`Not enough moose bucks: balance ${bank.getBalance(bettorId)} < stake ${stake}`, 'insufficient_funds');
+  }
+
+  // Exposure guard — winnings are capped by the CASINO's total bank pot, not
+  // the individual match's bet pot: no single player may win more than the
+  // house reserve holds (less 1 so the casino never fully busts). Stakes from
+  // every match form the bet pot underneath it; this guard sits on top of
+  // that so nobody can stake their way past the bank's own pot.
+  const samePick = db.prepare(`
+    SELECT COALESCE(SUM(stake), 0) as staked
+    FROM bets WHERE gamble_match_id = ? AND bettor_id = ? AND status = 'open'
+      AND red_score = ? AND blue_score = ?
+  `).get(gambleMatchId, bettorId, redScore, blueScore) as { staked: number };
+  const BASE_POT_MINIMUM = 100; // casino stands behind every bet with at least this
+  const bankPot = Math.max(bank.getHouseBalance(), BASE_POT_MINIMUM);
+  const potentialPayout = Math.floor((samePick.staked + stake) * outcome.decimalOdds);
+  if (bankPot <= 1 || potentialPayout > bankPot - 1) {
+    const maxStake = Math.max(GAMBLE_RULES.minStake,
+      Math.floor((bankPot - 1) / outcome.decimalOdds) - samePick.staked);
+    throw new GambleError(
+      `Bet too big — that pick would pay ${potentialPayout.toLocaleString()} but the casino's bank pot is ${Math.max(0, bankPot - 1).toLocaleString()}, which is the most anyone can win. Lower the stake (max ~${maxStake}).`,
+      'bet_exceeds_pot',
+    );
   }
 
   return db.transaction((): number => {
@@ -567,6 +595,9 @@ export function settleGambleMatch(
   }
 
   const settle = db.transaction((): SettleSummary => {
+    // Payouts go to both players as real central-bank transfers
+    assertBankLinked(redPlayerId);
+    assertBankLinked(bluePlayerId);
     // Check-and-set claim: only the first settle wins, repeats error out.
     const claim = db.prepare(`
       UPDATE gamble_matches SET status = 'settled', settled_at = ?

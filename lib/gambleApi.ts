@@ -28,11 +28,23 @@ const STATUS_BY_CODE: Record<string, number> = {
   participants_may_not_bet: 403,
 };
 
-/** Map lib errors to HTTP responses; anything else is a 500. */
+/** Map lib errors to HTTP responses; centrally-bank errors too; anything else is a 500. */
 export function gambleErrorResponse(error: unknown): NextResponse {
   if (error instanceof GambleError || error instanceof BankError) {
     const code = (error as GambleError).code;
     return NextResponse.json({ error: (error as Error).message, code }, { status: STATUS_BY_CODE[code] ?? 400 });
+  }
+  // Alces Bank errors (any bank-side failure) must read as an honest gateway
+  // problem, never an opaque "Gambling operation failed".
+  const maybeError = error as { code?: string; message?: string } | null;
+  if (maybeError && typeof maybeError.code === 'string' && maybeError.code) {
+    const status =
+      maybeError.code === 'already_taken' ? 409
+      : maybeError.code === 'unauthorised' ? 401
+      : maybeError.code === 'not_found' ? 404
+      : maybeError.code === 'insufficient_funds' ? 409
+      : 502; // unreachable, service_error, anything else from the bank
+    return NextResponse.json({ error: maybeError.message ?? 'Central bank error', code: maybeError.code }, { status });
   }
   console.error('gambling route error:', error);
   return NextResponse.json({ error: 'Gambling operation failed' }, { status: 500 });
@@ -53,3 +65,5 @@ STATUS_BY_CODE['bets_still_open'] = 409;
 STATUS_BY_CODE['bad_actor'] = 400;
 STATUS_BY_CODE['challenge_expired'] = 409;
 STATUS_BY_CODE['counter_not_allowed'] = 409;
+STATUS_BY_CODE['bank_not_linked'] = 403;
+STATUS_BY_CODE['bet_exceeds_pot'] = 409;

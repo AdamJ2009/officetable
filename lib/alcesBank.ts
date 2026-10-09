@@ -1,0 +1,239 @@
+// Alces Bookie — the office's shared central bank (all money virtual).
+//
+// http://10.151.0.85:3000/api/v1 — see /api/v1/docs (Scalar/OpenAPI).
+// The site is a bookie on this bank: players register their OWN accounts
+// (manually — the bank mints 500 at signup, so it is the money's truth), and
+// every movement the gambling engine makes is mirrored here as a real
+// house<->player transfer through outbox rows (lib/bank.ts bank_sync).
+//
+// Probed behaviour worth remembering:
+//  - Balances are only readable via GET /users pagination (strings, can be
+//    fractional — the bank skims 2% of every receipt off to its own 'bank'
+//    user); GET /users/{username} answers 204 with no body.
+//  - Transfers authenticate as the SENDER body {username, password, amount};
+//    the recipient is the path user. Bad creds → 400 UNAUTHORISED, not
+//    enough money → 400 BAD_REQUEST "… does not have enough to send …",
+//    duplicate user → 409 CONFLICTING_RESOURCE, missing user → 404 NOT_FOUND.
+
+import db from './db';
+
+const DEFAULT_URL = 'http://10.151.0.85:3000/api/v1';
+
+export class AlcesBankError extends Error {
+  constructor(message: string, public code: string) {
+    super(message);
+  }
+}
+
+export interface AlcesConfig {
+  baseUrl: string;
+  serviceToken: string | null;
+  serviceName: string;
+  houseUser: string;
+  housePassword: string | null;
+}
+
+function setting(key: string): string | undefined {
+  const row = db.prepare(`SELECT value FROM settings WHERE key = ?`).get(key) as
+    | { value: string }
+    | undefined;
+  return row?.value || undefined;
+}
+
+export function alcesConfig(): AlcesConfig {
+  // Env first (never commit secrets), settings table as fallback persistence.
+  const serviceToken = process.env.ALCES_SERVICE_TOKEN ?? setting('alces_service_token') ?? null;
+  let housePassword = process.env.ALCES_HOUSE_PASSWORD ?? setting('alces_house_password') ?? null;
+  if (serviceToken && !setting('alces_service_token')) {
+    db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES ('alces_service_token', ?)`)
+      .run(serviceToken);
+  }
+  const PASSWORD_MAX = 30;
+  if (!housePassword && serviceToken) {
+    // The house is the site's own bank user; its password is generated once
+    // and kept in settings — it must never change under the ledger.
+    housePassword = `ot-${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`;
+    db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES ('alces_house_password', ?)`)
+      .run(housePassword);
+  }
+  // The bank caps passwords at 30 chars; an older generation scheme stored a
+  // 35-char one that the bank can never accept (register always 400s). The
+  // house user is minted by whatever registration finally succeeds, so a
+  // regenerate-once here is safe.
+  if (housePassword && housePassword.length > PASSWORD_MAX) {
+    housePassword = `ot-${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`;
+    db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES ('alces_house_password', ?)`)
+      .run(housePassword);
+  }
+  return {
+    baseUrl: (process.env.ALCES_BANK_URL ?? setting('alces_bank_url') ?? DEFAULT_URL).replace(/\/$/, ''),
+    serviceToken,
+    serviceName: process.env.ALCES_SERVICE_NAME ?? setting('alces_service_name') ?? 'officetable',
+    houseUser: process.env.ALCES_HOUSE_USER ?? setting('alces_house_user') ?? 'officetablehouse',
+    housePassword,
+  };
+}
+
+/** Mirror is on when the app has its bookie service token. */
+export function alcesMirrorEnabled(): boolean {
+  return alcesConfig().serviceToken !== null;
+}
+
+const USERNAME_MIN = 4;
+const USERNAME_MAX = 25;
+
+/** Suggested bank username for a player: their name flattened ("Adam B" → "AdamB"). */
+export function suggestBankUsername(name: string, playerId: number): string {
+  const slug = name.replace(/[^A-Za-z0-9]/g, '').slice(0, USERNAME_MAX);
+  if (slug.length < USERNAME_MIN) return `ot_${playerId}`;
+  return slug;
+}
+
+export function validateBankUsername(username: string): string | null {
+  if (username.length < USERNAME_MIN || username.length > USERNAME_MAX) {
+    return `Bank username must be ${USERNAME_MIN}-${USERNAME_MAX} characters`;
+  }
+  if (!/^[\w-]+$/.test(username)) return 'Bank username may only contain letters, numbers, _ and -';
+  return null;
+}
+
+export function validateBankPassword(password: string): string | null {
+  if (password.length < 4 || password.length > 30) return 'Bank password must be 4-30 characters';
+  return null;
+}
+
+type Rest = {
+  status: number;
+  body: { error?: string; message?: string } & Record<string, unknown>;
+};
+
+// Circuit breaker: when the bank VM is down, stop hammering it — remember the
+// outage for a couple of minutes and fail fast (still 'unreachable') until
+// then. The next attempt after the cooldown reconnects automatically.
+let downUntil = 0;
+const OUTAGE_BACKOFF_MS = 30 * 1000;
+export const alcesBankDownUntil = (): number => downUntil;
+
+/** Let a user-initiated attempt bypass the outage backoff entirely. */
+export function resetAlcesBreaker(): void {
+  downUntil = 0;
+}
+
+async function alcesRequest(path: string, init?: RequestInit): Promise<Rest> {
+  const { baseUrl } = alcesConfig();
+  if (Date.now() < downUntil) {
+    throw new AlcesBankError(`Alces bank is down right now (${baseUrl}) — retrying soon`, 'unreachable');
+  }
+  let res: Response;
+  try {
+    res = await fetch(`${baseUrl}${path}`, {
+      ...init,
+      headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
+    });
+  } catch (e) {
+    downUntil = Date.now() + OUTAGE_BACKOFF_MS;
+    throw new AlcesBankError(`Alces bank unreachable at ${baseUrl}`, 'unreachable');
+  }
+  let body: Rest['body'] | null = null;
+  const text = await res.text().catch(() => '');
+  if (text) {
+    try { body = JSON.parse(text); } catch { body = { message: text }; }
+  }
+  if (res.ok) return { status: res.status, body: body ?? {} };
+  // The bank's own error envelope varies (the new VM has answered with an
+  // object/absent 'error' field before) — never trust its shape.
+  const rawErr = (body?.error as unknown) ?? 'SERVICE_ERROR';
+  const errCode = typeof rawErr === 'string' && rawErr ? rawErr.toUpperCase() : 'SERVICE_ERROR';
+  if (errCode === 'UNAUTHORISED') {
+    throw new AlcesBankError(`Wrong bank username or password`, 'unauthorised');
+  }
+  if (errCode === 'CONFLICTING_RESOURCE') {
+    throw new AlcesBankError(`That bank username is already taken`, 'already_taken');
+  }
+  if (errCode === 'NOT_FOUND') {
+    throw new AlcesBankError(`That bank account does not exist`, 'not_found');
+  }
+  if (errCode === 'BAD_REQUEST' && /does not have enough/.test((body?.message as string) ?? '')) {
+    throw new AlcesBankError((body?.message as string) ?? 'Not enough moose bucks', 'insufficient_funds');
+  }
+  const msg = typeof body?.message === 'string' && body.message
+    ? body.message
+    : `Alces bank request failed (HTTP ${res.status}${body ? `: ${JSON.stringify(body).slice(0, 200)}` : ''})`;
+  throw new AlcesBankError(msg, errCode.toLowerCase() || 'service_error');
+}
+
+/** Register a new bank user (mints them 500 moose bucks). 204 on success. */
+export async function registerAlcesUser(username: string, password: string): Promise<void> {
+  await alcesRequest('/users', {
+    method: 'POST',
+    body: JSON.stringify({ username, password }),
+  });
+}
+
+/** All bank users with balances, following pagination. */
+export async function listAlcesBalances(): Promise<Map<string, number>> {
+  const balances = new Map<string, number>();
+  let page = 1;
+  for (;;) {
+    const { body } = await alcesRequest(`/users?page=${page}&limit=100`);
+    const data = body.data as { username: string; balance: string }[] | undefined;
+    for (const u of data ?? []) balances.set(u.username, parseFloat(u.balance));
+    const totalPages = (body.totalPages as number) ?? 1;
+    if (!data?.length || page >= totalPages) break;
+    page++;
+  }
+  return balances;
+}
+
+export async function alcesBalance(username: string): Promise<number | null> {
+  const balances = await listAlcesBalances();
+  return balances.get(username) ?? null;
+}
+
+/** Delete a bank user (cleanup of probe/test accounts; needs their password). */
+export async function deleteAlcesUser(username: string, password: string): Promise<void> {
+  await alcesRequest('/users', {
+    method: 'DELETE',
+    body: JSON.stringify({ username, password }),
+  });
+}
+
+export interface TransferOpts {
+  /** The SENDER's bank credentials. */
+  fromUser: string;
+  fromPassword: string;
+  /** The RECIPIENT's bank username. */
+  toUser: string;
+  amount: number;
+  /** Optional service mediation (our bookie token) — records the transfer under our service. */
+  viaService?: boolean;
+}
+
+/** One central-bank transfer. Sender body creds, recipient is the path user. */
+export async function transferAlces({ fromUser, fromPassword, toUser, amount, viaService }: TransferOpts): Promise<void> {
+  const { serviceToken } = alcesConfig();
+  const body: Record<string, unknown> = { username: fromUser, password: fromPassword, amount };
+  if (!viaService) {
+    await alcesRequest(`/transactions/${toUser}`, { method: 'POST', body: JSON.stringify(body) });
+    return;
+  }
+  if (!serviceToken) {
+    // Mirror shouldn't be enabled without a token, but stay honest if it flips off.
+    await alcesRequest(`/transactions/${toUser}`, { method: 'POST', body: JSON.stringify(body) });
+    return;
+  }
+  body.serviceToken = serviceToken;
+  try {
+    await alcesRequest(`/transactions/service/${toUser}`, { method: 'POST', body: JSON.stringify(body) });
+  } catch (e) {
+    // The new bank VM answers service-mediated transfers with a 500/empty
+    // body ("undefined") — its service endpoint is unstable. The plain
+    // endpoint works (link handshakes prove it), so fall back to it rather
+    // than failing the movement — and never retry the service path in a
+    // loop, which would hammer a struggling bank.
+    if (e instanceof AlcesBankError && (e.code === 'service_error' || e.code === 'unreachable')) {
+      throw e; // unreachable: don't retry now with a duplicate transfer either
+    }
+    await alcesRequest(`/transactions/${toUser}`, { method: 'POST', body: JSON.stringify({ username: fromUser, password: fromPassword, amount }) });
+  }
+}

@@ -16,6 +16,7 @@ interface Detail {
   seconds_to_close: number;
   bets: Bet[];
   pool: number;
+  final_score: { red: number; blue: number } | null;
   my_bets: Bet[];
   my_staked: number;
   is_participant: boolean;
@@ -214,7 +215,7 @@ export default function GambleMatchPage() {
 
       {/* Settled view */}
       {(status === 'settled' || status === 'cancelled') && (
-        <SettledView gm={gm} bets={detail.bets} summary={summary} />
+        <SettledView gm={gm} bets={detail.bets} summary={summary} finalScore={detail.final_score} />
       )}
 
       {status !== 'settled' && status !== 'cancelled' && (
@@ -328,37 +329,55 @@ export default function GambleMatchPage() {
             </div>
           </div>
 
-          {/* Live bets */}
-          <section>
-            <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-2">
-              Bets ({detail.bets.length}) — pool {detail.pool}
-            </h3>
-            {detail.bets.length === 0 ? (
-              <p className="text-sm text-gray-500">No bets yet.</p>
-            ) : (
-              <div className="rounded-xl border border-gray-200 bg-card divide-y divide-gray-100">
-                {detail.bets.map(b => (
-                  <div key={b.id} className="flex items-center justify-between px-4 py-2 text-sm">
-                    <span className="font-medium text-gray-800">{b.bettor_name}</span>
-                    <span className="text-gray-600">
-                      picked <b>{b.red_score}-{b.blue_score}</b> @ {b.decimal_odds.toFixed(2)}
-                      {b.status === 'won' ? ` · paid ${b.payout}` : b.status === 'lost' ? ' · lost' : ''}
-                    </span>
-                    <span className="text-gray-800 font-semibold">{b.stake}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
         </>
       )}
+
+      <BetsPanel bets={detail.bets} pool={detail.pool} />
     </div>
   );
 }
 
-function SettledView({ gm, bets, summary }: { gm: GambleMatch; bets: Bet[]; summary: SettleSummary | null }) {
+/** Every bet on this match — the full amount each bettor put on each pick,
+ *  and (once settled) exactly who won what and who lost. */
+function BetsPanel({ bets, pool }: { bets: Bet[]; pool: number }) {
+  return (
+    <section>
+      <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-2">
+        Bets ({bets.length}) — pool {pool} moose bucks
+      </h3>
+      {bets.length === 0 ? (
+        <p className="text-sm text-gray-500">Nobody has put anything on this one yet.</p>
+      ) : (
+        <div className="rounded-xl border border-gray-200 bg-card divide-y divide-gray-100">
+          {bets.map(b => (
+            <div key={b.id} className="flex flex-wrap items-center justify-between gap-2 px-4 py-2 text-sm">
+              <span className="font-medium text-gray-800">{b.bettor_name}</span>
+              <span className="text-gray-600">
+                put <b>{b.stake}</b> on <b>{b.red_score}-{b.blue_score}</b> @ {b.decimal_odds.toFixed(2)}
+              </span>
+              {b.status === 'won' && (
+                <span className="font-semibold text-green-700">
+                  WON — paid {b.payout} (net +{(b.payout ?? 0) - b.stake})
+                </span>
+              )}
+              {b.status === 'lost' && (
+                <span className="font-semibold text-red-700">
+                  LOST — −{b.stake}
+                </span>
+              )}
+              {b.status === 'open' && <span className="text-gray-500">staked and live</span>}
+              {b.status === 'refunded' && <span className="text-gray-500">refunded</span>}
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function SettledView({ gm, bets, summary, finalScore }: { gm: GambleMatch; bets: Bet[]; summary: SettleSummary | null; finalScore: { red: number; blue: number } | null }) {
   // When landing directly on a settled match we don't have the settle summary
-  // in memory — reconstruct the essentials from the bets.
+  // in memory — the API reads the recorded match's score; fall back to ?.
   const won = bets.filter(b => b.status === 'won');
   const lost = bets.filter(b => b.status === 'lost');
   const refunded = bets.filter(b => b.status === 'refunded');
@@ -368,7 +387,7 @@ function SettledView({ gm, bets, summary }: { gm: GambleMatch; bets: Bet[]; summ
   return (
     <div className="rounded-xl border border-gray-200 bg-card p-5 space-y-4">
       <div className="text-lg font-bold text-gray-900">
-        Final: <span className="text-red-600">{gm.red_player_name}</span> {summary?.finalScore.red ?? '?'}–{summary?.finalScore.blue ?? '?'}{' '}
+        Final: <span className="text-red-600">{gm.red_player_name}</span> {summary?.finalScore.red ?? finalScore?.red ?? '?'}–{summary?.finalScore.blue ?? finalScore?.blue ?? '?'}{' '}
         <span className="text-blue-600">{gm.blue_player_name}</span>
       </div>
 

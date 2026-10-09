@@ -34,6 +34,13 @@ const fmtTime = (dbStr: string) =>
     weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London',
   });
 
+const EVENS: Record<string, string> = {
+  true_even: 'evens on a draw (5-5)',
+  elo_even: "evens on the bookie's line",
+};
+
+const evensLabel = (line: string) => EVENS[line] ?? `evens on ${line}`;
+
 const STATUS_BADGE: Record<string, string> = {
   open: 'bg-green-100 text-green-800',
   bets_closed: 'bg-amber-100 text-amber-800',
@@ -189,6 +196,13 @@ export default function GambleMatchPage() {
           {fmtTime(gm.scheduled_at)} · entry {gm.entry_fee} each · bookie's line{' '}
           <span className="text-amber-600 font-semibold">{predicted}</span>
         </div>
+        <div className="text-sm text-gray-500">
+          The players' entry pot splits 50/50 if the final score lands on{' '}
+          <span className="font-semibold text-gray-700">{evensLabel(gm.payout_line ?? 'true_even')}</span> — otherwise by score share.
+        </div>
+        {gm.special_rules && (
+          <div className="text-sm text-amber-700 italic mt-1">📜 Special rules: {gm.special_rules}</div>
+        )}
       </div>
 
       {error && (
@@ -295,7 +309,7 @@ export default function GambleMatchPage() {
                     Record result & settle
                   </button>
                   <p className="text-[11px] text-gray-400">
-                    Settles every bet, splits the entry by score and pays the pot 50/25/25.
+                    Settles every bet, splits the players' entries by score (50/50 on the payout line) and pays the pot 50/25/25.
                   </p>
                 </div>
               )}
@@ -370,13 +384,18 @@ function SettledView({ gm, bets, summary }: { gm: GambleMatch; bets: Bet[]; summ
             </div>
             <div className="rounded-lg bg-gray-50 p-3">
               <div className="text-xs text-gray-500 uppercase">Player entries</div>
-              {summary
-                ? summary.playerEntry.map(pe => (
+              {summary ? (
+                <>
+                  {summary.playerEntry.map(pe => (
                     <div key={pe.playerId} className="text-gray-800">
                       kept <b>{pe.returned}</b> of {pe.fee}
                     </div>
-                  ))
-                : <div className="text-gray-500">kept share of entry, split by score</div>}
+                  ))}
+                  <div className="text-[11px] text-gray-400">
+                    {summary.entryEvenHit ? `evens line hit (${summary.payoutLine}) — 50/50 split` : `split by score${summary.payoutLine && summary.payoutLine !== 'true_even' && summary.payoutLine !== 'elo_even' ? ` (line was ${summary.payoutLine})` : ''}`}
+                  </div>
+                </>
+              ) : <div className="text-gray-500">kept share of entry, split by score</div>}
             </div>
             <div className="rounded-lg bg-gray-50 p-3">
               <div className="text-xs text-gray-500 uppercase">Bank pot</div>

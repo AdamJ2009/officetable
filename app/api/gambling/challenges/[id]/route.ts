@@ -23,18 +23,19 @@ export async function GET(
     const derived = gambleMatch ? deriveStatus(gambleMatch) : null;
 
     // Frozen odds come with the match; while still negotiating, preview from
-    // the current terms (same math the accept path freezes).
+    // the current terms (same math the accept path freezes). Broadcast
+    // challenges can't preview — red may still be undetermined.
     let odds_preview = null;
-    if (!gambleMatch && terms_history.length > 0) {
+    if (!gambleMatch && terms_history.length > 0 && !challenge.broadcast) {
       const game = db.prepare(`SELECT score_value FROM games WHERE id = ?`)
         .get(challenge.game_id) as { score_value: number } | undefined;
       if (game) {
         const last = terms_history[terms_history.length - 1];
         const bluePlayerId = last.red_player_id === challenge.challenger_id
-          ? challenge.opponent_id : challenge.challenger_id;
+          ? challenge.opponent_id! : challenge.challenger_id;
         odds_preview = computeOddsLadder({
           gameId: challenge.game_id,
-          redPlayerIds: [last.red_player_id],
+          redPlayerIds: [last.red_player_id!],
           bluePlayerIds: [bluePlayerId],
           total: game.score_value,
         });

@@ -511,12 +511,16 @@ db.exec(`
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     game_id INTEGER NOT NULL REFERENCES games(id),
     challenger_id INTEGER NOT NULL REFERENCES players(id),
-    opponent_id INTEGER NOT NULL REFERENCES players(id),
+    opponent_id INTEGER REFERENCES players(id),   -- NULL on broadcast challenges
     entry_fee INTEGER NOT NULL,
     scheduled_at TEXT NOT NULL,
-    red_player_id INTEGER NOT NULL,
+    red_player_id INTEGER,                        -- NULL while a broadcast challenger takes blue
+    challenger_side TEXT NOT NULL DEFAULT 'red',
     status TEXT NOT NULL DEFAULT 'pending',
     terms_by INTEGER NOT NULL,
+    broadcast INTEGER NOT NULL DEFAULT 0,
+    payout_line TEXT NOT NULL DEFAULT 'true_even',
+    special_rules TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
@@ -526,8 +530,10 @@ db.exec(`
     challenge_id INTEGER NOT NULL REFERENCES challenges(id),
     entry_fee INTEGER NOT NULL,
     scheduled_at TEXT NOT NULL,
-    red_player_id INTEGER NOT NULL,
+    red_player_id INTEGER,
     proposed_by INTEGER NOT NULL,
+    payout_line TEXT NOT NULL DEFAULT 'true_even',
+    special_rules TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 
@@ -543,6 +549,8 @@ db.exec(`
     outcome_total INTEGER NOT NULL,
     odds_json TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'open',
+    payout_line TEXT NOT NULL DEFAULT 'true_even',
+    special_rules TEXT,
     match_id INTEGER,
     settled_at TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -598,6 +606,95 @@ try {
   db.exec(`ALTER TABLE challenges ADD COLUMN gamble_match_id INTEGER REFERENCES gamble_matches(id)`);
 } catch (e) {
   // Column already exists, ignore
+}
+
+// Migration: broadcast challenges make the opponent optional and the
+// challenger's red/blue pick explicit, and the payout line + special rules
+// join the negotiable terms. Old challenges tables (opponent_id NOT NULL)
+// need a table rebuild — SQLite cannot relax a NOT NULL by ALTER.
+try {
+  const cols = db.prepare(`PRAGMA table_info(challenges)`).all() as { name: string; notnull: number }[];
+  if (cols.find(c => c.name === 'opponent_id')?.notnull) {
+    db.pragma('foreign_keys = OFF'); // children (gamble_matches) keep their live references across the rebuild
+    try {
+      db.exec(`
+        CREATE TABLE challenges_v2 (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          game_id INTEGER NOT NULL REFERENCES games(id),
+          challenger_id INTEGER NOT NULL REFERENCES players(id),
+          opponent_id INTEGER REFERENCES players(id),
+          entry_fee INTEGER NOT NULL,
+          scheduled_at TEXT NOT NULL,
+          red_player_id INTEGER,
+          challenger_side TEXT NOT NULL DEFAULT 'red',
+          status TEXT NOT NULL DEFAULT 'pending',
+          terms_by INTEGER NOT NULL,
+          broadcast INTEGER NOT NULL DEFAULT 0,
+          payout_line TEXT NOT NULL DEFAULT 'true_even',
+          special_rules TEXT,
+          gamble_match_id INTEGER REFERENCES gamble_matches(id),
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        INSERT INTO challenges_v2 (id, game_id, challenger_id, opponent_id, entry_fee, scheduled_at, red_player_id, status, terms_by, gamble_match_id, created_at, updated_at)
+          SELECT id, game_id, challenger_id, opponent_id, entry_fee, scheduled_at, red_player_id, status, terms_by, gamble_match_id, created_at, updated_at FROM challenges;
+        DROP TABLE challenges;
+        ALTER TABLE challenges_v2 RENAME TO challenges;
+      `);
+    } finally {
+      db.pragma('foreign_keys = ON');
+    }
+  }
+} catch (e) {
+  console.error('challenges broadcast rebuild failed:', e);
+}
+
+// Migration: broadcast challenges leave a term's red side undetermined until
+// acceptance, so challenge_terms.red_player_id must be nullable too — same
+// table-rebuild requirement as challenges above.
+try {
+  const cols = db.prepare(`PRAGMA table_info(challenge_terms)`).all() as { name: string; notnull: number }[];
+  if (cols.find(c => c.name === 'red_player_id')?.notnull) {
+    db.pragma('foreign_keys = OFF'); // challenges rows keep their references across the rebuild
+    try {
+      db.exec(`
+        CREATE TABLE challenge_terms_v2 (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          challenge_id INTEGER NOT NULL REFERENCES challenges(id),
+          entry_fee INTEGER NOT NULL,
+          scheduled_at TEXT NOT NULL,
+          red_player_id INTEGER,
+          proposed_by INTEGER NOT NULL,
+          payout_line TEXT NOT NULL DEFAULT 'true_even',
+          special_rules TEXT,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        INSERT INTO challenge_terms_v2 (id, challenge_id, entry_fee, scheduled_at, red_player_id, proposed_by, payout_line, special_rules, created_at)
+          SELECT id, challenge_id, entry_fee, scheduled_at, red_player_id, proposed_by, payout_line, special_rules, created_at FROM challenge_terms;
+        DROP TABLE challenge_terms;
+        ALTER TABLE challenge_terms_v2 RENAME TO challenge_terms;
+      `);
+    } finally {
+      db.pragma('foreign_keys = ON');
+    }
+  }
+} catch (e) {
+  console.error('challenge_terms nullable-red rebuild failed:', e);
+}
+
+// Simpler column adds for DBs whose challenges table was created before
+// broadcast/payout terms existed (fresh tables already have all of them).
+for (const stmt of [
+  `ALTER TABLE challenges ADD COLUMN challenger_side TEXT NOT NULL DEFAULT 'red'`,
+  `ALTER TABLE challenges ADD COLUMN broadcast INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE challenges ADD COLUMN payout_line TEXT NOT NULL DEFAULT 'true_even'`,
+  `ALTER TABLE challenges ADD COLUMN special_rules TEXT`,
+  `ALTER TABLE challenge_terms ADD COLUMN payout_line TEXT NOT NULL DEFAULT 'true_even'`,
+  `ALTER TABLE challenge_terms ADD COLUMN special_rules TEXT`,
+  `ALTER TABLE gamble_matches ADD COLUMN payout_line TEXT NOT NULL DEFAULT 'true_even'`,
+  `ALTER TABLE gamble_matches ADD COLUMN special_rules TEXT`,
+]) {
+  try { db.exec(stmt); } catch { /* column already exists */ }
 }
 
 // Seed an account for every existing player (new players get accounted via

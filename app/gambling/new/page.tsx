@@ -17,8 +17,11 @@ export default function NewChallengePage() {
   const router = useRouter();
 
   const [opponentId, setOpponentId] = useState<number | null>(null);
+  const [broadcast, setBroadcast] = useState(false);
   const [entryFee, setEntryFee] = useState(50);
   const [side, setSide] = useState<'red' | 'blue'>('red');
+  const [payoutLine, setPayoutLine] = useState('true_even');
+  const [specialRules, setSpecialRules] = useState('');
   const [scheduledLocal, setScheduledLocal] = useState(() => {
     // Default: one hour from now, local ISO datetime-local format
     const d = new Date(Date.now() + 60 * 60_000);
@@ -37,7 +40,7 @@ export default function NewChallengePage() {
   } | null>(null);
   const [previewTimer, setPreviewTimer] = useState<ReturnType<typeof setTimeout> | null>(null);
 
-  const opponent = players.find(p => p.id === opponentId) ?? null;
+  const opponent = broadcast ? null : (players.find(p => p.id === opponentId) ?? null);
   const redName = side === 'red' ? (me?.name ?? 'Red player') : (opponent?.name ?? 'Red player');
   const blueName = side === 'blue' ? (me?.name ?? 'Blue player') : (opponent?.name ?? 'Blue player');
 
@@ -45,7 +48,7 @@ export default function NewChallengePage() {
   // so the preview runs through the games/odds endpoint.
   const gameId = selectedGameId;
   useEffect(() => {
-    if (!gameId || !me || !opponentId) { setLadder(null); setPreview(null); return; }
+    if (!gameId || !me || broadcast || !opponentId) { setLadder(null); setPreview(null); return; }
     if (previewTimer) clearTimeout(previewTimer);
     const timer = setTimeout(async () => {
       try {
@@ -68,10 +71,10 @@ export default function NewChallengePage() {
     }, 400);
     setPreviewTimer(timer);
     return () => clearTimeout(timer);
-  }, [gameId, me?.id, opponentId, side, redName, blueName]);
+  }, [gameId, me?.id, opponentId, side, redName, blueName, broadcast]);
 
   async function submit() {
-    if (!me || !opponentId) return;
+    if (!me || (!broadcast && !opponentId)) return;
     setSubmitting(true);
     setError(null);
     try {
@@ -80,11 +83,14 @@ export default function NewChallengePage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           challenger_id: me.id,
-          opponent_id: opponentId,
+          broadcast,
+          ...(broadcast ? {} : { opponent_id: opponentId }),
           game_id: selectedGameId,
           entry_fee: entryFee,
           scheduled_at: scheduledLocal,
           side,
+          payout_line: payoutLine,
+          ...(specialRules.trim() ? { special_rules: specialRules.trim() } : {}),
         }),
       });
       const body = await res.json();
@@ -100,27 +106,53 @@ export default function NewChallengePage() {
 
   const feeInvalid = !Number.isInteger(entryFee) || entryFee < 10 || entryFee > 500;
 
+  // Payout line options: evens presets + custom R-B lines that sum to the
+  // game total (10-0 / 0-10 are deliberately not choosable — real wins/draws
+  // have their own payout rules).
+  const total = selectedGame?.score_value ?? 10;
+  const payoutLines: { value: string; label: string }[] = [
+    { value: 'true_even', label: "Evens on a draw (5-5)" },
+    { value: 'elo_even', label: ladder ? `Evens on the bookie's line (${ladder.predictedLine})` : "Evens on the bookie's predicted line" },
+  ];
+  for (let red = 1; red <= 9; red++) {
+    const blue = total - red;
+    if (blue < 1 || blue > 9) continue;
+    payoutLines.push({ value: `${red}-${blue}`, label: `Custom line ${red}-${blue} — evens if it lands` });
+  }
+
   return (
     <div className="space-y-5">
       <div className="rounded-xl border border-gray-200 bg-card p-5 space-y-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {/* Opponent */}
-          <label className="block">
-            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Challenging</span>
-            <select
-              value={opponentId ?? ''}
-              onChange={e => setOpponentId(parseInt(e.target.value, 10) || null)}
-              className="mt-1 w-full px-3 py-2 rounded-lg border border-gray-200 bg-background text-gray-800"
-            >
-              <option value="">Choose a player…</option>
-              {players.filter(p => p.id !== me?.id).map(p => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
-            </select>
-            <span className="text-xs text-gray-400">
-              You are {me?.name ?? 'unknown'} — pick who you are top right if wrong.
-            </span>
-          </label>
+          {broadcast ? (
+            <div className="block">
+              <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Challenging</span>
+              <div className="mt-1 px-3 py-2 rounded-lg border border-amber-300 bg-amber-50 text-sm text-amber-800">
+                📢 Broadcast — first player to accept plays the opposite side
+              </div>
+              <span className="text-xs text-gray-400">
+                Countering isn't possible on broadcasts. If nobody accepts by 5 minutes before the start, it expires.
+              </span>
+            </div>
+          ) : (
+            <label className="block">
+              <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Challenging</span>
+              <select
+                value={opponentId ?? ''}
+                onChange={e => setOpponentId(parseInt(e.target.value, 10) || null)}
+                className="mt-1 w-full px-3 py-2 rounded-lg border border-gray-200 bg-background text-gray-800"
+              >
+                <option value="">Choose a player…</option>
+                {players.filter(p => p.id !== me?.id).map(p => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+              <span className="text-xs text-gray-400">
+                You are {me?.name ?? 'unknown'} — pick who you are top right if wrong.
+              </span>
+            </label>
+          )}
 
           {/* Game */}
           <label className="block">
@@ -167,9 +199,20 @@ export default function NewChallengePage() {
               onChange={e => setScheduledLocal(e.target.value)}
               className="mt-1 w-full px-3 py-2 rounded-lg border border-gray-200 bg-background text-gray-800"
             />
-            <span className="text-xs text-gray-400">Bets close 2 minutes before this.</span>
+            <span className="text-xs text-gray-400">Bets close 2 minutes before this. Unaccepted challenges expire 5 minutes before the start.</span>
           </label>
         </div>
+
+        {/* Broadcast toggle */}
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={broadcast}
+            onChange={e => setBroadcast(e.target.checked)}
+            className="w-4 h-4 accent-amber-600"
+          />
+          <span className="text-sm text-gray-700 font-medium">📢 Broadcast — open to everyone, first to accept plays the other side</span>
+        </label>
 
         {/* Side */}
         <div>
@@ -191,9 +234,46 @@ export default function NewChallengePage() {
             ))}
           </div>
           <span className="text-xs text-gray-400">
-            Red side: {redName} · Blue side: {blueName}
+            {broadcast
+              ? side === 'red'
+                ? 'You play red · first to accept plays blue'
+                : 'You play blue · first to accept plays red'
+              : `Red side: ${redName} · Blue side: ${blueName}`}
           </span>
         </div>
+
+        {/* Payout line */}
+        <label className="block max-w-md">
+          <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Payout line (part of the terms — can be countered)</span>
+          <select
+            value={payoutLine}
+            onChange={e => setPayoutLine(e.target.value)}
+            className="mt-1 w-full px-3 py-2 rounded-lg border border-gray-200 bg-background text-gray-800"
+          >
+            {payoutLines.map(pl => (
+              <option key={pl.value} value={pl.value}>{pl.label}</option>
+            ))}
+          </select>
+          <span className="text-xs text-gray-400">
+            If the final score equals the line, the players' entry pot is split 50/50 instead of by score share. Winner-quarter still follows the score.
+          </span>
+        </label>
+
+        {/* Special rules */}
+        <label className="block">
+          <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Special rules (optional)</span>
+          <textarea
+            value={specialRules}
+            maxLength={500}
+            onChange={e => setSpecialRules(e.target.value)}
+            placeholder="e.g. loser buys the winner a coffee · no jumpers · best of three rounds scored as one match"
+            className="mt-1 w-full px-3 py-2 rounded-lg border border-gray-200 bg-background text-gray-800 text-sm"
+            rows={3}
+          />
+          <span className="text-xs text-gray-400">
+            Free-text the gamblers see before betting — displayed everywhere but never changes the odds ({specialRules.length}/500).
+          </span>
+        </label>
 
         {error && (
           <div className="rounded-lg bg-red-50 border border-red-200 text-red-700 px-4 py-3 text-sm">{error}</div>
@@ -201,13 +281,14 @@ export default function NewChallengePage() {
 
         <button
           onClick={submit}
-          disabled={!me || !opponentId || !selectedGameId || feeInvalid || submitting}
+          disabled={!me || (!broadcast && !opponentId) || !selectedGameId || feeInvalid || submitting}
           className="w-full sm:w-auto font-semibold bg-primary text-white rounded-lg px-6 py-2.5 hover:bg-primary-hover shadow-sm disabled:opacity-40"
         >
           {submitting ? 'Sending…' : 'Send challenge'}
         </button>
         <p className="text-xs text-gray-400">
-          No money moves until your opponent accepts. They can accept, decline, or counter your terms.
+          No money moves until the challenge is accepted{broadcast ? ' (first player to accept takes the other side)' : ''}.
+          They can accept, decline, or counter your terms{broadcast ? ' — broadcasts can\'t be counted' : ''}.
         </p>
       </div>
 

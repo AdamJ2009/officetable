@@ -2,12 +2,18 @@
 // touches is that directory's officetable.db, never the real one:
 //   mkdir -p /tmp/gamble-run && cd /tmp/gamble-run
 //   npx --prefix /path/to/officetable tsx /path/to/officetable/scripts/gamble-smoke.ts
-// Takes ~1 min (waits for real betting windows to close).
+//
+// Challenges now expire 5 minutes before the start, so everything is
+// scheduled ≥ 6 min out and the clock is pushed forward by backdating the
+// gamble match (never past now − 15 min, or the auto-cancel would trip).
+// Runs in seconds, no real waiting.
 import db from '../lib/db';
 import {
   createChallenge, respondToChallenge, placeBet, settleGambleMatch,
   cancelGambleMatch, getBets, getChallenge, getGambleMatch, getBetPool, GAMBLE_RULES,
+  syncStatuses,
 } from '../lib/gamble';
+import type { GambleError } from '../lib/gamble';
 import { getBank } from '../lib/bank';
 import { HOUSE_MARGIN } from '../lib/gambleOdds';
 
@@ -16,7 +22,23 @@ function assert(cond: boolean, label: string): void {
   else console.log(`ok: ${label}`);
 }
 
-const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+/** Assert fn throws a GambleError with the given code (when given). */
+function assertThrows(label: string, fn: () => unknown, wantCode?: string): void {
+  try {
+    fn();
+    console.error(`FAIL: ${label} (nothing thrown)`);
+    process.exitCode = 1;
+  } catch (e) {
+    const code = (e as GambleError).code;
+    if (wantCode && code !== wantCode) {
+      console.error(`FAIL: ${label} — expected code "${wantCode}", got "${code ?? String(e)}"`);
+      process.exitCode = 1;
+      return;
+    }
+    console.log(`ok: ${label}${code ? ` (${code})` : ''}`);
+  }
+}
+
 const bank = getBank();
 const fee = GAMBLE_RULES.defaultEntryFee;
 
@@ -28,15 +50,20 @@ function localIn(offsetMs: number): string {
   const pad = (n: number, w = 2) => String(n).padStart(w, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
-// entry fee 50, close at scheduled − 2 min ⇒ schedule 2m15s out, close in 15s
-const SOON = 2 * 60_000 + 30_000;
-const waitUntilClose = async (scheduledAt: string) => {
-  // scheduled_at may come back as either the local datetime-local string we
-  // sent or the normalised UTC DB string; parse defensively
-  const t = new Date(scheduledAt.includes('T') ? scheduledAt : scheduledAt.replace(' ', 'T') + 'Z').getTime() - 2 * 60_000;
-  const ms = t - Date.now() + 1500;
-  if (ms > 0) await sleep(ms);
-};
+
+// Challenges expire at start − 5 min ⇒ accepted games must be scheduled ≥ 6
+// min out to be alive; the expiry case schedules +2m15s (born expired).
+const FUTURE = 6 * 60_000 + 30_000;
+const EXPIRED = 2 * 60_000 + 30_000;
+
+// Synthetic clock: push a gamble match into the past (past its close, but
+// well inside the 15-minute overdue window) and sync statuses.
+function fastForward(gmId: number): void {
+  db.prepare(`UPDATE gamble_matches
+    SET scheduled_at = datetime('now','-5 minutes'), bet_close_at = datetime('now','-7 minutes')
+    WHERE id = ?`).run(gmId);
+  syncStatuses();
+}
 
 async function main() {
   // --- seed players + game ---
@@ -61,7 +88,7 @@ async function main() {
   bank.credit(null, HOUSE_SEED, { type: 'topup', memo: 'smoke: seed the house pot' });
 
   // ============ challenge A: counter loop + bets + house loss ==============
-  const scheduledA = localIn(SOON);
+  const scheduledA = localIn(FUTURE);
   const challengeId = createChallenge(gameId, redId, blueId, { entryFee: 60, scheduledAt: scheduledA, side: 'red' });
   assert(getChallenge(challengeId)?.status === 'pending', 'challenge created pending');
 
@@ -104,7 +131,7 @@ async function main() {
   } catch { blocked = true; }
   assert(blocked, 'settle before bet close blocked by clock guard');
 
-  await waitUntilClose(getGambleMatch(gm.id)!.scheduled_at);
+  fastForward(gm.id);
 
   const summary = settleGambleMatch(gm.id, [
     { team: 0, player_ids: [gm.red_player_id], score: 7 },
@@ -122,6 +149,8 @@ async function main() {
     'entries: 90 split 63/27 by score share (house fee off the top first)');
   assert(summary.leftover < 0 && summary.pot.houseLoss === -summary.leftover,
     `house covers shortfall exactly incl. fees (${summary.pot.houseLoss})`);
+  assert(summary.entryEvenHit === false && summary.payoutLine === 'true_even',
+    'plain challenge: no evens line, split stayed by score');
 
   // double settle blocked via CAS
   blocked = false;
@@ -138,13 +167,13 @@ async function main() {
   assert(getBets(gm.id).every(b => b.status === 'lost' || b.status === 'won'), 'both correct picks marked won');
 
   // ============ challenge B: draw, single winning bet ======================
-  const scheduledB = localIn(SOON);
+  const scheduledB = localIn(FUTURE);
   const c2 = createChallenge(gameId, blueId, redId, { entryFee: fee, scheduledAt: scheduledB, side: 'blue' });
   const acc2 = respondToChallenge(c2, redId, 'accept');
   const gmB = acc2.gambleMatch!;
   const odds55 = gmB.odds!.outcomes.find(o => o.redScore === 5 && o.blueScore === 5)!.decimalOdds;
   placeBet(gmB.id, g1, 5, 5, 25);
-  await waitUntilClose(getGambleMatch(gmB.id)!.scheduled_at);
+  fastForward(gmB.id);
   const sumB = settleGambleMatch(gmB.id, [
     { team: 0, player_ids: [gmB.red_player_id], score: 5 },
     { team: 1, player_ids: [gmB.blue_player_id], score: 5 },
@@ -155,11 +184,11 @@ async function main() {
   assert(sumB.playerEntry.reduce((s, e) => s + e.returned, 0) === 2 * Math.floor(90 * 0.5), 'draw: 90 entries split 50/50');
 
   // ============ challenge C: no bets at all, straight pot ==================
-  const scheduledC = localIn(SOON);
+  const scheduledC = localIn(FUTURE);
   const c3 = createChallenge(gameId, redId, blueId, { entryFee: 30, scheduledAt: scheduledC, side: 'red' });
   const gmC = respondToChallenge(c3, blueId, 'accept').gambleMatch!;
   assert(getBetPool(gmC.id) === 0, 'no bets: empty pool');
-  await waitUntilClose(getGambleMatch(gmC.id)!.scheduled_at);
+  fastForward(gmC.id);
   const sumC = settleGambleMatch(gmC.id, [
     { team: 0, player_ids: [gmC.red_player_id], score: 8 },
     { team: 1, player_ids: [gmC.blue_player_id], score: 2 },
@@ -171,7 +200,7 @@ async function main() {
     'no bets: pot split fully accounted');
 
   // ============ cancel path (fees + stake refunds, net zero) ===============
-  const scheduledD = localIn(SOON);
+  const scheduledD = localIn(FUTURE);
   const c4 = createChallenge(gameId, blueId, redId, { entryFee: fee, scheduledAt: scheduledD, side: 'blue' });
   const gmD = respondToChallenge(c4, redId, 'accept').gambleMatch!;
   placeBet(gmD.id, g1, 5, 5, 25);
@@ -183,8 +212,49 @@ async function main() {
   assert(getChallenge(c4)!.status === 'cancelled', 'cancel closes the challenge');
   assert(getBets(gmD.id).every(b => b.status === 'refunded'), 'cancelled bets marked refunded');
 
+  // ============ challenge F: broadcast + custom payout line ================
+  // (runs before the longshot case E — E deliberately leaves the house pot
+  // nearly dry, which would cap F's payouts and flip its pot negative)
+  const c6 = createChallenge(gameId, blueId, null, {
+    entryFee: fee, scheduledAt: localIn(FUTURE), side: 'blue',
+    payoutLine: '7-3', specialRules: 'smoke: no jumpers, loser wipes the table',
+  });
+  assert(getChallenge(c6)!.status === 'pending', 'broadcast challenge created pending');
+  assert(getChallenge(c6)!.opponent_id === null, 'broadcast challenge has no opponent');
+  assertThrows('broadcast counter refused (counter_not_allowed)',
+    () => respondToChallenge(c6, g2, 'counter', { entryFee: fee, scheduledAt: localIn(FUTURE), side: 'red' }),
+    'counter_not_allowed');
+  assertThrows('broadcast decline-by-outsider refused (not_a_participant)',
+    () => respondToChallenge(c6, g2, 'decline'), 'not_a_participant');
+  assertThrows('challenger cannot accept their own broadcast (not_your_turn)',
+    () => respondToChallenge(c6, blueId, 'accept'), 'not_your_turn');
+
+  const acc6 = respondToChallenge(c6, g1, 'accept'); // first to accept
+  const gmF = acc6.gambleMatch!;
+  assert(gmF.red_player_id === g1 && gmF.blue_player_id === blueId,
+    "broadcast accept: challenger took blue, acceptor took red");
+  assert(gmF.payout_line === '7-3' && gmF.special_rules === 'smoke: no jumpers, loser wipes the table',
+    'broadcast freezes its payout line + special rules onto the match');
+
+  // One winning correct-score bet and one losing bet keep the pot positive.
+  const odds73F = gmF.odds!.outcomes.find(o => o.redScore === 7)!.decimalOdds;
+  placeBet(gmF.id, g2, 7, 3, 2);
+  placeBet(gmF.id, redId, 8, 2, 100);
+  fastForward(gmF.id);
+  const sumF = settleGambleMatch(gmF.id, [
+    { team: 0, player_ids: [gmF.red_player_id], score: 7 },
+    { team: 1, player_ids: [gmF.blue_player_id], score: 3 },
+  ]);
+  assert(sumF.payoutLine === '7-3', 'custom payout line survives to settlement');
+  assert(sumF.entryEvenHit === true, 'custom line 7-3 hit → entries split 50/50 even with a real winner');
+  assert(sumF.playerEntry[0]?.returned === 45 && sumF.playerEntry[1]?.returned === 45,
+    'evens line: 90 entries split 45/45 despite 7-3');
+  assert(sumF.returns === Math.floor(2 * odds73F), 'broadcast bet paid the frozen 7-3 price');
+  assert(sumF.pot.positive && sumF.pot.winnerPlayerId === gmF.red_player_id && sumF.pot.winnerShare > 0,
+    'pot winner quarter still follows the actual winner on a custom line');
+
   // ============ casino cap: a 100/1 longshot can drain, never glitch ========
-  const scheduledE = localIn(SOON);
+  const scheduledE = localIn(FUTURE);
   const c5 = createChallenge(gameId, redId, blueId, { entryFee: fee, scheduledAt: scheduledE, side: 'red' });
   const gmE = respondToChallenge(c5, blueId, 'accept').gambleMatch!;
   placeBet(gmE.id, g1, 10, 0, 100); // longest price on the board
@@ -192,7 +262,7 @@ async function main() {
   // with the casino keeping at least 1 moose buck.
   const houseBeforeE = bank.getHouseBalance();
   const betPotBeforeE = getBetPool(gmE.id);
-  await waitUntilClose(getGambleMatch(gmE.id)!.scheduled_at);
+  fastForward(gmE.id);
   const sumE = settleGambleMatch(gmE.id, [
     { team: 0, player_ids: [gmE.red_player_id], score: 10 },
     { team: 1, player_ids: [gmE.blue_player_id], score: 0 },
@@ -203,6 +273,35 @@ async function main() {
   assert(sumE.payoutCap === capE, 'cap reported in the summary');
   assert(bank.getHouseBalance() >= 1, `house pot never drains below 1 (now ${bank.getHouseBalance()})`);
 
+  // ============ challenge G: expiry 5 minutes before the start =============
+  const preG_red = bank.getBalance(redId);
+  const preG_blue = bank.getBalance(blueId);
+  const c7 = createChallenge(gameId, redId, blueId, { entryFee: fee, scheduledAt: localIn(EXPIRED), side: 'red' });
+  syncStatuses();
+  assert(getChallenge(c7)!.status === 'expired', 'challenge within the 5-min window auto-expires');
+  assertThrows('accepting an expired challenge refused (challenge_expired)',
+    () => respondToChallenge(c7, blueId, 'accept'), 'challenge_expired');
+  assert(bank.getBalance(redId) === preG_red && bank.getBalance(blueId) === preG_blue, 'expiry moves no money');
+
+  // ============ challenge H: auto-cancel when results are 15 min late ======
+  const c8 = createChallenge(gameId, blueId, redId, { entryFee: fee, scheduledAt: localIn(FUTURE), side: 'blue' });
+  const gmH = respondToChallenge(c8, redId, 'accept').gambleMatch!;
+  placeBet(gmH.id, g1, 3, 7, 20);
+  const preRedH = bank.getBalance(redId);
+  const preBlueH = bank.getBalance(blueId);
+  const preG1H = bank.getBalance(g1);
+  // Overdue: results not in by 15 min after the deadline — backdate past the
+  // overdue window (this skips the settled path entirely) and sync.
+  db.prepare(`UPDATE gamble_matches
+    SET scheduled_at = datetime('now','-16 minutes'), bet_close_at = datetime('now','-18 minutes')
+    WHERE id = ?`).run(gmH.id);
+  syncStatuses();
+  assert(getGambleMatch(gmH.id)!.status === 'cancelled', 'overdue gamble auto-cancels 15 min past deadline');
+  assert(getChallenge(c8)!.status === 'cancelled', 'auto-cancel closes the challenge');
+  assert(bank.getBalance(redId) === preRedH + fee && bank.getBalance(blueId) === preBlueH + fee,
+    'auto-cancel: both entry fees refunded');
+  assert(bank.getBalance(g1) === preG1H + 20, 'auto-cancel refunds open stakes');
+
   // ============ conservation across everything =============================
   const conservation = ids.reduce((s, id) => s + bank.getBalance(id), 0) + bank.getHouseBalance();
   assert(conservation === ids.length * 1000 + HOUSE_SEED, `ledger identity holds across all cases (got ${conservation})`);
@@ -211,6 +310,7 @@ async function main() {
   console.log('challenge B pot:', JSON.stringify(sumB.pot));
   console.log('challenge C pot:', JSON.stringify(sumC.pot));
   console.log('challenge E (capped): returns', sumE.returns, 'cap', sumE.payoutCap, 'pot', JSON.stringify(sumE.pot));
+  console.log('challenge F (broadcast 7-3 line): returns', sumF.returns, 'pot', JSON.stringify(sumF.pot));
 }
 
 main().catch(e => { console.error(e); process.exit(1); });

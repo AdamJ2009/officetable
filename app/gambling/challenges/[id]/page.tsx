@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useMe } from '@/lib/contexts/MeContext';
+import { useSelectedGame } from '@/lib/hooks/useSelectedGame';
 import { GambleOddsBoard } from '@/components/GambleOddsBoard';
 import type { Challenge, ChallengeTerm, GambleMatch, OddsLadder } from '@/lib/types';
 
@@ -25,9 +26,17 @@ const fmtTime = (dbStr: string) =>
     weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London',
   });
 
+const EVENS: Record<string, string> = {
+  true_even: 'evens on a draw (5-5)',
+  elo_even: "evens on the bookie's line",
+};
+
+const evensLabel = (line: string) => EVENS[line] ?? `evens on ${line}`;
+
 export default function ChallengeDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { me } = useMe();
+  const { games } = useSelectedGame();
   const router = useRouter();
   const [detail, setDetail] = useState<Detail | null>(null);
   const [busy, setBusy] = useState(false);
@@ -36,6 +45,8 @@ export default function ChallengeDetailPage() {
   const [counterFee, setCounterFee] = useState(50);
   const [counterTime, setCounterTime] = useState('');
   const [counterSide, setCounterSide] = useState<'red' | 'blue'>('red');
+  const [counterLine, setCounterLine] = useState('true_even');
+  const [counterRules, setCounterRules] = useState('');
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/gambling/challenges/${id}`);
@@ -49,6 +60,8 @@ export default function ChallengeDetailPage() {
         const pad = (n: number) => String(n).padStart(2, '0');
         setCounterTime(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`);
         setCounterSide(last.red_player_id === (data.challenge.challenger_id) ? 'red' : 'blue');
+      setCounterLine(data.challenge.payout_line ?? 'true_even');
+      setCounterRules(data.challenge.special_rules ?? '');
       }
     }
   }, [id, counterOpen]);
@@ -89,10 +102,29 @@ export default function ChallengeDetailPage() {
   }
 
   const { challenge, terms_history, gamble_match } = detail;
+  const isBroadcast = !!challenge.broadcast;
   const iSentTerms = me?.id === challenge.terms_by;
-  const amParticipant = me?.id === challenge.challenger_id || me?.id === challenge.opponent_id;
+  const amParticipant = me != null && (
+    me.id === challenge.challenger_id
+    || me.id === challenge.opponent_id
+    || (isBroadcast && me.id !== challenge.challenger_id)
+  );
   const counterpart = challenge.challenger_id === me?.id ? challenge.opponent_name : challenge.challenger_name;
-  const redName = challenge.red_player_id === challenge.challenger_id ? challenge.challenger_name : challenge.opponent_name;
+  const redName = challenge.red_player_id == null
+    ? 'first to accept'
+    : challenge.red_player_id === challenge.challenger_id ? challenge.challenger_name : (challenge.opponent_name ?? 'first to accept');
+  const gameTotal = games.find(g => g.id === challenge.game_id)?.score_value ?? null;
+  const counterLines: { value: string; label: string }[] = [
+    { value: 'true_even', label: 'Evens on a draw (5-5)' },
+    { value: 'elo_even', label: "Evens on the bookie's predicted line" },
+  ];
+  if (gameTotal != null) {
+    for (let red = 1; red <= 9; red++) {
+      const blue = gameTotal - red;
+      if (blue < 1 || blue > 9) continue;
+      counterLines.push({ value: `${red}-${blue}`, label: `Custom line ${red}-${blue}` });
+    }
+  }
 
   return (
     <div className="space-y-5">
@@ -100,8 +132,8 @@ export default function ChallengeDetailPage() {
       <div className="rounded-xl border border-gray-200 bg-card p-5">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <h2 className="text-lg font-bold text-gray-900">
-            {challenge.challenger_name} vs {challenge.opponent_name}
-            <span className="ml-2 text-sm font-normal text-gray-500">{challenge.game_name}</span>
+            {challenge.challenger_name} vs {isBroadcast ? 'first to accept' : challenge.opponent_name}
+            <span className="ml-2 text-sm font-normal text-gray-500">{challenge.game_name}{isBroadcast ? ' · broadcast' : ''}</span>
           </h2>
           <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
             challenge.status === 'pending' ? 'bg-green-100 text-green-800'
@@ -130,6 +162,21 @@ export default function ChallengeDetailPage() {
             <div className="font-semibold text-gray-900">{challenge.terms_by_name}</div>
           </div>
         </div>
+        <div className="mt-3 text-sm">
+          <div className="text-xs text-gray-500 uppercase tracking-wide">Payout line</div>
+          <div className="font-semibold text-gray-900">{challenge.payout_line ? evensLabel(challenge.payout_line) : 'evens on a draw (5-5)'}</div>
+        </div>
+        {challenge.special_rules && (
+          <div className="mt-2 text-sm">
+            <div className="text-xs text-gray-500 uppercase tracking-wide">Special rules</div>
+            <div className="text-amber-700 italic">📜 {challenge.special_rules}</div>
+          </div>
+        )}
+        {isBroadcast && (
+          <div className="mt-2 text-xs text-amber-700">
+            📢 Broadcast challenge — anyone (except the challenger) can accept and take the opposite side. Countering isn't possible. It expires 5 minutes before the start if nobody accepts.
+          </div>
+        )}
       </div>
 
       {error && (
@@ -148,25 +195,32 @@ export default function ChallengeDetailPage() {
               >
                 Accept — both pay {challenge.entry_fee}
               </button>
-              <button
-                disabled={busy}
-                onClick={() => setCounterOpen(!counterOpen)}
-                className="px-4 py-2 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-              >
-                {counterOpen ? 'Hide counter form' : 'Counter (change terms)'}
-              </button>
-              <button
-                disabled={busy}
-                onClick={() => respond('decline')}
-                className="px-4 py-2 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-50"
-              >
-                Decline
-              </button>
+              {!isBroadcast && (
+                <>
+                  <button
+                    disabled={busy}
+                    onClick={() => setCounterOpen(!counterOpen)}
+                    className="px-4 py-2 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                  >
+                    {counterOpen ? 'Hide counter form' : 'Counter (change terms)'}
+                  </button>
+                  <button
+                    disabled={busy}
+                    onClick={() => respond('decline')}
+                    className="px-4 py-2 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-50"
+                  >
+                    Decline
+                  </button>
+                </>
+              )}
+              {isBroadcast && (
+                <span className="text-xs text-gray-500">You'd take the {challenge.challenger_side === 'red' ? 'blue' : 'red'} side — no countering on broadcasts.</span>
+              )}
             </>
           ) : (
             <>
               <span className="text-sm text-gray-500">
-                Waiting on {counterpart} to respond to your terms.
+                Waiting on {isBroadcast ? 'someone to accept' : `${counterpart} to respond to your terms`}.
               </span>
               <button
                 disabled={busy}
@@ -192,7 +246,7 @@ export default function ChallengeDetailPage() {
       {counterOpen && (
         <div className="rounded-xl border border-gray-200 bg-card p-5 space-y-3">
           <div className="text-sm font-semibold text-gray-900">Counter the terms</div>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <label className="block">
               <span className="text-xs text-gray-500">Entry fee each</span>
               <input
@@ -220,10 +274,38 @@ export default function ChallengeDetailPage() {
                 <option value="blue">{challenge.opponent_name}</option>
               </select>
             </label>
+            <label className="block">
+              <span className="text-xs text-gray-500">Payout line</span>
+              <select
+                value={counterLine}
+                onChange={e => setCounterLine(e.target.value)}
+                className="mt-1 w-full px-3 py-2 rounded-lg border border-gray-200 bg-background"
+              >
+                {counterLines.map(pl => (
+                  <option key={pl.value} value={pl.value}>{pl.label}</option>
+                ))}
+              </select>
+            </label>
           </div>
+          <label className="block">
+            <span className="text-xs text-gray-500">Special rules (optional)</span>
+            <textarea
+              value={counterRules}
+              maxLength={500}
+              onChange={e => setCounterRules(e.target.value)}
+              className="mt-1 w-full px-3 py-2 rounded-lg border border-gray-200 bg-background text-sm"
+              rows={3}
+            />
+          </label>
           <button
             disabled={busy}
-            onClick={() => respond('counter', { entry_fee: counterFee, scheduled_at: counterTime, side: counterSide })}
+            onClick={() => respond('counter', {
+              entry_fee: counterFee,
+              scheduled_at: counterTime,
+              side: counterSide,
+              payout_line: counterLine,
+              ...(counterRules.trim() ? { special_rules: counterRules.trim() } : {}),
+            })}
             className="font-semibold bg-primary text-white px-4 py-2 rounded-lg hover:bg-primary-hover disabled:opacity-50"
           >
             Send counter-offer
@@ -251,9 +333,11 @@ export default function ChallengeDetailPage() {
               <div className="text-gray-900">
                 <b>{t.proposed_by_name}</b> proposed {t.entry_fee} moose bucks each at {fmtTime(t.scheduled_at)}, red:{' '}
                 <span className="font-medium text-red-600">
-                  {t.red_player_id === challenge.challenger_id ? challenge.challenger_name : challenge.opponent_name}
+                  {t.red_player_id == null ? 'first to accept' : t.red_player_id === challenge.challenger_id ? challenge.challenger_name : (challenge.opponent_name ?? 'first to accept')}
                 </span>
+                {t.payout_line ? <span className="ml-1">· {evensLabel(t.payout_line)}</span> : null}
               </div>
+              {t.special_rules && <div className="text-xs text-amber-700 italic">📜 {t.special_rules}</div>}
               <div className="text-xs text-gray-400">{t.created_at.replace('T', ' ').substring(0, 16)} UTC</div>
             </li>
           ))}

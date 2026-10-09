@@ -51,3 +51,5 @@ export function requirePlayerId(value: unknown): number {
 
 STATUS_BY_CODE['bets_still_open'] = 409;
 STATUS_BY_CODE['bad_actor'] = 400;
+STATUS_BY_CODE['challenge_expired'] = 409;
+STATUS_BY_CODE['counter_not_allowed'] = 409;

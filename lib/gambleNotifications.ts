@@ -10,18 +10,34 @@ const baseUrl = () => process.env.NEXT_PUBLIC_BASE_URL;
 
 const moose = (n: number) => `${n} moose bucks`;
 
-/** Challenge issued — the opponent gets a respond prompt. */
+const EVENS: Record<string, string> = {
+  true_even: 'evens on a draw (5-5)',
+  elo_even: "evens on the bookie's line",
+};
+
+const evensLabel = (line: string) => EVENS[line] ?? `evens on ${line}`;
+
+/** Challenge issued — the opponent (or the whole office, if broadcast) gets a respond prompt. */
 export async function announceChallengeIssued(challenge: Challenge, ladder?: OddsLadder): Promise<void> {
-  const redSide = challenge.red_player_id === challenge.challenger_id
-    ? challenge.challenger_name
-    : challenge.opponent_name;
+  const broadcast = !!challenge.broadcast;
+  const redSide = challenge.red_player_id == null
+    ? 'first to accept'
+    : challenge.red_player_id === challenge.challenger_id
+      ? challenge.challenger_name
+      : (challenge.opponent_name ?? 'first to accept');
   const line = ladder?.predictedLine;
   const message: AnnouncementMessage = {
     title: '⚔️ Challenge issued',
     subtitle: challenge.game_name,
     paragraphs: [
-      `<b>${challenge.challenger_name}</b> challenges <b>${challenge.opponent_name}</b> at ${challenge.game_name ?? 'the table'}.`,
-      `Entry ${moose(challenge.entry_fee)} each · Red: <b>${redSide ?? '?'}</b> · Scheduled ${challenge.scheduled_at} UTC`,
+      broadcast
+        ? `<b>${challenge.challenger_name}</b> broadcasts a challenge at ${challenge.game_name ?? 'the table'} — playing <b>${challenge.challenger_side === 'red' ? 'red' : 'blue'}</b>. First player to accept takes the ${challenge.challenger_side === 'red' ? 'blue' : 'red'} side.`
+        : `<b>${challenge.challenger_name}</b> challenges <b>${challenge.opponent_name}</b> at ${challenge.game_name ?? 'the table'}.`,
+      `Entry ${moose(challenge.entry_fee)} each · Red: <b>${redSide}</b> · ${evensLabel(challenge.payout_line ?? 'true_even')} · Scheduled ${challenge.scheduled_at} UTC`,
+      ...(broadcast
+        ? ['Any player may accept — no countering on broadcasts. It expires if nobody accepts by 5 minutes before the start.']
+        : ['Expires if not accepted by 5 minutes before the start. Countering may change the terms, including the payout line.']),
+      ...(challenge.special_rules ? [`📜 Special rules: <i>${challenge.special_rules}</i>`] : []),
       ...(line ? [`Bookie's early line: <b>${line}</b> — odds freeze when the challenge is accepted.`] : []),
     ],
     linkUrl: baseUrl() ? `${baseUrl()}/gambling/challenges/${challenge.id}` : undefined,
@@ -73,7 +89,8 @@ export async function announceSettled(gambleMatch: GambleMatch, summary: SettleS
     paragraphs: [
       `🏆 Correct-score bets: ${winners.length} won, ${summary.betPayments.length - winners.length} lost — ${moose(summary.returns)} paid out from a ${moose(summary.pool)} pool` +
       (summary.returnsCapped ? ` (capped at bet pool + house bank − 1: ${moose(summary.payoutCap)})` : '') + '.',
-      `${gambleMatch.red_player_name} left with ${moose(summary.playerEntry[0]?.returned ?? 0)} · ${gambleMatch.blue_player_name} left with ${moose(summary.playerEntry[1]?.returned ?? 0)} of their entries.`,
+      `${gambleMatch.red_player_name} left with ${moose(summary.playerEntry[0]?.returned ?? 0)} · ${gambleMatch.blue_player_name} left with ${moose(summary.playerEntry[1]?.returned ?? 0)} of their entries` +
+      (summary.entryEvenHit ? ` (evens line ${summary.payoutLine === 'true_even' ? '5-5' : summary.payoutLine === 'elo_even' ? "on the bookie's line" : summary.payoutLine} hit — 50/50)` : '') + '.',
       ...potLines,
     ],
     linkUrl: baseUrl() ? `${baseUrl()}/gambling/matches/${gambleMatch.id}` : undefined,

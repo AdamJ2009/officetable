@@ -22,6 +22,10 @@ import type { Game, MatchWithParticipants, Player } from '../lib/types';
 const BASE = (process.env.CLONE_URL ?? 'https://table.concertim.com').replace(/\/$/, '');
 const LIMIT = 100;
 
+// Base house pot after a clone — the bookie needs real reserves so the
+// two-pot payout cap (bet pool + house pot − 1) can pay big winners.
+const HOUSE_POT_SEED = 10000;
+
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
 async function getJson<T>(path: string): Promise<T> {
@@ -40,9 +44,10 @@ async function main() {
       console.log(`Wiping local DB (${playersCount} players, ${matchCount} matches)...`);
       db.exec(`
         DELETE FROM bets;
+        DELETE FROM challenge_terms;
+        UPDATE challenges SET gamble_match_id = NULL;
         DELETE FROM gamble_matches;
         DELETE FROM challenges;
-        DELETE FROM challenge_terms;
         DELETE FROM bank_transactions;
         DELETE FROM bank_accounts;
         UPDATE bank_house SET balance = 0 WHERE id = 1;
@@ -72,7 +77,9 @@ async function main() {
   const GAME_IDS = new Set(games.map(g => g.id));
 
   // --- players (live ids preserved, avatars included) -----------------------
-  const players = await getJson<Player[]>('/api/players');
+  // status=all: the default endpoint filters out retired players, whose
+  // historic matches would then be skipped
+  const players = await getJson<Player[]>('/api/players?status=all');
   const insPlayer = db.prepare(`INSERT INTO players (id, name, status, created_at, avatar_url)
     VALUES (?, ?, ?, ?, ?)`);
   for (const p of players) {
@@ -114,6 +121,43 @@ async function main() {
     done++;
   }
   console.log(`matches replayed: ${done}${skipped.length ? ` — SKIPPED ${skipped.length}: [${skipped.join(', ')}]` : ''}`);
+
+  // --- calibrate Elo to the live site's published values --------------------
+  // Replay recomputes Elo with today's algorithm; the live DB also carries
+  // history from older deploys/edits, so per-player totals can drift a few
+  // points. The leaderboards ARE the live site's truth — overwrite every
+  // (player, game, season) rating with the live value.
+  const seasons = await getJson<{ seasons: { id: number }[] }>('/api/seasons');
+  const realSeasonIds = [...new Set(seasons.seasons.map(s => s.id))];
+  const upsert = db.prepare(`
+    INSERT INTO player_ratings (player_id, game_id, elo, season_id) VALUES (?, ?, ?, ?)
+    ON CONFLICT(player_id, game_id, season_id) DO UPDATE SET elo = excluded.elo
+  `);
+  let calibrated = 0;
+  for (const g of games) {
+    const scopes: { qs: string; seasonId: number }[] = [
+      { qs: 'scope=alltime', seasonId: 0 },
+      ...realSeasonIds.map(id => ({ qs: `scope=season&season_id=${id}`, seasonId: id })),
+    ];
+    for (const scope of scopes) {
+      const rows = await getJson<{ player_id: number; elo: number }[]>(
+        `/api/leaderboard?game_id=${g.id}&${scope.qs}&include_retired=true&include_inactive=true`);
+      for (const row of rows) {
+        if (!row.player_id || typeof row.elo !== 'number') continue;
+        upsert.run(row.player_id, g.id, row.elo, scope.seasonId);
+        calibrated++;
+      }
+    }
+  }
+  console.log(`Elo calibrated to live values: ${calibrated} (player, game, season) rows`);
+
+  // --- base house pot --------------------------------------------------------
+  db.prepare(`
+    INSERT INTO bank_transactions (ref_type, ref_id, player_id, amount, memo)
+    VALUES ('topup', NULL, NULL, ?, 'clone: base house pot')
+  `).run(HOUSE_POT_SEED);
+  db.prepare(`UPDATE bank_house SET balance = ? WHERE id = 1`).run(HOUSE_POT_SEED);
+  console.log(`House pot seeded with ${HOUSE_POT_SEED} moose bucks`);
 
   // --- report: local should now mirror live --------------------------------
   const finalCount = (db.prepare('SELECT COUNT(*) n FROM matches').get() as { n: number }).n;

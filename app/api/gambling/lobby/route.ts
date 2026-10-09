@@ -14,7 +14,7 @@ const CHALLENGE_SQL = `
          cha.name as challenger_name, opp.name as opponent_name, tu.name as terms_by_name
   FROM challenges c
   JOIN players cha ON cha.id = c.challenger_id
-  JOIN players opp ON opp.id = c.opponent_id
+  LEFT JOIN players opp ON opp.id = c.opponent_id
   JOIN players tu ON tu.id = c.terms_by
   LEFT JOIN games g ON g.id = c.game_id
 `;
@@ -44,6 +44,13 @@ export async function GET(request: NextRequest) {
             AND (c.challenger_id = ? OR c.opponent_id = ?)
           ORDER BY c.id DESC LIMIT 20`).all(playerId, playerId) as Challenge[]
       : [];
+
+    // Broadcast challenges: nobody picked, any non-challenger may accept
+    const broadcasts = db.prepare(`${CHALLENGE_SQL}
+      WHERE c.broadcast = 1 AND c.status IN ('pending', 'countered')
+        ${Number.isInteger(playerId) ? 'AND c.challenger_id != ?' : ''}
+      ORDER BY c.id DESC LIMIT 10`)
+      .all(...(Number.isInteger(playerId) ? [playerId] : [])) as Challenge[];
 
     // Live gamble matches (bets open / closed-awaiting-score)
     let liveRows = db.prepare(
@@ -79,6 +86,7 @@ export async function GET(request: NextRequest) {
         : null,
       house_balance: bank.getHouseBalance(),
       my_challenges: myChallenges,
+      broadcast_challenges: broadcasts,
       live_matches: live,
       settled_matches: settledRows.map(row => ({
         id: row.id,

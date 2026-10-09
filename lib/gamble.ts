@@ -10,6 +10,7 @@ import db from './db';
 import { processMatch } from './elo';
 import { getBank } from './bank';
 import { computeOddsLadder } from './gambleOdds';
+import { announceCancelled } from './gambleNotifications';
 import { normaliseStartDate, toDbDate } from './seasons';
 import type {
   Bet,
@@ -40,7 +41,37 @@ export const GAMBLE_RULES = {
    * the rest is split between the players by score share (100 → 90).
    */
   houseFeeRate: 0.10,
+  /** Challenges expire unless accepted this many minutes before the deadline. */
+  challengeExpiryLeadMinutes: 5,
+  /** Games with no result this many minutes after the deadline are voided (refunds). */
+  resultDeadlineMinutes: 15,
+  /** Cap on the free-text special rules note. */
+  maxSpecialRulesLength: 500,
 } as const;
+
+/**
+ * Payout lines (stored format): 'true_even' = a literal draw (5-5);
+ * 'elo_even' = the bookie's frozen predicted line; otherwise a custom
+ * 'R-B' scoreline with R+B = the game total and both halves 1-9 —
+ * 10-0 / 0-10 are deliberately not choosable as an even line.
+ */
+export function parsePayoutLine(value: unknown, total: number): string | null {
+  if (value === undefined) return 'true_even';
+  if (typeof value !== 'string') return null;
+  if (value === 'true_even' || value === 'elo_even') return value;
+  const m = /^([0-9]+)-([0-9]+)$/.exec(value);
+  if (!m) return null;
+  const red = parseInt(m[1], 10);
+  const blue = parseInt(m[2], 10);
+  if (red < 1 || red > 9 || blue < 1 || blue > 9 || red + blue !== total) return null;
+  return value;
+}
+
+export function payoutLineLabel(line: string): string {
+  if (line === 'true_even') return 'true even (5-5)';
+  if (line === 'elo_even') return "bookie's line";
+  return `${line} (custom)`;
+}
 
 const bank = getBank();
 const nowDbDate = (): string => toDbDate(new Date());
@@ -55,12 +86,39 @@ export class GambleError extends Error {
 // Status sync (lazy — no cron; read/write paths call this first)
 // ---------------------------------------------------------------------------
 
-/** Flip open → awaiting_score once the bet window has passed. */
+/** Lazy clock transitions — no cron, every gambling route runs this first:
+ *  1. open → awaiting_score once the bet window has passed;
+ *  2. pending/countered challenges expire once the deadline is close enough
+ *     that accepted gambles would have no betting window left;
+ *  3. unsettled gamble matches are voided (full refunds) once the result is
+ *     more than N minutes overdue — with a Chat note. */
 export function syncStatuses(): void {
   db.prepare(`
     UPDATE gamble_matches SET status = 'awaiting_score'
     WHERE status = 'open' AND bet_close_at <= ?
   `).run(nowDbDate());
+
+  db.prepare(`
+    UPDATE challenges SET status = 'expired', updated_at = CURRENT_TIMESTAMP
+    WHERE status IN ('pending', 'countered')
+      AND scheduled_at <= datetime('now', '+${GAMBLE_RULES.challengeExpiryLeadMinutes} minutes')
+  `).run();
+
+  const overdue = db.prepare(`
+    SELECT id FROM gamble_matches
+    WHERE status IN ('open', 'awaiting_score')
+      AND scheduled_at <= datetime('now', '-${GAMBLE_RULES.resultDeadlineMinutes} minutes')
+  `).all() as { id: number }[];
+  for (const { id } of overdue) {
+    try {
+      const gm = getGambleMatch(id)!;
+      cancelGambleMatch(id);
+      announceCancelled(gm, getBetPool(id) + 2 * gm.entry_fee).catch(() => {});
+      console.log(`gamble match ${id} auto-cancelled — result missed the ${GAMBLE_RULES.resultDeadlineMinutes}-minute deadline`);
+    } catch (e) {
+      console.error(`auto-cancel failed for gamble match ${id}:`, e);
+    }
+  }
 }
 
 /** Derived status + seconds-to-close for the UI (bets closing is clock-derived). */
@@ -82,6 +140,18 @@ export interface ChallengeTermsInput {
   entryFee: number;
   scheduledAt: string;
   side: 'red' | 'blue';
+  /** Negligible term — the scoreline whose result pays the entries 50/50. */
+  payoutLine?: string;
+  /** Free-text house rules shown to gamblers; never affects the odds. */
+  specialRules?: string;
+}
+
+function validateSpecialRules(specialRules: string | undefined): string | null {
+  const text = specialRules?.trim() ?? '';
+  if (text.length > GAMBLE_RULES.maxSpecialRulesLength) {
+    return `Special rules must be at most ${GAMBLE_RULES.maxSpecialRulesLength} characters`;
+  }
+  return null;
 }
 
 function validateTerms(terms: ChallengeTermsInput): string | null {
@@ -97,48 +167,69 @@ function validateTerms(terms: ChallengeTermsInput): string | null {
   if (new Date(scheduled.replace(' ', 'T') + 'Z').getTime() <= Date.now()) {
     return 'Scheduled time must be in the future';
   }
-  return null;
+  return validateSpecialRules(terms.specialRules);
 }
 
 /**
  * Create a challenge. No money moves yet — fees are debited on accept.
  * Betting is restricted to fixed-total games (the market is the exact score).
+ * `opponentId === null` means a BROADCAST challenge: nobody is picked, any
+ * non-challenger may accept, and countering is off — the accepted side comes
+ * from the terms, the acceptor takes the other side. Broadcast challenges
+ * expire by the same deadline rule (and, unaccepted, they simply time out).
  */
 export function createChallenge(
   gameId: number,
   challengerId: number,
-  opponentId: number,
+  opponentId: number | null,
   terms: ChallengeTermsInput
 ): number {
-  const game = db.prepare(`SELECT id, name, score_type FROM games WHERE id = ?`)
-    .get(gameId) as { id: number; name: string; score_type: string } | undefined;
+  const game = db.prepare(`SELECT id, name, score_type, score_value FROM games WHERE id = ?`)
+    .get(gameId) as { id: number; name: string; score_type: string; score_value: number } | undefined;
   if (!game) throw new GambleError('Unknown game', 'unknown_game');
   if (game.score_type !== 'best_of') {
     throw new GambleError(`Betting is only set up for fixed-total games (${game.name} is "${game.score_type}")`, 'unsupported_game');
   }
-  if (challengerId === opponentId) throw new GambleError('You cannot challenge yourself', 'same_player');
+  const broadcast = opponentId === null;
+  if (!broadcast && challengerId === opponentId) {
+    throw new GambleError('You cannot challenge yourself', 'same_player');
+  }
 
-  const known = db.prepare(`SELECT COUNT(*) as n FROM players WHERE id IN (?, ?)`)
-    .get(challengerId, opponentId) as { n: number };
-  if (known.n !== 2) throw new GambleError('Unknown player', 'unknown_player');
+  const known = broadcast
+    ? db.prepare(`SELECT COUNT(*) as n FROM players WHERE id = ?`).get(challengerId) as { n: number }
+    : db.prepare(`SELECT COUNT(*) as n FROM players WHERE id IN (?, ?)`).get(challengerId, opponentId) as { n: number };
+  if (known.n !== (broadcast ? 1 : 2)) throw new GambleError('Unknown player', 'unknown_player');
 
   const error = validateTerms(terms);
   if (error) throw new GambleError(error, 'bad_terms');
+  const payoutLine = parsePayoutLine(terms.payoutLine, game.score_value);
+  if (!payoutLine) {
+    throw new GambleError("Payout line must be 'true_even', 'elo_even' or a scoreline from 9-1 to 1-9 that sums to the game total", 'bad_terms');
+  }
+  const side = terms.side === 'blue' ? 'blue' : 'red';
+  // Broadcast challenges with the challenger taking blue can't know red yet —
+  // red_player_id stays NULL until someone accepts.
+  const redPlayerId = broadcast
+    ? (side === 'red' ? challengerId : null)
+    : (side === 'red' ? challengerId : opponentId);
 
   const scheduled = normaliseStartDate(terms.scheduledAt);
-  const redPlayerId = terms.side === 'red' ? challengerId : opponentId;
+  const specialRules = terms.specialRules?.trim() ?? null;
 
   return db.transaction((): number => {
     const result = db.prepare(`
-      INSERT INTO challenges (game_id, challenger_id, opponent_id, entry_fee, scheduled_at, red_player_id, status, terms_by)
-      VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)
-    `).run(gameId, challengerId, opponentId, terms.entryFee, scheduled, redPlayerId, challengerId);
+      INSERT INTO challenges (
+        game_id, challenger_id, opponent_id, entry_fee, scheduled_at,
+        red_player_id, challenger_side, status, terms_by, broadcast, payout_line, special_rules
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)
+    `).run(gameId, challengerId, broadcast ? null : opponentId, terms.entryFee, scheduled, redPlayerId, side, challengerId, broadcast ? 1 : 0, payoutLine, specialRules);
     const challengeId = result.lastInsertRowid as number;
 
     db.prepare(`
-      INSERT INTO challenge_terms (challenge_id, entry_fee, scheduled_at, red_player_id, proposed_by)
-      VALUES (?, ?, ?, ?, ?)
-    `).run(challengeId, terms.entryFee, scheduled, redPlayerId, challengerId);
+      INSERT INTO challenge_terms (challenge_id, entry_fee, scheduled_at, red_player_id, proposed_by, payout_line, special_rules)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(challengeId, terms.entryFee, scheduled, redPlayerId, challengerId, payoutLine, specialRules);
 
     return challengeId;
   })();
@@ -155,10 +246,13 @@ function futureScheduledAt(input: string): string {
 /**
  * Respond to a challenge:
  *  - accept: debits both entry fees, freezes an odds ladder, opens the gamble match
- *  - counter: replaces terms, hands the pen back to the other player
+ *  - counter: replaces terms, hands the pen back to the other player (never
+ *    allowed on broadcasts)
  *  - decline / cancel: terminal; no fees were paid, nothing to refund
- * Only the player who did NOT author the current terms (terms_by) may
- * accept/decline/counter; either participant may cancel.
+ * Direct challenges respond by the player who did NOT author the current
+ * terms (terms_by); either participant may cancel. Broadcast challenges may
+ * be accepted by any non-challenger (they take the opposite side) and are
+ * withdrawn/cancelled by the challenger only.
  */
 export function respondToChallenge(
   challengeId: number,
@@ -166,12 +260,34 @@ export function respondToChallenge(
   action: 'accept' | 'decline' | 'cancel' | 'counter',
   counter?: ChallengeTermsInput
 ): { challenge: Challenge; gambleMatch?: GambleMatch; ladder?: OddsLadder; balances?: { challenger: number; opponent: number } } {
+  syncStatuses();
   const challenge = getChallenge(challengeId);
   if (!challenge) throw new GambleError('Challenge not found', 'not_found');
+  if (challenge.status === 'expired') {
+    throw new GambleError(
+      `This challenge expired — it has to be accepted by ${GAMBLE_RULES.challengeExpiryLeadMinutes} minutes before the deadline`,
+      'challenge_expired'
+    );
+  }
   if (challenge.status !== 'pending' && challenge.status !== 'countered') {
     throw new GambleError(`Challenge is already ${challenge.status}`, 'not_negotiable');
   }
-  if (playerId !== challenge.challenger_id && playerId !== challenge.opponent_id) {
+
+  const broadcast = challenge.broadcast === 1;
+  const isChallenger = playerId === challenge.challenger_id;
+  const isOpponent = !broadcast && playerId === challenge.opponent_id;
+
+  if (broadcast) {
+    if (action === 'counter') {
+      throw new GambleError('Countering is not allowed on broadcast challenges — accept it or move on', 'counter_not_allowed');
+    }
+    if (action === 'decline' && !isChallenger) {
+      throw new GambleError('Only the challenger can withdraw a broadcast challenge', 'not_a_participant');
+    }
+    if (action !== 'accept' && !isChallenger) {
+      throw new GambleError('Only the challenger can cancel a broadcast challenge', 'not_a_participant');
+    }
+  } else if (!isChallenger && !isOpponent) {
     throw new GambleError('Only the two players can respond to this challenge', 'not_a_participant');
   }
 
@@ -180,7 +296,9 @@ export function respondToChallenge(
     return { challenge: getChallenge(challengeId)! };
   }
 
-  if (playerId === challenge.terms_by) {
+  // Turn guard — except a third party taking a broadcast challenge, whose
+  // accept is exactly the point of a broadcast.
+  if (!(broadcast && !isChallenger && action === 'accept') && playerId === challenge.terms_by) {
     throw new GambleError('You proposed the current terms — it is the other player’s turn', 'not_your_turn');
   }
 
@@ -193,20 +311,27 @@ export function respondToChallenge(
     if (!counter) throw new GambleError('Counter requires new terms', 'bad_counter');
     validateTerms(counter); // throws GambleError('bad_terms') — no future-time check here, only shape
     const scheduled = futureScheduledAt(counter.scheduledAt);
-    const redPlayerId = counter.side === 'red' ? challenge.challenger_id : challenge.opponent_id;
+    const payoutLine = parsePayoutLine(counter.payoutLine, getGameTotal(challenge.game_id));
+    if (!payoutLine) {
+      throw new GambleError("Payout line must be 'true_even', 'elo_even' or a scoreline from 9-1 to 1-9 that sums to the game total", 'bad_terms');
+    }
+    const specialRulesError = validateSpecialRules(counter.specialRules);
+    if (specialRulesError) throw new GambleError(specialRulesError, 'bad_terms');
+    const specialRules = counter.specialRules?.trim() ?? null;
+    const redPlayerId = counter.side === 'red' ? challenge.challenger_id : challenge.opponent_id!;
 
     db.transaction(() => {
       db.prepare(`
         UPDATE challenges
-        SET entry_fee = ?, scheduled_at = ?, red_player_id = ?, status = 'countered', terms_by = ?,
-            updated_at = CURRENT_TIMESTAMP
+        SET entry_fee = ?, scheduled_at = ?, red_player_id = ?, challenger_side = ?, payout_line = ?, special_rules = ?,
+            status = 'countered', terms_by = ?, updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
-      `).run(counter.entryFee, scheduled, redPlayerId, playerId, challengeId);
+      `).run(counter.entryFee, scheduled, redPlayerId, counter.side, payoutLine, specialRules, playerId, challengeId);
 
       db.prepare(`
-        INSERT INTO challenge_terms (challenge_id, entry_fee, scheduled_at, red_player_id, proposed_by)
-        VALUES (?, ?, ?, ?, ?)
-      `).run(challengeId, counter.entryFee, scheduled, redPlayerId, playerId);
+        INSERT INTO challenge_terms (challenge_id, entry_fee, scheduled_at, red_player_id, proposed_by, payout_line, special_rules)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(challengeId, counter.entryFee, scheduled, redPlayerId, playerId, payoutLine, specialRules);
     })();
 
     return { challenge: getChallenge(challengeId)! };
@@ -216,11 +341,22 @@ export function respondToChallenge(
   const game = db.prepare(`SELECT score_value FROM games WHERE id = ?`)
     .get(challenge.game_id) as { score_value: number };
   const fee = challenge.entry_fee;
-  const bluePlayerId = challenge.red_player_id === challenge.challenger_id ? challenge.opponent_id : challenge.challenger_id;
+  const side = challenge.challenger_side === 'blue' ? 'blue' : 'red';
+  const broadcastAccept = broadcast && !isChallenger;
+  // A broadcast acceptor takes the opposite side to the challenger; normal
+  // challenges keep the agreed red/blue assignment.
+  const redPlayerId = broadcastAccept
+    ? (side === 'red' ? challenge.challenger_id : playerId)
+    : challenge.red_player_id ?? (side === 'red' ? challenge.challenger_id : challenge.opponent_id!);
+  const bluePlayerId = broadcastAccept
+    ? (side === 'red' ? playerId : challenge.challenger_id)
+    : challenge.red_player_id === challenge.challenger_id
+      ? challenge.opponent_id!
+      : challenge.challenger_id;
 
   const ladder = computeOddsLadder({
     gameId: challenge.game_id,
-    redPlayerIds: [challenge.red_player_id],
+    redPlayerIds: [redPlayerId],
     bluePlayerIds: [bluePlayerId],
     total: game.score_value,
   });
@@ -230,7 +366,8 @@ export function respondToChallenge(
 
   // Funds checked before the transaction so the error never half-moves money
   // (the debitChecked guard inside is belt and braces, not the real check).
-  for (const pid of [challenge.challenger_id, challenge.opponent_id]) {
+  const playerIds = broadcastAccept ? [challenge.challenger_id, playerId] : [challenge.challenger_id, challenge.opponent_id!];
+  for (const pid of playerIds) {
     bank.ensureAccount(pid);
     if (bank.getBalance(pid) < fee) {
       throw new GambleError(`Player ${pid} does not have ${fee} moose bucks to enter`, 'insufficient_funds');
@@ -238,16 +375,18 @@ export function respondToChallenge(
   }
 
   const gambleMatchId = db.transaction((): number => {
-    bank.debitChecked(challenge.challenger_id, fee, { type: 'challenge_fee', id: challengeId, memo: 'entry fee' });
-    bank.debitChecked(challenge.opponent_id, fee, { type: 'challenge_fee', id: challengeId, memo: 'entry fee' });
+    for (const pid of playerIds) {
+      bank.debitChecked(pid, fee, { type: 'challenge_fee', id: challengeId, memo: 'entry fee' });
+    }
 
     const result = db.prepare(`
       INSERT INTO gamble_matches
-        (challenge_id, game_id, red_player_id, blue_player_id, scheduled_at, bet_close_at, entry_fee, outcome_total, odds_json, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'open')
+        (challenge_id, game_id, red_player_id, blue_player_id, scheduled_at, bet_close_at, entry_fee, outcome_total, odds_json, status, payout_line, special_rules)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?)
     `).run(
-      challengeId, challenge.game_id, challenge.red_player_id, bluePlayerId,
-      challenge.scheduled_at, betCloseAt, fee, game.score_value, JSON.stringify(ladder)
+      challengeId, challenge.game_id, redPlayerId, bluePlayerId,
+      challenge.scheduled_at, betCloseAt, fee, game.score_value, JSON.stringify(ladder),
+      challenge.payout_line ?? 'true_even', challenge.special_rules ?? null
     );
     const gmId = result.lastInsertRowid as number;
 
@@ -262,20 +401,27 @@ export function respondToChallenge(
     ladder,
     balances: {
       challenger: bank.getBalance(challenge.challenger_id),
-      opponent: bank.getBalance(challenge.opponent_id),
+      opponent: bank.getBalance(playerIds[1]),
     },
   };
+}
+
+function getGameTotal(gameId: number): number {
+  const row = db.prepare(`SELECT score_value FROM games WHERE id = ?`)
+    .get(gameId) as { score_value: number } | undefined;
+  return row?.score_value ?? 0;
 }
 
 export function getChallenge(id: number): Challenge | undefined {
   const row = db.prepare(`
     SELECT c.id, c.game_id, c.challenger_id, c.opponent_id, c.entry_fee, c.scheduled_at,
-           c.red_player_id, c.status, c.terms_by, c.gamble_match_id, c.created_at, c.updated_at,
+           c.red_player_id, c.challenger_side, c.broadcast, c.payout_line, c.special_rules,
+           c.status, c.terms_by, c.gamble_match_id, c.created_at, c.updated_at,
            g.name as game_name,
            cha.name as challenger_name, opp.name as opponent_name, tu.name as terms_by_name
     FROM challenges c
     JOIN players cha ON cha.id = c.challenger_id
-    JOIN players opp ON opp.id = c.opponent_id
+    LEFT JOIN players opp ON opp.id = c.opponent_id
     JOIN players tu ON tu.id = c.terms_by
     LEFT JOIN games g ON g.id = c.game_id
     WHERE c.id = ?
@@ -490,13 +636,25 @@ export function settleGambleMatch(
 
     // 3. The house pays itself next: 10% of the combined entry is bank
     //    revenue off the top ("100 becomes 90"), then the players split the
-    //    remaining 90% of their entries by their score share.
+    //    remaining 90% of their entries by their score share — unless the
+    //    final score lands on the challenge's negotiated EVENS LINE ('5-5'
+    //    by default, or 'elo_even' / a custom '7-3'-style line), in which
+    //    case the entry splits 50/50. The match still has a winner and the
+    //    pot logic stays score-based; only the entry payout goes even.
     const entriesPool = 2 * gm.entry_fee;
     const houseFee = Math.floor(entriesPool * GAMBLE_RULES.houseFeeRate);
     if (houseFee > 0) {
       bank.credit(null, houseFee, { type: 'house_fee', id: gambleMatchId, memo: '10% house fee on entries' });
     }
     const playersPool = entriesPool - houseFee;
+    // The scoreline the entries pay even on: frozen bookie line for
+    // 'elo_even', the stored custom 'R-B'; 'true_even' means a literal 5-5.
+    const line = gm.payout_line ?? 'true_even';
+    const evenScoreline = line === 'elo_even' ? (gm.odds?.predictedLine ?? '')
+      : line === 'true_even' ? '' : line;
+    const entryEvenHit = evenScoreline !== ''
+      ? `${redScore}-${blueScore}` === evenScoreline
+      : redScore === blueScore;
     const participants: { playerId: number; score: number }[] = [
       { playerId: redPlayerId, score: redScore },
       { playerId: bluePlayerId, score: blueScore },
@@ -504,13 +662,17 @@ export function settleGambleMatch(
     const playerEntry: SettleSummary['playerEntry'] = [];
     let sharesTotal = 0;
     for (const { playerId, score } of participants) {
-      const returned = Math.floor((playersPool * score) / gm.outcome_total);
+      const returned = entryEvenHit
+        ? Math.floor(playersPool / 2)
+        : Math.floor((playersPool * score) / gm.outcome_total);
       sharesTotal += returned;
       if (returned > 0) {
         bank.credit(playerId, returned, {
           type: 'player_share',
           id: gambleMatchId,
-          memo: `entry share ${score}/${gm.outcome_total} of ${playersPool} (${100 - 10}% of ${gm.entry_fee} entry)`,
+          memo: entryEvenHit
+            ? `evens-line payout (line ${line}) — half of ${playersPool}`
+            : `entry share ${score}/${gm.outcome_total} of ${playersPool} (${Math.round(GAMBLE_RULES.houseFeeRate * 100)}% of ${gm.entry_fee} entry)`,
         });
       }
       playerEntry.push({ playerId, fee: gm.entry_fee, returned });
@@ -579,6 +741,8 @@ export function settleGambleMatch(
       returns,
       payoutCap,
       returnsCapped: capped,
+      payoutLine: line,
+      entryEvenHit,
       leftover,
       betPayments,
       pot: {
@@ -597,14 +761,16 @@ export function settleGambleMatch(
   return settle();
 }
 
-/** Refund everything on a cancel: open bet stakes + both entry fees. */
-export function cancelGambleMatch(gambleMatchId: number): void {
+/** Refund everything on a cancel: open bet stakes + both entry fees.
+ *  Returns the total refunded (also used by the overdue auto-void). */
+export function cancelGambleMatch(gambleMatchId: number): number {
   const gm = getGambleMatch(gambleMatchId);
   if (!gm) throw new GambleError('Gamble match not found', 'not_found');
   if (gm.status === 'settled') throw new GambleError('Match already settled', 'already_settled');
   if (gm.status === 'cancelled') throw new GambleError('Match already cancelled', 'already_cancelled');
 
-  db.transaction(() => {
+  return db.transaction((): number => {
+    let refunded = gm.entry_fee * 2;
     bank.credit(gm.red_player_id, gm.entry_fee, { type: 'refund', id: gambleMatchId, memo: 'entry fee refund' });
     bank.credit(gm.blue_player_id, gm.entry_fee, { type: 'refund', id: gambleMatchId, memo: 'entry fee refund' });
 
@@ -613,10 +779,12 @@ export function cancelGambleMatch(gambleMatchId: number): void {
     for (const bet of openBets) {
       bank.credit(bet.bettor_id, bet.stake, { type: 'refund', id: gambleMatchId, memo: 'stake refund' });
       db.prepare(`UPDATE bets SET status = 'refunded' WHERE id = ?`).run(bet.id);
+      refunded += bet.stake;
     }
 
     db.prepare(`UPDATE gamble_matches SET status = 'cancelled' WHERE id = ?`).run(gambleMatchId);
     db.prepare(`UPDATE challenges SET status = 'cancelled', gamble_match_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
       .run(gm.challenge_id);
+    return refunded;
   })();
 }

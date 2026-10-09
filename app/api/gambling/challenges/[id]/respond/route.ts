@@ -37,6 +37,8 @@ export async function POST(
         entryFee: parseInt(String(body.counter.entry_fee), 10),
         scheduledAt: String(body.counter.scheduled_at ?? ''),
         side: body.counter.side === 'blue' ? 'blue' : 'red',
+        payoutLine: typeof body.counter.payout_line === 'string' ? body.counter.payout_line : undefined,
+        specialRules: body.counter.special_rules != null ? String(body.counter.special_rules) : undefined,
       };
     }
 

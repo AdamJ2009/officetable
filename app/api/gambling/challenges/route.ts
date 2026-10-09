@@ -18,7 +18,7 @@ const LIST_SQL = `
          cha.name as challenger_name, opp.name as opponent_name, tu.name as terms_by_name
   FROM challenges c
   JOIN players cha ON cha.id = c.challenger_id
-  JOIN players opp ON opp.id = c.opponent_id
+  LEFT JOIN players opp ON opp.id = c.opponent_id
   JOIN players tu ON tu.id = c.terms_by
   LEFT JOIN games g ON g.id = c.game_id
 `;
@@ -33,7 +33,8 @@ export async function GET(request: NextRequest) {
     const conditions: string[] = [];
     const params: (string | number)[] = [];
     if (playerId) {
-      conditions.push(`(c.challenger_id = ? OR c.opponent_id = ?)`);
+      // Mine — plus broadcast challenges, which anyone can still act on
+      conditions.push(`(c.challenger_id = ? OR c.opponent_id = ? OR (c.broadcast = 1 AND c.status IN ('pending', 'countered')))`);
       params.push(parseInt(playerId, 10), parseInt(playerId, 10));
     }
     if (status) {
@@ -54,7 +55,9 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const challengerId = requirePlayerId(body.challenger_id);
-    const opponentId = requirePlayerId(body.opponent_id);
+    // Broadcast challenge: no opponent — first non-challenger to accept plays
+    const broadcast = body.broadcast === true || body.broadcast === 1;
+    const opponentId = broadcast ? null : requirePlayerId(body.opponent_id);
     const gameId = parseInt(String(body.game_id), 10);
     if (!Number.isInteger(gameId)) {
       return NextResponse.json({ error: 'game_id is required' }, { status: 400 });
@@ -64,22 +67,28 @@ export async function POST(request: NextRequest) {
       entryFee: parseInt(String(body.entry_fee), 10),
       scheduledAt: String(body.scheduled_at ?? ''),
       side: body.side === 'blue' ? 'blue' : 'red',
+      payoutLine: typeof body.payout_line === 'string' ? body.payout_line : undefined,
+      specialRules: body.special_rules != null ? String(body.special_rules) : undefined,
     };
 
     const challengeId = createChallenge(gameId, challengerId, opponentId, terms);
 
-    // Announce (fire and forget) with the pre-accept odds preview
+    // Announce (fire and forget) with the pre-accept odds preview —
+    // broadcast challenges can't preview (red may be undetermined yet)
     const challenge = getChallenge(challengeId)!;
-    const game = db.prepare(`SELECT score_value FROM games WHERE id = ?`).get(gameId) as { score_value: number };
-    const bluePlayerId = challenge.red_player_id === challenge.challenger_id
-      ? challenge.opponent_id : challenge.challenger_id;
-    const ladder = computeOddsLadder({
-      gameId,
-      redPlayerIds: [challenge.red_player_id],
-      bluePlayerIds: [bluePlayerId],
-      total: game.score_value,
-    });
-    announceChallengeIssued(challenge, ladder).catch(err => console.error('gamble announce failed:', err));
+    let ladder = null;
+    if (!broadcast) {
+      const game = db.prepare(`SELECT score_value FROM games WHERE id = ?`).get(gameId) as { score_value: number };
+      const bluePlayerId = challenge.red_player_id === challenge.challenger_id
+        ? challenge.opponent_id : challenge.challenger_id;
+      ladder = computeOddsLadder({
+        gameId,
+        redPlayerIds: [challenge.red_player_id!],
+        bluePlayerIds: [bluePlayerId!],
+        total: game.score_value,
+      });
+    }
+    announceChallengeIssued(challenge, ladder ?? undefined).catch(err => console.error('gamble announce failed:', err));
 
     revalidatePath('/', 'layout');
     return NextResponse.json(

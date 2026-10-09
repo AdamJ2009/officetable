@@ -496,4 +496,112 @@ const updateAchievementIcons = db.prepare(`
 `);
 updateAchievementIcons.run();
 
+// ============================================================
+// Gambling (office virtual money — see the flowchart + written spec)
+//
+// Challenges hold the negotiable terms (fee / time / side). Counters
+// update the row and append an offer to challenge_terms; accept freezes
+// the terms into a gamble_match with an odds snapshot. All money flows
+// through the bank tables — every movement writes one signed bank_transactions
+// row, so SUM(amount) per account always equals the balance.
+// ============================================================
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS challenges (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    game_id INTEGER NOT NULL REFERENCES games(id),
+    challenger_id INTEGER NOT NULL REFERENCES players(id),
+    opponent_id INTEGER NOT NULL REFERENCES players(id),
+    entry_fee INTEGER NOT NULL,
+    scheduled_at TEXT NOT NULL,
+    red_player_id INTEGER NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    terms_by INTEGER NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS challenge_terms (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    challenge_id INTEGER NOT NULL REFERENCES challenges(id),
+    entry_fee INTEGER NOT NULL,
+    scheduled_at TEXT NOT NULL,
+    red_player_id INTEGER NOT NULL,
+    proposed_by INTEGER NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS gamble_matches (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    challenge_id INTEGER NOT NULL REFERENCES challenges(id),
+    game_id INTEGER NOT NULL REFERENCES games(id),
+    red_player_id INTEGER NOT NULL REFERENCES players(id),
+    blue_player_id INTEGER NOT NULL REFERENCES players(id),
+    scheduled_at TEXT NOT NULL,
+    bet_close_at TEXT NOT NULL,
+    entry_fee INTEGER NOT NULL,
+    outcome_total INTEGER NOT NULL,
+    odds_json TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'open',
+    match_id INTEGER,
+    settled_at TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS bets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    gamble_match_id INTEGER NOT NULL REFERENCES gamble_matches(id),
+    bettor_id INTEGER NOT NULL REFERENCES players(id),
+    red_score INTEGER NOT NULL,
+    blue_score INTEGER NOT NULL,
+    stake INTEGER NOT NULL,
+    decimal_odds REAL NOT NULL,
+    status TEXT NOT NULL DEFAULT 'open',
+    payout INTEGER,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS bank_accounts (
+    player_id INTEGER PRIMARY KEY REFERENCES players(id),
+    balance INTEGER NOT NULL DEFAULT 1000,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS bank_house (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    balance INTEGER NOT NULL DEFAULT 0
+  );
+
+  CREATE TABLE IF NOT EXISTS bank_transactions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ref_type TEXT NOT NULL,
+    ref_id INTEGER,
+    player_id INTEGER,
+    amount INTEGER NOT NULL,
+    memo TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_gamble_matches_status ON gamble_matches(status);
+  CREATE INDEX IF NOT EXISTS idx_gamble_matches_game_sched ON gamble_matches(game_id, scheduled_at);
+  CREATE INDEX IF NOT EXISTS idx_gamble_matches_players ON gamble_matches(red_player_id, blue_player_id);
+  CREATE INDEX IF NOT EXISTS idx_bets_match ON bets(gamble_match_id);
+  CREATE INDEX IF NOT EXISTS idx_bets_bettor ON bets(bettor_id);
+  CREATE INDEX IF NOT EXISTS idx_bank_transactions_player ON bank_transactions(player_id);
+`);
+
+db.prepare(`INSERT OR IGNORE INTO bank_house (id, balance) VALUES (1, 0)`).run();
+
+// Migration: challenges gain a link to the gamble match opened on accept
+// (added after the table shipped, so existing DBs need the ALTER).
+try {
+  db.exec(`ALTER TABLE challenges ADD COLUMN gamble_match_id INTEGER REFERENCES gamble_matches(id)`);
+} catch (e) {
+  // Column already exists, ignore
+}
+
+// Seed an account for every existing player (new players get accounted via
+// lib/bank.ensureAccount — same INSERT OR IGNORE, so repeated calls are free).
+db.prepare(`INSERT OR IGNORE INTO bank_accounts (player_id, balance) SELECT id, 1000 FROM players`).run();
+
 export default db;

@@ -143,6 +143,12 @@ export function Nav() {
               👥 Players
             </Link>
             <Link
+              href="/gambling"
+              className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-primary hover:bg-gray-100 rounded-lg transition-all"
+            >
+              🎲 Gambling
+            </Link>
+            <Link
               href="/matches/new"
               className="px-4 py-2 text-sm font-semibold bg-primary text-white rounded-lg hover:bg-primary-hover transition-all shadow-sm hover:shadow-md"
             >

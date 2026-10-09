@@ -149,3 +149,141 @@ export interface PaginatedMatchesResponse {
   matches: MatchWithParticipants[];
   pagination: PaginationMeta;
 }
+// ============================================================
+// Gambling (office virtual money)
+// ============================================================
+
+export type ChallengeStatus = 'pending' | 'countered' | 'accepted' | 'declined' | 'cancelled';
+export type BetSide = 'red' | 'blue';
+export type GambleMatchStatus = 'open' | 'awaiting_score' | 'settled' | 'cancelled';
+
+export interface Challenge {
+  id: number;
+  game_id: number;
+  game_name?: string;
+  challenger_id: number;
+  challenger_name?: string;
+  opponent_id: number;
+  opponent_name?: string;
+  entry_fee: number;
+  scheduled_at: string;
+  red_player_id: number;
+  status: ChallengeStatus;
+  terms_by: number;
+  terms_by_name?: string;
+  gamble_match_id?: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ChallengeTerm {
+  id: number;
+  challenge_id: number;
+  entry_fee: number;
+  scheduled_at: string;
+  red_player_id: number;
+  proposed_by: number;
+  proposed_by_name?: string;
+  created_at: string;
+}
+
+export interface ScoreOutcome {
+  redScore: number;
+  blueScore: number;
+  prob: number;
+  decimalOdds: number;
+  fractional: string;
+}
+
+export interface OddsLadder {
+  total: number;
+  eloRed: number;
+  eloBlue: number;
+  expectedShare: number;
+  blendedShare: number;
+  calibrationW: number;
+  calibrationN: number;
+  predictedLine: string;
+  outcomes: ScoreOutcome[];
+}
+
+/** gamble_matches row (odds_json is exposed parsed as OddsLadder). */
+export interface GambleMatch {
+  id: number;
+  challenge_id: number;
+  game_id: number;
+  game_name?: string;
+  red_player_id: number;
+  red_player_name?: string;
+  blue_player_id: number;
+  blue_player_name?: string;
+  scheduled_at: string;
+  bet_close_at: string;
+  entry_fee: number;
+  outcome_total: number;
+  odds_json: string;
+  odds?: OddsLadder;
+  status: GambleMatchStatus;
+  match_id?: number | null;
+  settled_at?: string | null;
+  created_at: string;
+}
+
+export interface Bet {
+  id: number;
+  gamble_match_id: number;
+  bettor_id: number;
+  bettor_name?: string;
+  red_score: number;
+  blue_score: number;
+  stake: number;
+  decimal_odds: number;
+  status: 'open' | 'won' | 'lost' | 'refunded';
+  payout?: number | null;
+  created_at: string;
+}
+
+/** Settlement result — also sent back by the settle API endpoint. */
+export interface SettleSummary {
+  gambleMatchId: number;
+  matchId: number;
+  finalScore: { red: number; blue: number };
+  pool: number;
+  returns: number;
+  /** Payout cap = bet pool + house pot − 1: the two pots together, with the
+   *  casino always keeping at least 1 moose buck. */
+  payoutCap: number;
+  /** True when the full odds line bust the cap and payouts were scaled down. */
+  returnsCapped: boolean;
+  leftover: number;
+  betPayments: {
+    bettor_id: number;
+    bettor_name: string;
+    pick: string;
+    stake: number;
+    status: 'won' | 'lost';
+    payout: number;
+  }[];
+  pot: {
+    positive: boolean;
+    house: number;
+    /** 10% house fee taken off the combined entry before the score split. */
+    houseFee: number;
+    winnerPlayerId: number | null;
+    winnerShare: number;
+    scoreShares: { playerId: number; amount: number }[];
+    houseLoss: number;
+  };
+  playerEntry: { playerId: number; fee: number; returned: number }[];
+}
+
+export interface BankTransaction {
+  id: number;
+  ref_type: string;
+  ref_id?: number | null;
+  player_id?: number | null;
+  player_name?: string | null;
+  amount: number;
+  memo?: string | null;
+  created_at: string;
+}

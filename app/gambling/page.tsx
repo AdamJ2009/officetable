@@ -35,7 +35,7 @@ interface Standings {
 }
 
 interface LobbyData {
-  me: { player_id: number; balance: number } | null;
+  me: { player_id: number; balance: number; bank_linked?: boolean } | null;
   house_balance: number;
   my_challenges: ChallengeWithNames[];
   broadcast_challenges: ChallengeWithNames[];
@@ -157,43 +157,73 @@ export default function GamblingLobby() {
         <div className="rounded-lg bg-red-50 border border-red-200 text-red-700 px-4 py-3 text-sm">{error}</div>
       )}
 
-      {/* Identity + bank */}
+      {/* Identity + bank — balance links to the bank page; the challenge CTA stands alone */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div className="rounded-xl border border-gray-200 bg-card p-4 flex items-center justify-between">
-          <div>
-            <div className="text-xs uppercase tracking-wide text-gray-500">My moose bucks</div>
-            <div className="text-2xl font-bold text-gray-900">
-              {data?.me ? data.me.balance.toLocaleString() : me ? '…' : '—'}
+        <Link
+          href="/gambling/bank"
+          className="rounded-xl border border-gray-200 bg-card p-4 flex items-center justify-between hover:border-primary/50 hover:shadow-md transition-all"
+        >
+          {data?.me?.bank_linked === false ? (
+            /* Unlinked players hold zero — the card becomes the sign-up */
+            <div>
+              <div className="text-xs uppercase tracking-wide text-gray-500">My moose bucks</div>
+              <div className="text-lg font-bold text-gray-900">Sign up at the bank</div>
+              <div className="text-xs text-gray-400 mt-0.5">Register your Alces Bookie account to gamble</div>
             </div>
-          </div>
-          {data?.me && (
-            <a
-              href={`/api/gambling/bank?player_id=${me?.id}`}
-              className="text-xs text-gray-400 hover:text-gray-600 underline"
-            >
-              ledger
-            </a>
+          ) : (
+            <div>
+              <div className="text-xs uppercase tracking-wide text-gray-500">My moose bucks</div>
+              <div className="text-2xl font-bold text-gray-900">
+                {data?.me ? data.me.balance.toLocaleString() : me ? '…' : '—'}
+              </div>
+            </div>
           )}
-        </div>
-        <div className="rounded-xl border border-gray-200 bg-card p-4 flex items-center justify-between">
-          <div>
-            <div className="text-xs uppercase tracking-wide text-gray-500">The bank</div>
-            <div className="text-2xl font-bold text-gray-900">{data ? data.house_balance.toLocaleString() : '—'}</div>
+          <span className="text-sm font-semibold text-primary">
+            {data?.me?.bank_linked === false ? '📝 Sign up →' : '🏦 Your bank account →'}
+          </span>
+        </Link>
+        {data?.me?.bank_linked === false ? (
+          /* Unlinked players can watch and bet-wait but not challenge */
+          <div
+            title="Challenges locked, you must have a linked account to challenge"
+            className="rounded-xl border border-gray-200 bg-gray-100 p-4 flex flex-col justify-center items-center text-center select-none cursor-not-allowed opacity-60"
+          >
+            <span className="text-xl font-bold text-gray-400">🔒 New Challenge</span>
+            <span className="text-xs uppercase tracking-wide text-gray-400 mt-1">
+              Challenges locked, you must have a linked account to challenge
+            </span>
           </div>
+        ) : (
           <Link
             href="/gambling/new"
-            className="text-sm font-semibold bg-primary text-white rounded-lg px-4 py-2 hover:bg-primary-hover shadow-sm"
+            className="rounded-xl border border-gray-200 bg-card p-4 flex flex-col justify-center items-center text-center hover:border-primary hover:bg-primary hover:text-white transition-all group"
           >
-            + New Challenge
+            <span className="text-xl font-bold">⚔️ New Challenge</span>
+            <span className="text-xs uppercase tracking-wide text-gray-400 group-hover:text-white/70 mt-1 transition-colors">
+              Call someone out below
+            </span>
           </Link>
-        </div>
+        )}
       </div>
 
       {/* Live gamble matches — front and centre, right below the bank */}
       <section>
         <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-2">Live gambles</h2>
         {data && data.live_matches.length === 0 ? (
-          <p className="text-sm text-gray-500">No gambles running. Schedule one below.</p>
+          <p className="text-sm text-gray-500">
+            No gambles running
+            {data.me?.bank_linked === false ? (
+              '.'
+            ) : (
+              <>
+                {' '}—{' '}
+                <Link href="/gambling/new" className="font-semibold text-primary hover:underline">
+                  schedule one here
+                </Link>
+                .
+              </>
+            )}
+          </p>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {data?.live_matches.map((m) => (
@@ -246,8 +276,10 @@ export default function GamblingLobby() {
         </div>
       )}
 
-      {/* Gambler standings — same look as the office game leaderboards */}
-      {standings && standings.players.length > 0 && (
+      {/* Gambler standings — same look as the office game leaderboards.
+          Always visible (even before anyone registers): unlinked watchers
+          still see the leaderboard, the casino P&L and the pot stats. */}
+      {standings && (
         <section>
           <div className="flex items-center justify-between mb-8">
             <h1 className="text-3xl font-bold">🎲 Gambling Leaderboard</h1>
@@ -411,6 +443,25 @@ export default function GamblingLobby() {
                     </tr>
                   );
                 })}
+                {standings.players.filter(p => (p.retired ? showRetired : true) && (p.is_inactive ? showInactive : true)).length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="px-6 py-8 text-center">
+                      {standings.players.length === 0 && data?.me?.bank_linked === false ? (
+                        <p className="text-sm text-gray-500">
+                          Nobody is listed yet — the table fills up once players{' '}
+                          <Link href="/gambling/bank" className="font-semibold text-primary hover:underline">
+                            sign up at the bank
+                          </Link>.
+                          You can still watch every gamble and bet on them regardless.
+                        </p>
+                      ) : (
+                        <p className="text-sm text-gray-400">
+                          No players match the current filters.
+                        </p>
+                      )}
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>

@@ -377,10 +377,11 @@ export async function drainBankSync(): Promise<void> {
           db.prepare(`
             UPDATE bank_sync SET status = 'failed', attempts = attempts + 1, error = ? WHERE id = ?
           `).run(msg, job.id);
-          // One hard stop per drain on connection trouble so a bank outage
-          // doesn't burn 25 failed attempts in a second — they retry on the
-          // next kick.
-          if (e instanceof AlcesBankError && e.code === 'unreachable') return;
+          // HARD STOP on the first failure of any kind (not just connection
+          // trouble): a bad batch must not burn more attempts or hammer the
+          // bank — every kicking route would otherwise chain failing HTTP
+          // calls. The rest of the batch waits for the next kick.
+          return;
         }
       }
       if (!progress) break;
@@ -401,7 +402,8 @@ export function kickBankSync(): void {
 /**
  * "Bank is the truth": once every movement has drained, snap the local
  * projections onto the real bank-side balances — it absorbs the bank's 2%
- * receipt skim and any spending done outside this site. The house pot
+ * receipt skim and any spending done outside this site. The snap is
+ * DOWNWARD-ONLY for players (see comment below). The house pot
  * (bank_house) is engine bookkeeping and stays local.
  */
 export async function reconcileAlcesBalances(): Promise<void> {
@@ -421,9 +423,14 @@ export async function reconcileAlcesBalances(): Promise<void> {
   const update = db.prepare(`
     UPDATE bank_accounts SET balance = ?, updated_at = CURRENT_TIMESTAMP WHERE player_id = ?
   `);
+  // Downward-only snap: absorb the bank's receipt skim and any spending done
+  // outside the site, but never import bank-side money the local ledger
+  // doesn't know about. Otherwise a fresh mint (registering a bank account
+  // mints 500) could be linked, re-linked and farmed into free site funds —
+  // the bookie, not registration freebies, must control site balances.
   for (const row of rows) {
     const truth = balances.get(row.bank_username);
-    if (truth !== undefined && Math.abs(truth - row.balance) > 0.004) {
+    if (truth !== undefined && truth < row.balance - 0.004) {
       update.run(truth, row.player_id);
     }
   }

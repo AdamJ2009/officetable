@@ -8,7 +8,7 @@
 
 import db from './db';
 import { processMatch } from './elo';
-import { getBank, assertBankLinked, kickBankSync } from './bank';
+import { getBank, assertBankLinked, kickBankSync, alcesMirrorEnabled } from './bank';
 import { computeOddsLadder } from './gambleOdds';
 import { announceCancelled } from './gambleNotifications';
 import { normaliseStartDate, toDbDate } from './seasons';
@@ -48,6 +48,11 @@ export const GAMBLE_RULES = {
   /** Cap on the free-text special rules note. */
   maxSpecialRulesLength: 500,
 } as const;
+
+/** Mock-mode floor under the casino's payout exposure guard: the local casino
+ *  stands behind every bet with at least this (it mints, so it's backed).
+ *  Mirror mode deliberately does NOT use it — see placeBet. */
+const BASE_POT_MINIMUM = 100;
 
 /**
  * Payout lines (stored format): 'true_even' = a literal draw (5-5);
@@ -524,8 +529,15 @@ export function placeBet(gambleMatchId: number, bettorId: number, redScore: numb
     FROM bets WHERE gamble_match_id = ? AND bettor_id = ? AND status = 'open'
       AND red_score = ? AND blue_score = ?
   `).get(gambleMatchId, bettorId, redScore, blueScore) as { staked: number };
-  const BASE_POT_MINIMUM = 100; // casino stands behind every bet with at least this
-  const bankPot = Math.max(bank.getHouseBalance(), BASE_POT_MINIMUM);
+  // Mock mode: the local casino stands behind every bet with at least this
+  // (it mints, so the floor is backed by the site's own money).
+  // Mirror mode: NO floor — the central bank's real house pot is the only
+  // thing winnings can be paid from, and promising an unbacked payout would
+  // mint money the bank mirror can never honour (payout credits would fail
+  // to drain forever). Cap = real house holdings, or nothing.
+  const bankPot = alcesMirrorEnabled()
+    ? Math.max(bank.getHouseBalance(), 1)
+    : Math.max(bank.getHouseBalance(), BASE_POT_MINIMUM);
   const potentialPayout = Math.floor((samePick.staked + stake) * outcome.decimalOdds);
   if (bankPot <= 1 || potentialPayout > bankPot - 1) {
     const maxStake = Math.max(GAMBLE_RULES.minStake,

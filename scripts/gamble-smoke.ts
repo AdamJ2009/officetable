@@ -253,24 +253,28 @@ async function main() {
   assert(sumF.pot.positive && sumF.pot.winnerPlayerId === gmF.red_player_id && sumF.pot.winnerShare > 0,
     'pot winner quarter still follows the actual winner on a custom line');
 
-  // ============ casino cap: a 100/1 longshot can drain, never glitch ========
+  // ============ casino exposure guard: pre-block + full-pay longshot ========
   const scheduledE = localIn(FUTURE);
   const c5 = createChallenge(gameId, redId, blueId, { entryFee: fee, scheduledAt: scheduledE, side: 'red' });
   const gmE = respondToChallenge(c5, blueId, 'accept').gambleMatch!;
-  placeBet(gmE.id, g1, 10, 0, 100); // longest price on the board
-  // Two-pot cap: the bet pool (this match's 100 stake) plus the house pot,
-  // with the casino keeping at least 1 moose buck.
+  // placeBet pre-blocks any stake that could ever out-win the casino's pot —
+  // the settle-time two-pot cap is a backstop for stakes placed before the
+  // house shrank, not a reachable settle path. Test the guard itself:
   const houseBeforeE = bank.getHouseBalance();
-  const betPotBeforeE = getBetPool(gmE.id);
+  const odds100E = gmE.odds!.outcomes.find(o => o.redScore === 10)!.decimalOdds;
+  const maxStakeE = Math.floor((houseBeforeE - 1) / odds100E); // top-price stake fitting the pot
+  assertThrows('over-pot stake pre-blocked (bet_exceeds_pot)',
+    () => placeBet(gmE.id, g1, 10, 0, maxStakeE + 5), 'bet_exceeds_pot');
+  const longStakeE = Math.floor(maxStakeE / 2); // under the cap but big enough to matter
+  placeBet(gmE.id, g1, 10, 0, longStakeE); // longest price on the board
   fastForward(gmE.id);
   const sumE = settleGambleMatch(gmE.id, [
     { team: 0, player_ids: [gmE.red_player_id], score: 10 },
     { team: 1, player_ids: [gmE.blue_player_id], score: 0 },
   ]);
-  const capE = Math.max(0, betPotBeforeE + houseBeforeE - 1);
-  assert(sumE.returnsCapped, 'longshot winner busts the two-pot cap');
-  assert(sumE.returns === capE, `capped at (bet pool ${betPotBeforeE} + house pot ${houseBeforeE}) − 1 = ${capE}`);
-  assert(sumE.payoutCap === capE, 'cap reported in the summary');
+  assert(!sumE.returnsCapped, 'under-cap longshot pays in full (no settle-side capping needed)');
+  assert(sumE.returns === longStakeE * odds100E, `longshot paid at frozen price (stake ${longStakeE} × odds ${odds100E})`);
+  assert(sumE.payoutCap >= sumE.returns, "cap reported in the summary");
   assert(bank.getHouseBalance() >= 1, `house pot never drains below 1 (now ${bank.getHouseBalance()})`);
 
   // ============ challenge G: expiry 5 minutes before the start =============
@@ -309,7 +313,7 @@ async function main() {
   console.log('challenge A pot:', JSON.stringify(summary.pot));
   console.log('challenge B pot:', JSON.stringify(sumB.pot));
   console.log('challenge C pot:', JSON.stringify(sumC.pot));
-  console.log('challenge E (capped): returns', sumE.returns, 'cap', sumE.payoutCap, 'pot', JSON.stringify(sumE.pot));
+  console.log('challenge E (longshot): returns', sumE.returns, 'cap', sumE.payoutCap, 'pot', JSON.stringify(sumE.pot));
   console.log('challenge F (broadcast 7-3 line): returns', sumF.returns, 'pot', JSON.stringify(sumF.pot));
 }
 

@@ -279,16 +279,32 @@ export function ensureAlcesHouse(): Promise<void> {
       // never re-POST the registration on later drains (the bank would only
       // 409 it, but each attempt is traffic the down/shared API shouldn't
       // see). Clear 'alces_house_registered' in settings to force a re-probe.
-      if (db.prepare(`SELECT value FROM settings WHERE key = 'alces_house_registered'`)
-        .get() as { value: string } | undefined) return;
       const { houseUser, housePassword } = alcesConfig();
       if (!housePassword) throw new BankError('No house password available', 'bank_disabled');
+      // The flag stores WHICH house user was registered/verified — it is
+      // re-probed (idempotently) whenever ALCES_HOUSE_USER changes.
+      const registeredFlag = db.prepare(`SELECT value FROM settings WHERE key = 'alces_house_registered'`)
+        .get() as { value: string } | undefined;
+      if (registeredFlag?.value === houseUser) return;
       try {
         await registerAlcesUser(houseUser, housePassword);
       } catch (e) {
         if (!(e instanceof AlcesBankError && e.code === 'already_taken')) throw e;
+        // The bank already has this house username — but is it OURS? If its
+        // password differs from this site's, every house→player payout will
+        // 401 forever (silently, via the sync backlog). Prove the handshake
+        // now so the site either runs or fails loudly with a fixable message.
+        try {
+          await loginAlcesUser(houseUser, housePassword);
+        } catch {
+          throw new BankError(
+            `The central bank already has a house account "${houseUser}" but its password does not match this site's — every payout would fail. Set ALCES_HOUSE_PASSWORD to that account's real bank password (or point ALCES_HOUSE_USER at this site's own house account), then clear the 'alces_house_registered' setting to retry.`,
+            'house_credentials_mismatch',
+          );
+        }
       }
-      db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES ('alces_house_registered', '1')`).run();
+      db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES ('alces_house_registered', ?)`)
+        .run(houseUser);
     })().catch(e => {
       // Don't cache the failure: one bank outage must not poison every later
       // link/sync attempt until a server restart. Clear and let it retry.

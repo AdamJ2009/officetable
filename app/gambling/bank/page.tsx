@@ -21,7 +21,7 @@ interface BankData {
   mirror_enabled?: boolean;
   bank_username: string | null;
   bank_linked_at?: string | null;
-  sync_backlog?: { pending: number; failed: number } | null;
+  sync_backlog?: { pending: number; failed: number; unverified: number } | null;
 }
 
 const REF_LABEL: Record<string, string> = {
@@ -153,13 +153,14 @@ export default function BankPage() {
                 {data.balance.toLocaleString(undefined, { maximumFractionDigits: 2 })}{' '}
                 <span className="text-sm font-normal text-gray-500">moose bucks</span>
               </div>
-              {data.sync_backlog && (data.sync_backlog.pending > 0 || data.sync_backlog.failed > 0) && (
+              {data.sync_backlog && (data.sync_backlog.pending > 0 || data.sync_backlog.failed > 0 || data.sync_backlog.unverified > 0) && (
                 <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 flex items-center justify-between gap-2">
                   <span>
                     ⏳ {data.sync_backlog.pending} movement{data.sync_backlog.pending === 1 ? '' : 's'} still syncing to the central bank
                     {data.sync_backlog.failed > 0 && <> · {data.sync_backlog.failed} failed (one controlled retry per press)</>}
+                    {data.sync_backlog.unverified > 0 && <> · {data.sync_backlog.unverified} need manual verification (the drainer couldn&apos;t prove on the bank whether the transfer landed)</>}
                   </span>
-                  {data.sync_backlog.failed > 0 && (
+                  {(data.sync_backlog.failed > 0 || data.sync_backlog.unverified > 0) && (
                     <button
                       onClick={resyncFailed}
                       disabled={busy}

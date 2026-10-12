@@ -5,6 +5,7 @@ import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { useMe } from '@/lib/contexts/MeContext';
 import { GambleOddsBoard } from '@/components/GambleOddsBoard';
+import { betsClosingSoon, formatBetsCountdown } from '@/lib/betsClock';
 import type { BankTransaction, Bet, GambleMatch, ScoreOutcome, SettleSummary } from '@/lib/types';
 
 // Gamble match detail: countdown + odds board + bet form for others, score
@@ -173,12 +174,19 @@ export default function GambleMatchPage() {
       {/* Header */}
       <div className="rounded-xl border border-gray-200 bg-card p-5">
         <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-          <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${STATUS_BADGE[status] ?? 'bg-gray-100'}`}>
-            {status === 'open' ? `BETS OPEN — close in ${Math.max(0, detail.seconds_to_close)}s`
-              : status === 'bets_closed' ? 'BETS CLOSED'
-              : status === 'awaiting_score' ? 'WAITING ON SCORE'
-              : status.toUpperCase()}
-          </span>
+          {(() => {
+            // Minutes while the betting window is long; the closing stretch
+            // flips the badge to BETS CLOSING and the countdown to seconds.
+            const closing = status === 'open' && betsClosingSoon(detail.seconds_to_close);
+            return (
+              <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${closing ? 'bg-amber-100 text-amber-800' : (STATUS_BADGE[status] ?? 'bg-gray-100')}`}>
+                {status === 'open' ? `BETS ${closing ? 'CLOSING' : 'OPEN'} — close in ${formatBetsCountdown(detail.seconds_to_close)}`
+                  : status === 'bets_closed' ? 'BETS CLOSED'
+                  : status === 'awaiting_score' ? 'WAITING ON SCORE'
+                  : status.toUpperCase()}
+              </span>
+            );
+          })()}
           {gm.challenge_id && (
             <Link href={`/gambling/challenges/${gm.challenge_id}`} className="text-xs text-gray-400 hover:text-gray-600">
               challenge #{gm.challenge_id}

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useMe } from '@/lib/contexts/MeContext';
+import { betsClosingSoon, formatBetsCountdown } from '@/lib/betsClock';
 import { PlayerAvatar } from '@/components/PlayerAvatar';
 import type { Challenge } from '@/lib/types';
 
@@ -91,13 +92,6 @@ const EVENS: Record<string, string> = {
 };
 
 const evensLabel = (line: string) => EVENS[line] ?? `evens on ${line}`;
-
-function formatCountdown(seconds: number): string {
-  if (seconds <= 0) return 'closed';
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
-  return m > 0 ? `${m}m ${s}s` : `${s}s`;
-}
 
 export default function GamblingLobby() {
   const { me } = useMe();
@@ -240,12 +234,23 @@ export default function GamblingLobby() {
                 className="rounded-xl border border-gray-200 bg-card p-4 hover:border-primary/50 hover:shadow-md transition-all"
               >
                 <div className="flex items-center justify-between mb-2">
-                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${STATUS_BADGE[m.derived_status] ?? 'bg-gray-100'}`}>
-                    {STATUS_LABEL[m.derived_status] ?? m.derived_status}
-                  </span>
-                  {m.derived_status === 'open' && (
-                    <span className="text-xs text-gray-500">closes in {formatCountdown(m.seconds_to_close)}</span>
-                  )}
+                  {(() => {
+                    // Minutes on an open window; the last BETS_CLOSING_AFTER_S
+                    // seconds flip the badge to BETS CLOSING and the countdown to raw seconds.
+                    const closing = m.derived_status === 'open' && betsClosingSoon(m.seconds_to_close);
+                    return (
+                      <>
+                        <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${closing ? 'bg-amber-100 text-amber-800' : (STATUS_BADGE[m.derived_status] ?? 'bg-gray-100')}`}>
+                          {closing ? 'BETS CLOSING' : (STATUS_LABEL[m.derived_status] ?? m.derived_status)}
+                        </span>
+                        {m.derived_status === 'open' && (
+                          <span className={`text-xs ${closing ? 'font-medium text-amber-700' : 'text-gray-500'}`}>
+                            closes in {formatBetsCountdown(m.seconds_to_close)}
+                          </span>
+                        )}
+                      </>
+                    );
+                  })()}
                 </div>
                 <div className="flex items-center gap-2 font-semibold text-gray-900">
                   <span className="text-red-600">{m.red_player_name}</span>

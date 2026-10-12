@@ -630,6 +630,12 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_bank_sync_status ON bank_sync(status, id);
 `);
 
+// One-time secret migration: anything stored as plaintext (pre-encryption
+// bank passwords, house password, service token) is re-encrypted at rest.
+// Harmless when already encrypted. ESM import keeps db.ts free of crypto
+// imports while running the migration once this module is loaded.
+import('./crypto').then(({ migratePlaintextSecrets }) => migratePlaintextSecrets());
+
 // Migration: challenges gain a link to the gamble match opened on accept
 // (added after the table shipped, so existing DBs need the ALTER).
 try {

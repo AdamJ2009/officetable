@@ -126,6 +126,15 @@ export default function BankPage() {
 
       <h1 className="text-3xl font-bold">🏦 Your bank account</h1>
 
+      {data && data.mirror_enabled === false && (
+        <div className="rounded-lg bg-red-50 border border-red-200 text-red-800 px-4 py-3 text-sm">
+          <strong>Mock bank mode.</strong> This site is running its own local mint
+          (accounts start at an invented balance) and nothing is being moved on the
+          Alces Bookie central bank. Fine for testing — don&apos;t treat these balances
+          as real.
+        </div>
+      )}
+
       {!me && (
         <div className="rounded-lg bg-amber-50 border border-amber-200 text-amber-800 px-4 py-3 text-sm">
           Pick who you are (top right) to manage an account.

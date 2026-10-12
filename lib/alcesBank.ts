@@ -52,8 +52,8 @@ function setSecretSetting(key: string, value: string): void {
 
 export function alcesConfig(): AlcesConfig {
   // Env first (never commit secrets), settings table as encrypted fallback.
-  const serviceToken = process.env.ALCES_SERVICE_TOKEN ?? secretSetting('alces_service_token') ?? null;
-  let housePassword = process.env.ALCES_HOUSE_PASSWORD ?? secretSetting('alces_house_password') ?? null;
+  const serviceToken = envStr('ALCES_SERVICE_TOKEN') ?? secretSetting('alces_service_token') ?? null;
+  let housePassword = envStr('ALCES_HOUSE_PASSWORD') ?? secretSetting('alces_house_password') ?? null;
   if (serviceToken && !secretSetting('alces_service_token')) {
     setSecretSetting('alces_service_token', serviceToken);
   }
@@ -72,10 +72,10 @@ export function alcesConfig(): AlcesConfig {
     setSecretSetting('alces_house_password', housePassword);
   }
   return {
-    baseUrl: (process.env.ALCES_BANK_URL ?? setting('alces_bank_url') ?? DEFAULT_URL).replace(/\/$/, ''),
+    baseUrl: (envStr('ALCES_BANK_URL') ?? setting('alces_bank_url') ?? DEFAULT_URL).replace(/\/$/, ''),
     serviceToken,
-    serviceName: process.env.ALCES_SERVICE_NAME ?? setting('alces_service_name') ?? 'officetable',
-    houseUser: process.env.ALCES_HOUSE_USER ?? setting('alces_house_user') ?? 'officetablehouse',
+    serviceName: envStr('ALCES_SERVICE_NAME') ?? setting('alces_service_name') ?? 'officetable',
+    houseUser: envStr('ALCES_HOUSE_USER') ?? setting('alces_house_user') ?? 'officetablehouse',
     housePassword,
   };
 }
@@ -88,6 +88,14 @@ export function alcesMirrorEnabled(): boolean {
 const USERNAME_MIN = 4;
 const USERNAME_MAX = 25;
 const PASSWORD_MAX = 30;
+
+/** Env var → undefined when unset OR empty/whitespace. Empty-string values
+ *  must never count as configured (an empty token would "enable" the mirror
+ *  and then fail every transfer). */
+function envStr(name: string): string | undefined {
+  const value = process.env[name];
+  return value === undefined ? undefined : (value.trim() || undefined);
+}
 
 function generateHousePassword(): string {
   return `ot-${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`;
@@ -239,7 +247,21 @@ export interface TransferOpts {
   viaService?: boolean;
 }
 
-/** One central-bank transfer. Sender body creds, recipient is the path user. */
+/** One central-bank transfer. Sender body creds, recipient is the path user.
+ *
+ *  NOTE (probed, may differ bank-version to bank-version): the service
+ *  endpoint 500s when the serviceToken is wrong; a VALID token transfers
+ *  normally (204, moves money, ~2% receipt skim vs ~5% on the plain
+ *  endpoint).
+ *
+ *  There is deliberately NO fallback to the plain endpoint on service errors:
+ *  a service failure may mean "nothing moved" or "moved but the response was
+ *  lost" — automatically re-sending on the plain path would double-send in
+ *  the second case. Service-path failures instead fail the sync job, and the
+ *  drain's balance-verified retry (drainBankSync) re-sends only after
+ *  proving on the bank's balances that the first attempt never landed. If
+ *  this fires repeatedly, check ALCES_SERVICE_TOKEN and the bank's service
+ *  endpoint (invalid token = 500 on every transfer). */
 export async function transferAlces({ fromUser, fromPassword, toUser, amount, viaService }: TransferOpts): Promise<void> {
   const { serviceToken } = alcesConfig();
   const body: Record<string, unknown> = { username: fromUser, password: fromPassword, amount };
@@ -253,14 +275,5 @@ export async function transferAlces({ fromUser, fromPassword, toUser, amount, vi
     return;
   }
   body.serviceToken = serviceToken;
-  try {
-    await alcesRequest(`/transactions/service/${toUser}`, { method: 'POST', body: JSON.stringify(body) });
-  } catch (e) {
-    // PROBED on the new bank VM (10.151.0.85): its service endpoint answers
-    // 500 "undefined" and moves NO money, while the plain endpoint works and
-    // skims ~5% of the receipt instead of 2%. So on any service-path failure,
-    // do the same transfer plainly — safe (nothing executed) and keeps the
-    // economy flowing when the bank's service route misbehaves.
-    await alcesRequest(`/transactions/${toUser}`, { method: 'POST', body: JSON.stringify({ username: fromUser, password: fromPassword, amount }) });
-  }
+  await alcesRequest(`/transactions/service/${toUser}`, { method: 'POST', body: JSON.stringify(body) });
 }

@@ -16,8 +16,10 @@ import db from './db';
 const MARKER = 'enc:v1:';
 
 function keyBytes(): Buffer {
-  const secret = process.env.BANK_ENCRYPTION_KEY
-    ?? process.env.ALCES_SERVICE_TOKEN; // last resort: same secret that the bank honours
+  // Treat empty/whitespace values as unset (same rule as lib/alcesBank.ts).
+  const bankKey = (process.env.BANK_ENCRYPTION_KEY ?? '').trim();
+  const tokenKey = (process.env.ALCES_SERVICE_TOKEN ?? '').trim();
+  const secret = bankKey || tokenKey; // last resort: same secret that the bank honours
   if (secret) return crypto.createHash('sha256').update(`officetable:${secret}`).digest();
   const baseUrl = process.env.ALCES_BANK_URL ?? 'http://10.151.0.85:3000/api/v1';
   console.warn(

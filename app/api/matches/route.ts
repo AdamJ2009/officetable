@@ -8,6 +8,7 @@ import { getPunditryForMatch } from '@/lib/punditry';
 import { resolveScopeSeasonId, getCurrentSeason } from '@/lib/seasons';
 import { syncStatuses, settleGambleMatch, getGambleMatch } from '@/lib/gamble';
 import { announceSettled } from '@/lib/gambleNotifications';
+import { requirePlayerId } from '@/lib/gambleApi';
 import type { MatchWithParticipants, CreateMatchInput, MatchFilters, PaginationMeta } from '@/lib/types';
 
 export async function GET(request: NextRequest) {
@@ -206,12 +207,24 @@ export async function POST(request: NextRequest) {
     }
 
     // Gamble settle hook: a 1v1 record whose two participants match an open
-    // gamble match (either orientation) settles that gamble instead — the
-    // match is recorded once, through settleGambleMatch's own processMatch.
+    // gamble match (either orientation) settles that gamble — the match is
+    // recorded once, through settleGambleMatch's own processMatch.
+    //
+    // Trust guard: settling moves real money (player shares + the pot), so the
+    // hook only fires when the record comes from one of the two participants
+    // (pass `recorded_by` = your player id; the gamble match page does this via
+    // its own settle route). A third-party record that matches an open gamble
+    // is rejected — it must not settle the pot, and it must not double-record
+    // the match that the participants' settle will record. If no gamble
+    // matches, recording behaves exactly as before.
     syncStatuses();
     const isSolo = (t: CreateMatchInput['teams'][number]) => t.player_ids?.length === 1;
     if (teams.length === 2 && isSolo(teams[0]) && isSolo(teams[1])) {
       const [aId, bId] = [teams[0].player_ids[0], teams[1].player_ids[0]];
+      let recordedBy: number | null = null;
+      if (body.recorded_by != null) {
+        try { recordedBy = requirePlayerId(body.recorded_by); } catch { recordedBy = null; }
+      }
       const gmRow = db.prepare(`
         SELECT id, red_player_id, blue_player_id FROM gamble_matches
         WHERE status IN ('open', 'awaiting_score')
@@ -219,6 +232,16 @@ export async function POST(request: NextRequest) {
         ORDER BY id DESC
       `).get(aId, bId, bId, aId) as { id: number; red_player_id: number; blue_player_id: number } | undefined;
       if (gmRow) {
+        if (recordedBy === null || (recordedBy !== aId && recordedBy !== bId)) {
+          return NextResponse.json(
+            {
+              error: 'This result settles an open gamble — only one of the two participants may record it (from the gamble match page, or pass recorded_by)',
+              code: 'not_a_participant',
+              gamble_match_id: gmRow.id,
+            },
+            { status: 409 }
+          );
+        }
         const [redTeam, blueTeam] = teams[0].player_ids[0] === gmRow.red_player_id
           ? [teams[0], teams[1]]
           : [teams[1], teams[0]];

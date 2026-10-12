@@ -383,6 +383,16 @@ export function respondToChallenge(
   }
 
   const gambleMatchId = db.transaction((): number => {
+    // Claim first: only the first accept of a challenge may open a match —
+    // repeated/concurrent accepts (two players racing for a broadcast) must
+    // not double-debit entry fees or open two gamble matches.
+    const claim = db.prepare(`
+      UPDATE challenges SET status = 'accepted', updated_at = CURRENT_TIMESTAMP
+      WHERE id = ? AND status IN ('pending', 'countered')
+    `).run(challengeId);
+    if (claim.changes === 0) {
+      throw new GambleError('Challenge is already accepted', 'not_negotiable');
+    }
     for (const pid of playerIds) {
       bank.debitChecked(pid, fee, { type: 'challenge_fee', id: challengeId, memo: 'entry fee' });
     }

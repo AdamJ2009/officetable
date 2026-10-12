@@ -5,12 +5,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import db from '@/lib/db';
 import { kickBankSync, bankSyncBacklog, alcesMirrorEnabled } from '@/lib/bank';
-import { gambleErrorResponse, requirePlayerId } from '@/lib/gambleApi';
+import { gambleErrorResponse, requirePlayerId, requireSessionPlayer } from '@/lib/gambleApi';
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json().catch(() => ({})) as { player_id?: number | string };
-    requirePlayerId(body.player_id);
+    const playerId = requirePlayerId(body.player_id);
+    await requireSessionPlayer(playerId); // resync moves their money to the bank
     if (!alcesMirrorEnabled()) {
       return NextResponse.json({ error: 'Central bank is not configured' }, { status: 400 });
     }

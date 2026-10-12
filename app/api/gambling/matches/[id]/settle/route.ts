@@ -8,7 +8,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { revalidatePath } from 'next/cache';
 import { settleGambleMatch, getGambleMatch } from '@/lib/gamble';
 import { announceSettled } from '@/lib/gambleNotifications';
-import { gambleErrorResponse, requirePlayerId } from '@/lib/gambleApi';
+import { gambleErrorResponse, requirePlayerId, requireSessionPlayer } from '@/lib/gambleApi';
 
 export async function POST(
   request: NextRequest,
@@ -23,6 +23,7 @@ export async function POST(
 
     const body = await request.json();
     const playerId = requirePlayerId(body.player_id);
+    await requireSessionPlayer(playerId); // settling pays out the pot
     const redScore = parseInt(String(body.red_score), 10);
     const blueScore = parseInt(String(body.blue_score), 10);
 

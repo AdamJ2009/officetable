@@ -149,7 +149,7 @@ export default function NewChallengePage() {
                 ))}
               </select>
               <span className="text-xs text-gray-400">
-                You are {me?.name ?? 'unknown'} — pick who you are top right if wrong.
+                {me ? `You are ${me.name} — log out (top right) if that's wrong.` : 'Not logged in — log in (top right) to send challenges.'}
               </span>
             </label>
           )}

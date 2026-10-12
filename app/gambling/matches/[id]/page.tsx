@@ -198,8 +198,16 @@ export default function GambleMatchPage() {
           <span className="text-amber-600 font-semibold">{predicted}</span>
         </div>
         <div className="text-sm text-gray-500">
-          The players' entry pot splits 50/50 if the final score lands on{' '}
-          <span className="font-semibold text-gray-700">{evensLabel(gm.payout_line ?? 'true_even')}</span> — otherwise by score share.
+          Entries pay after a 10% house fee, split by score against{' '}
+          <span className="font-semibold text-gray-700">{evensLabel(gm.payout_line ?? 'true_even')}</span> —
+          dead level when the final score lands right on the line, otherwise your share is your score out of{' '}
+          {gm.outcome_total}.
+        </div>
+        <div className="text-xs text-gray-500 mt-1">
+          Every missed bet feeds the gambler's pot, which pays out <b>50% house / 25% to the winner / 25% by score</b> —
+          so it genuinely pays to have people bet <i>against</i> you. Everyone piling onto your exact score gives
+          terrible value; the contrarian money is what builds your pot. And the winner's 25% makes playing —
+          and winning — worth the entry on its own.
         </div>
         {gm.special_rules && (
           <div className="text-sm text-amber-700 italic mt-1">📜 Special rules: {gm.special_rules}</div>
@@ -229,7 +237,9 @@ export default function GambleMatchPage() {
               <p className="text-[11px] text-gray-400 -mt-2 mb-3">
                 ⚠️ House rule: there are two pots — the bet pool and the house bank — and total payouts are
                 capped at the two combined − 1, so the casino always keeps at least 1 moose buck. If long-odds
-                picks hit together, winnings scale down to fit.
+                picks hit together, winnings scale down to fit. Whatever's left after payouts — the losing
+                stakes — pays out 25% to the match winner and 25% by score, so backing the crowd's pick only
+                fattens the pot you're betting against.
               </p>
               <GambleOddsBoard
                 ladder={ladder}
@@ -247,7 +257,10 @@ export default function GambleMatchPage() {
                   You're playing this one — players can't bet their own match (match-fixing guard).
                 </div>
               ) : !me ? (
-                <div className="text-sm text-gray-500">Pick who you are top right to bet.</div>
+                <div className="text-sm text-gray-500">
+                  <span className="font-semibold">🔐 Log in (top right)</span> with your bank
+                  credentials to bet.
+                </div>
               ) : status === 'open' ? (
                 <div className="space-y-3">
                   <div className="text-sm text-gray-600">
@@ -310,7 +323,8 @@ export default function GambleMatchPage() {
                     Record result & settle
                   </button>
                   <p className="text-[11px] text-gray-400">
-                    Settles every bet, splits the players' entries by score (50/50 on the payout line) and pays the pot 50/25/25.
+                    Settles every bet, splits entries by score against the evens line after the 10% house fee,
+                    and divides whatever's left in the pot 50% house / 25% to the winner / 25% by score.
                   </p>
                 </div>
               )}

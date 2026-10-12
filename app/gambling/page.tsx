@@ -163,7 +163,14 @@ export default function GamblingLobby() {
           href="/gambling/bank"
           className="rounded-xl border border-gray-200 bg-card p-4 flex items-center justify-between hover:border-primary/50 hover:shadow-md transition-all"
         >
-          {data?.me?.bank_linked === false ? (
+          {!me ? (
+            /* Anonymous viewer: the card invites the login */
+            <div>
+              <div className="text-xs uppercase tracking-wide text-gray-500">My moose bucks</div>
+              <div className="text-lg font-bold text-gray-900">Log in to gamble</div>
+              <div className="text-xs text-gray-400 mt-0.5">Your bank credentials are the casino login</div>
+            </div>
+          ) : data?.me?.bank_linked === false ? (
             /* Unlinked players hold zero — the card becomes the sign-up */
             <div>
               <div className="text-xs uppercase tracking-wide text-gray-500">My moose bucks</div>
@@ -174,23 +181,23 @@ export default function GamblingLobby() {
             <div>
               <div className="text-xs uppercase tracking-wide text-gray-500">My moose bucks</div>
               <div className="text-2xl font-bold text-gray-900">
-                {data?.me ? data.me.balance.toLocaleString() : me ? '…' : '—'}
+                {data?.me ? data.me.balance.toLocaleString() : '…'}
               </div>
             </div>
           )}
           <span className="text-sm font-semibold text-primary">
-            {data?.me?.bank_linked === false ? '📝 Sign up →' : '🏦 Your bank account →'}
+            {!me ? '🔐 Log in →' : data?.me?.bank_linked === false ? '📝 Sign up →' : '🏦 Your bank account →'}
           </span>
         </Link>
-        {data?.me?.bank_linked === false ? (
-          /* Unlinked players can watch and bet-wait but not challenge */
+        {!me || data?.me?.bank_linked === false ? (
+          /* Not logged in / unlinked players can watch but not challenge */
           <div
-            title="Challenges locked, you must have a linked account to challenge"
+            title={me ? 'Challenges locked, you must have a linked account to challenge' : 'Log in to challenge'}
             className="rounded-xl border border-gray-200 bg-gray-100 p-4 flex flex-col justify-center items-center text-center select-none cursor-not-allowed opacity-60"
           >
             <span className="text-xl font-bold text-gray-400">🔒 New Challenge</span>
             <span className="text-xs uppercase tracking-wide text-gray-400 mt-1">
-              Challenges locked, you must have a linked account to challenge
+              {me ? 'Challenges locked, you must have a linked account to challenge' : 'Log in with a linked account to challenge'}
             </span>
           </div>
         ) : (
@@ -212,7 +219,7 @@ export default function GamblingLobby() {
         {data && data.live_matches.length === 0 ? (
           <p className="text-sm text-gray-500">
             No gambles running
-            {data.me?.bank_linked === false ? (
+            {(!me || data.me?.bank_linked === false) ? (
               '.'
             ) : (
               <>
@@ -254,7 +261,7 @@ export default function GamblingLobby() {
                   <div className="text-xs text-amber-700 italic mt-0.5">📜 {m.special_rules}</div>
                 )}
                 <div className="text-[11px] text-gray-400 mt-0.5">
-                  House rule: max total payout is the two pots (bet pool + house bank) minus 1 — the casino always keeps a moose buck.
+                  Entries split by score after a 10% house fee; the leftover bet pot pays 25% to the winner and 25% by score — bet against the crowd to build it. Max payout is the two pots (bet pool + house bank) minus 1.
                 </div>
                 <div className="mt-2 flex gap-2 text-xs">
                   {m.top_odds.map(o => (
@@ -272,7 +279,9 @@ export default function GamblingLobby() {
 
       {!me && (
         <div className="rounded-lg bg-amber-50 border border-amber-200 text-amber-800 px-4 py-3 text-sm">
-          Pick who you are (top right) to manage challenges, bet, and see your balance.
+          🔐 <b>Log in (top right)</b> with your bank username + password to bet and challenge, and
+          see your balance. No account yet? Register one on{' '}
+          <Link href="/gambling/bank" className="font-semibold underline hover:no-underline">the bank page</Link>.
         </div>
       )}
 

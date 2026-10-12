@@ -277,6 +277,122 @@ export default function GamblingLobby() {
         )}
       </section>
 
+      {/* Challenges on me / sent by me */}
+      {me && data?.my_challenges && data.my_challenges.length > 0 && (
+        <section>
+          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-2">Challenges</h2>
+          <div className="space-y-2">
+            {data.my_challenges.map((c) => {
+              const iSentTerms = c.terms_by === me.id;
+              const amChallenger = c.challenger_id === me.id;
+              const counterpart = amChallenger ? c.opponent_name : c.challenger_name;
+              return (
+                <div key={c.id} className="rounded-xl border border-gray-200 bg-card p-4 flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-semibold text-gray-900">
+                      {c.broadcast
+                        ? (amChallenger ? 'You broadcast a challenge (no opponent yet)' : 'Broadcast challenge')
+                        : `${amChallenger ? 'You' : counterpart} challenged ${amChallenger ? counterpart : 'you'}`} · {c.game_name}
+                    </div>
+                    <div className="text-xs text-gray-500">
+                      {c.entry_fee} moose bucks each · red:{' '}
+                      <span className="font-medium text-red-600 font-semibold">
+                        {c.red_player_id == null ? 'first to accept' : c.red_player_id === c.challenger_id ? c.challenger_name : c.opponent_name}
+                      </span>{' '}
+                      · {evensLabel(c.payout_line)} · at {new Date(c.scheduled_at.replace(' ', 'T') + 'Z').toLocaleString('en-GB', {
+                        weekday: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London',
+                      })} · {STATUS_LABEL_CHALLENGE[c.status] ?? c.status} (terms by {c.terms_by_name})
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Link
+                      href={`/gambling/challenges/${c.id}`}
+                      className="text-sm px-3 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 text-gray-700"
+                    >
+                      Details
+                    </Link>
+                    {!iSentTerms ? (
+                      <>
+                        <button
+                          disabled={busy}
+                          onClick={() => respond(c.id, 'accept')}
+                          className="text-sm font-semibold bg-green-600 text-white px-3 py-1.5 rounded-lg hover:bg-green-700 disabled:opacity-50"
+                        >
+                          Accept {c.entry_fee}
+                        </button>
+                        <button
+                          disabled={busy}
+                          onClick={() => respond(c.id, 'decline')}
+                          className="text-sm px-3 py-1.5 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-50"
+                        >
+                          Decline
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        disabled={busy}
+                        onClick={() => respond(c.id, 'cancel')}
+                        className="text-sm px-3 py-1.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-50"
+                      >
+                        Cancel terms
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
+      {/* Broadcast challenges: open to anyone */}
+      {data?.broadcast_challenges && data.broadcast_challenges.length > 0 && (
+        <section>
+          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-2">Broadcast challenges — first to accept</h2>
+          <div className="space-y-2">
+            {data.broadcast_challenges.map((c) => (
+              <div key={c.id} className="rounded-xl border border-amber-200 bg-amber-50/50 p-4 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold text-gray-900">
+                    {c.challenger_name} challenged · nobody yet (first to accept) · {c.game_name}
+                  </div>
+                  <div className="text-xs text-gray-500">
+                    {c.entry_fee} moose bucks each · {c.challenger_side === 'red' ? (
+                      <><span className="font-medium text-red-600 font-semibold">they play red</span>, you'd be blue</>
+                    ) : (
+                      <><span className="font-medium text-blue-600 font-semibold">they play blue</span>, you'd be red</>
+                    )}{' '}
+                    · {evensLabel(c.payout_line)} · at {new Date(c.scheduled_at.replace(' ', 'T') + 'Z').toLocaleString('en-GB', {
+                      weekday: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London',
+                    })}
+                  </div>
+                  {c.special_rules && (
+                    <div className="text-xs text-amber-700 italic mt-0.5">📜 {c.special_rules}</div>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <Link
+                    href={`/gambling/challenges/${c.id}`}
+                    className="text-sm px-3 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 text-gray-700"
+                  >
+                    Details
+                  </Link>
+                  {me ? (
+                    <button
+                      disabled={busy}
+                      onClick={() => respond(c.id, 'accept')}
+                      className="text-sm font-semibold bg-green-600 text-white px-3 py-1.5 rounded-lg hover:bg-green-700 disabled:opacity-50"
+                    >
+                      Accept {c.entry_fee}
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
       {!me && (
         <div className="rounded-lg bg-amber-50 border border-amber-200 text-amber-800 px-4 py-3 text-sm">
           🔐 <b>Log in (top right)</b> with your bank username + password to bet and challenge, and
@@ -473,122 +589,6 @@ export default function GamblingLobby() {
                 )}
               </tbody>
             </table>
-          </div>
-        </section>
-      )}
-
-      {/* Challenges on me / sent by me */}
-      {me && data?.my_challenges && data.my_challenges.length > 0 && (
-        <section>
-          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-2">Challenges</h2>
-          <div className="space-y-2">
-            {data.my_challenges.map((c) => {
-              const iSentTerms = c.terms_by === me.id;
-              const amChallenger = c.challenger_id === me.id;
-              const counterpart = amChallenger ? c.opponent_name : c.challenger_name;
-              return (
-                <div key={c.id} className="rounded-xl border border-gray-200 bg-card p-4 flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <div className="text-sm font-semibold text-gray-900">
-                      {c.broadcast
-                        ? (amChallenger ? 'You broadcast a challenge (no opponent yet)' : 'Broadcast challenge')
-                        : `${amChallenger ? 'You' : counterpart} challenged ${amChallenger ? counterpart : 'you'}`} · {c.game_name}
-                    </div>
-                    <div className="text-xs text-gray-500">
-                      {c.entry_fee} moose bucks each · red:{' '}
-                      <span className="font-medium text-red-600 font-semibold">
-                        {c.red_player_id == null ? 'first to accept' : c.red_player_id === c.challenger_id ? c.challenger_name : c.opponent_name}
-                      </span>{' '}
-                      · {evensLabel(c.payout_line)} · at {new Date(c.scheduled_at.replace(' ', 'T') + 'Z').toLocaleString('en-GB', {
-                        weekday: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London',
-                      })} · {STATUS_LABEL_CHALLENGE[c.status] ?? c.status} (terms by {c.terms_by_name})
-                    </div>
-                  </div>
-                  <div className="flex gap-2">
-                    <Link
-                      href={`/gambling/challenges/${c.id}`}
-                      className="text-sm px-3 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 text-gray-700"
-                    >
-                      Details
-                    </Link>
-                    {!iSentTerms ? (
-                      <>
-                        <button
-                          disabled={busy}
-                          onClick={() => respond(c.id, 'accept')}
-                          className="text-sm font-semibold bg-green-600 text-white px-3 py-1.5 rounded-lg hover:bg-green-700 disabled:opacity-50"
-                        >
-                          Accept {c.entry_fee}
-                        </button>
-                        <button
-                          disabled={busy}
-                          onClick={() => respond(c.id, 'decline')}
-                          className="text-sm px-3 py-1.5 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-50"
-                        >
-                          Decline
-                        </button>
-                      </>
-                    ) : (
-                      <button
-                        disabled={busy}
-                        onClick={() => respond(c.id, 'cancel')}
-                        className="text-sm px-3 py-1.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-50"
-                      >
-                        Cancel terms
-                      </button>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </section>
-      )}
-
-      {/* Broadcast challenges: open to anyone */}
-      {data?.broadcast_challenges && data.broadcast_challenges.length > 0 && (
-        <section>
-          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-2">Broadcast challenges — first to accept</h2>
-          <div className="space-y-2">
-            {data.broadcast_challenges.map((c) => (
-              <div key={c.id} className="rounded-xl border border-amber-200 bg-amber-50/50 p-4 flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <div className="text-sm font-semibold text-gray-900">
-                    {c.challenger_name} challenged · nobody yet (first to accept) · {c.game_name}
-                  </div>
-                  <div className="text-xs text-gray-500">
-                    {c.entry_fee} moose bucks each · {c.challenger_side === 'red' ? (
-                      <><span className="font-medium text-red-600 font-semibold">they play red</span>, you'd be blue</>
-                    ) : (
-                      <><span className="font-medium text-blue-600 font-semibold">they play blue</span>, you'd be red</>
-                    )}{' '}
-                    · {evensLabel(c.payout_line)} · at {new Date(c.scheduled_at.replace(' ', 'T') + 'Z').toLocaleString('en-GB', {
-                      weekday: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London',
-                    })}
-                  </div>
-                  {c.special_rules && (
-                    <div className="text-xs text-amber-700 italic mt-0.5">📜 {c.special_rules}</div>
-                  )}
-                </div>
-                <div className="flex gap-2">
-                  <Link
-                    href={`/gambling/challenges/${c.id}`}
-                    className="text-sm px-3 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 text-gray-700"
-                  >
-                    Details
-                  </Link>
-                  {me ? (
-                    <button
-                      disabled={busy}
-                      onClick={() => respond(c.id, 'accept')}
-                      className="text-sm font-semibold bg-green-600 text-white px-3 py-1.5 rounded-lg hover:bg-green-700 disabled:opacity-50"
-                    >
-                      Accept {c.entry_fee}
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-            ))}
           </div>
         </section>
       )}

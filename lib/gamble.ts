@@ -8,7 +8,7 @@
 
 import db from './db';
 import { processMatch } from './elo';
-import { getBank, assertBankLinked, kickBankSync, alcesMirrorEnabled } from './bank';
+import { getBank, assertBankLinked, isBankLinked, kickBankSync, kickReconcile, alcesMirrorEnabled } from './bank';
 import { computeOddsLadder } from './gambleOdds';
 import { announceBetsClosed, announceCancelled } from './gambleNotifications';
 import { normaliseStartDate, toDbDate } from './seasons';
@@ -497,6 +497,7 @@ export function respondToChallenge(
 
   // Money moved — push the entry-fee movements toward the central bank.
   kickBankSync();
+  kickReconcile(); // throttled: pull external bank changes into the projections
 
   return {
     challenge: getChallenge(challengeId)!,
@@ -642,6 +643,7 @@ export function placeBet(gambleMatchId: number, bettorId: number, redScore: numb
   // A stake is a real central-bank movement — kick the drain after commit
   // (fire-and-forget; the drain is bounded and breaker-shielded).
   kickBankSync();
+  kickReconcile(); // throttled: pull external bank changes into the projections
   return betId as number;
 }
 
@@ -902,6 +904,7 @@ export function settleGambleMatch(
   const summary = settle();
   // Payouts/fees moved — push them toward the central bank (bounded drain).
   kickBankSync();
+  kickReconcile(); // throttled: pull external bank changes into the projections
   return summary;
 }
 
@@ -933,5 +936,6 @@ export function cancelGambleMatch(gambleMatchId: number): number {
   })();
   // Refunds moved — push them toward the central bank (bounded drain).
   kickBankSync();
+  kickReconcile(); // throttled: pull external bank changes into the projections
   return refunded as number;
 }

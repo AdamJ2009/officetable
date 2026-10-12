@@ -614,20 +614,22 @@ export async function reconcileAlcesBalances(): Promise<void> {
   const update = db.prepare(`
     UPDATE bank_accounts SET balance = ?, updated_at = CURRENT_TIMESTAMP WHERE player_id = ?
   `);
-  // Downward-only snap: absorb the bank's receipt skim and any spending done
-  // outside the site, but never import bank-side money the local ledger
-  // doesn't know about. Otherwise a fresh mint (registering a bank account
-  // mints 500) could be linked, re-linked and farmed into free site funds —
-  // the bookie, not registration freebies, must control site balances.
+  // Every snap that isn't pure rounding is money that moved WITHOUT this site
+  // (a spend on another linked site). Ledger it so the projection stays
+  // reconcilable to the ledger sum and the player's history shows the
+  // movement. Downward-only (see the comment above) — bank-side money the
+  // local ledger doesn't know about is never imported here. Local-only row:
+  // never mirrored (the bank already knows about it).
+  const ledgerExternal = db.prepare(`
+    INSERT INTO bank_transactions (ref_type, player_id, amount, memo)
+    VALUES ('external_transfer', ?, ?, ?)
+  `);
   for (const row of rows) {
     const truth = balances.get(row.bank_username);
     if (truth !== undefined && truth < row.balance - 0.004) {
+      const delta = truth - row.balance;
       update.run(truth, row.player_id);
-      ledgerExternal.run(
-        row.player_id,
-        delta,
-        delta < 0 ? 'spent on another linked site' : 'received from another linked site',
-      );
+      ledgerExternal.run(row.player_id, delta, 'spent on another linked site');
     }
   }
   // The house pot includes everything players actually paid in — entry fees,

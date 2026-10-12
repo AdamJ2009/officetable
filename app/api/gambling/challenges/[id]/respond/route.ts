@@ -46,7 +46,7 @@ export async function POST(
     const result = respondToChallenge(challengeId, playerId, action, counter);
 
     if (action === 'accept' && result.gambleMatch && result.ladder) {
-      announceBetsOpen(result.gambleMatch, result.ladder).catch(err => console.error('gamble announce failed:', err));
+      announceBetsOpen(result.gambleMatch).catch(err => console.error('gamble announce failed:', err));
     }
 
     revalidatePath('/', 'layout');

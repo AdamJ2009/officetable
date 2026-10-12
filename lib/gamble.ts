@@ -106,27 +106,22 @@ export function syncStatuses(): void {
   // as the matched rows flip open → awaiting_score (this function runs on
   // every route, so only rows ACTUALLY changed here may trigger a message).
   const closing = db.prepare(`
-    SELECT gm.id, gm.scheduled_at, g.name AS game_name,
-           red.name AS red_player_name, blue.name AS blue_player_name
+    SELECT gm.id, gm.red_player_id, gm.blue_player_id, g.name AS game_name,
+           red.name AS red_player_name,
+           blue.name AS blue_player_name
     FROM gamble_matches gm
     JOIN games g ON g.id = gm.game_id
     JOIN players red ON red.id = gm.red_player_id
     JOIN players blue ON blue.id = gm.blue_player_id
     WHERE gm.status = 'open' AND gm.bet_close_at <= ?
-  `).all(nowDbDate()) as { id: number; scheduled_at: string; red_player_name: string; blue_player_name: string; game_name: string }[];
+  `).all(nowDbDate()) as { id: number; red_player_id: number; blue_player_id: number; red_player_name: string; blue_player_name: string; game_name: string }[];
   if (closing.length) {
     db.prepare(`
       UPDATE gamble_matches SET status = 'awaiting_score'
       WHERE status = 'open' AND bet_close_at <= ?
     `).run(nowDbDate());
     for (const gm of closing) {
-      announceBetsClosed({
-        id: gm.id,
-        game_name: gm.game_name,
-        red_player_name: gm.red_player_name,
-        blue_player_name: gm.blue_player_name,
-        scheduled_at: gm.scheduled_at,
-      } as GambleMatch, GAMBLE_RULES.resultDeadlineMinutes).catch(() => {});
+      announceBetsClosed(gm as unknown as GambleMatch).catch(() => {});
       console.log(`gamble match ${gm.id}: bets closed — awaiting score`);
     }
   }

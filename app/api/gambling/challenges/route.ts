@@ -89,7 +89,7 @@ export async function POST(request: NextRequest) {
         total: game.score_value,
       });
     }
-    announceChallengeIssued(challenge, ladder ?? undefined).catch(err => console.error('gamble announce failed:', err));
+    announceChallengeIssued(challenge).catch(err => console.error('gamble announce failed:', err));
 
     revalidatePath('/', 'layout');
     return NextResponse.json(

@@ -253,7 +253,7 @@ export async function linkBankAccount(
       balance = excluded.balance, bank_username = excluded.bank_username,
       bank_password = excluded.bank_password, bank_linked_at = excluded.bank_linked_at,
       updated_at = CURRENT_TIMESTAMP
-  `).run(playerId, balance, username, password);
+  `).run(playerId, balance, username, encryptSecret(password));
   return { balance };
 }
 
@@ -352,10 +352,15 @@ export async function drainBankSync(): Promise<void> {
           if (!tx || !account?.bank_username || !account.bank_password) {
             throw new BankError('Player bank account unregistered', 'bank_not_linked');
           }
+          // Credentials are encrypted at rest (lib/crypto.ts).
+          const fromPassword = decryptSecret(account.bank_password);
+          if (!fromPassword) {
+            throw new BankError('Player bank credentials cannot be decrypted', 'bank_not_linked');
+          }
           if (tx.amount < 0) {
             // Debit: player pays the exact ledgered amount to the house.
             await transferAlces({
-              fromUser: account.bank_username, fromPassword: account.bank_password,
+              fromUser: account.bank_username, fromPassword,
               toUser: houseUser, amount: -tx.amount, viaService: true,
             });
           } else {

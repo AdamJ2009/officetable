@@ -16,6 +16,7 @@
 //    duplicate user → 409 CONFLICTING_RESOURCE, missing user → 404 NOT_FOUND.
 
 import db from './db';
+import { decryptSecret, encryptSecret } from './crypto';
 
 const DEFAULT_URL = 'http://10.151.0.85:3000/api/v1';
 
@@ -40,30 +41,35 @@ function setting(key: string): string | undefined {
   return row?.value || undefined;
 }
 
+/** Secrets stored in the settings table are encrypted at rest (see lib/crypto.ts). */
+function secretSetting(key: string): string | undefined {
+  return decryptSecret(setting(key)) ?? undefined;
+}
+
+function setSecretSetting(key: string, value: string): void {
+  db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)`).run(key, encryptSecret(value));
+}
+
 export function alcesConfig(): AlcesConfig {
-  // Env first (never commit secrets), settings table as fallback persistence.
-  const serviceToken = process.env.ALCES_SERVICE_TOKEN ?? setting('alces_service_token') ?? null;
-  let housePassword = process.env.ALCES_HOUSE_PASSWORD ?? setting('alces_house_password') ?? null;
-  if (serviceToken && !setting('alces_service_token')) {
-    db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES ('alces_service_token', ?)`)
-      .run(serviceToken);
+  // Env first (never commit secrets), settings table as encrypted fallback.
+  const serviceToken = process.env.ALCES_SERVICE_TOKEN ?? secretSetting('alces_service_token') ?? null;
+  let housePassword = process.env.ALCES_HOUSE_PASSWORD ?? secretSetting('alces_house_password') ?? null;
+  if (serviceToken && !secretSetting('alces_service_token')) {
+    setSecretSetting('alces_service_token', serviceToken);
   }
-  const PASSWORD_MAX = 30;
   if (!housePassword && serviceToken) {
     // The house is the site's own bank user; its password is generated once
-    // and kept in settings — it must never change under the ledger.
-    housePassword = `ot-${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`;
-    db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES ('alces_house_password', ?)`)
-      .run(housePassword);
+    // and kept (encrypted) in settings — it must never change under the ledger.
+    housePassword = generateHousePassword();
+    setSecretSetting('alces_house_password', housePassword);
   }
   // The bank caps passwords at 30 chars; an older generation scheme stored a
   // 35-char one that the bank can never accept (register always 400s). The
   // house user is minted by whatever registration finally succeeds, so a
   // regenerate-once here is safe.
   if (housePassword && housePassword.length > PASSWORD_MAX) {
-    housePassword = `ot-${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`;
-    db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES ('alces_house_password', ?)`)
-      .run(housePassword);
+    housePassword = generateHousePassword();
+    setSecretSetting('alces_house_password', housePassword);
   }
   return {
     baseUrl: (process.env.ALCES_BANK_URL ?? setting('alces_bank_url') ?? DEFAULT_URL).replace(/\/$/, ''),
@@ -81,6 +87,11 @@ export function alcesMirrorEnabled(): boolean {
 
 const USERNAME_MIN = 4;
 const USERNAME_MAX = 25;
+const PASSWORD_MAX = 30;
+
+function generateHousePassword(): string {
+  return `ot-${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`;
+}
 
 /** Suggested bank username for a player: their name flattened ("Adam B" → "AdamB"). */
 export function suggestBankUsername(name: string, playerId: number): string {

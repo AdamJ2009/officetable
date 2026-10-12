@@ -2,10 +2,11 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { MoneyChart } from '@/components/MoneyChart';
 
 // Gambling section on a player profile — the same tracking as the gambling
-// leaderboard, per person: stat cards, every gamble they've played, every
-// bet they've placed.
+// leaderboard, per person: stat cards, net-over-time line, every gamble
+// they've played, every bet they've placed.
 
 interface Summary {
   balance: number;
@@ -57,6 +58,7 @@ const fmtDate = (dbStr: string) =>
 
 export function GamblingSection({ playerId }: { playerId: number }) {
   const [summary, setSummary] = useState<Summary | null>(null);
+  const [netHistory, setNetHistory] = useState<{ gamble: number | null; date: string | null; net: number }[]>([]);
   const [gambles, setGambles] = useState<PlayerGamble[]>([]);
   const [bets, setBets] = useState<PlayerBet[]>([]);
   const [loading, setLoading] = useState(true);
@@ -68,8 +70,9 @@ export function GamblingSection({ playerId }: { playerId: number }) {
         if (!res.ok) throw new Error('Failed to load gambling record');
         return res.json();
       })
-      .then((d: { summary: Summary; gambles: PlayerGamble[]; bets: PlayerBet[] }) => {
+      .then((d: { summary: Summary; net_history?: { gamble: number | null; date: string | null; net: number }[]; gambles: PlayerGamble[]; bets: PlayerBet[] }) => {
         setSummary(d.summary);
+        setNetHistory(d.net_history ?? []);
         setGambles(d.gambles ?? []);
         setBets(d.bets ?? []);
       })
@@ -138,6 +141,17 @@ export function GamblingSection({ playerId }: { playerId: number }) {
                   </div>
                 </div>
               </div>
+
+              {/* Net over time — one point per official gamble, same form as the Skill History chart */}
+              {netHistory.length > 0 && (
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-lg">📈</span>
+                    <span className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Net over time</span>
+                  </div>
+                  <MoneyChart points={netHistory} gradientId="playerNetGradient" />
+                </div>
+              )}
 
               {/* Gambles they've played */}
               <div>

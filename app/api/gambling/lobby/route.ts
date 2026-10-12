@@ -52,6 +52,17 @@ export async function GET(request: NextRequest) {
       ORDER BY c.id DESC LIMIT 10`)
       .all(...(Number.isInteger(playerId) ? [playerId] : [])) as Challenge[];
 
+    // Public callouts: a DIRECT (non-broadcast) challenge that's still open is
+    // visible to everyone — that's the callout. Only the named opponent can
+    // accept (respond enforces it), so viewers here get the taunt, not buttons.
+    // Challenges involving the viewer are already in my_challenges.
+    const callouts = db.prepare(`${CHALLENGE_SQL}
+      WHERE c.broadcast = 0 AND c.status IN ('pending', 'countered')
+        AND c.opponent_id IS NOT NULL
+        ${Number.isInteger(playerId) ? 'AND c.challenger_id != ? AND c.opponent_id != ?' : ''}
+      ORDER BY c.id DESC LIMIT 10`)
+      .all(...(Number.isInteger(playerId) ? [playerId, playerId] : [])) as Challenge[];
+
     // Live gamble matches (bets open / closed-awaiting-score)
     let liveRows = db.prepare(
       `${MATCH_SQL} WHERE gm.status IN ('open', 'awaiting_score')
@@ -87,6 +98,7 @@ export async function GET(request: NextRequest) {
       house_balance: bank.getHouseBalance(),
       my_challenges: myChallenges,
       broadcast_challenges: broadcasts,
+      callouts,
       live_matches: live,
       settled_matches: settledRows.map(row => ({
         id: row.id,

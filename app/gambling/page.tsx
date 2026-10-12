@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { useMe } from '@/lib/contexts/MeContext';
 import { betsClosingSoon, formatBetsCountdown } from '@/lib/betsClock';
 import { PlayerAvatar } from '@/components/PlayerAvatar';
+import { MoneyChart } from '@/components/MoneyChart';
 import type { Challenge } from '@/lib/types';
 
 interface ChallengeWithNames extends Challenge {
@@ -32,6 +33,7 @@ interface GamblerStanding {
 interface Standings {
   house_balance: number;
   house_net: number;
+  house_history?: { gamble: number | null; date: string | null; net: number }[];
   players: GamblerStanding[];
 }
 
@@ -40,6 +42,7 @@ interface LobbyData {
   house_balance: number;
   my_challenges: ChallengeWithNames[];
   broadcast_challenges: ChallengeWithNames[];
+  callouts: ChallengeWithNames[];
   live_matches: {
     id: number;
     game_name?: string;
@@ -100,6 +103,9 @@ export default function GamblingLobby() {
   const [standings, setStandings] = useState<Standings | null>(null);
   const [showRetired, setShowRetired] = useState(false);
   const [showInactive, setShowInactive] = useState(false);
+  // Selecting the casino's account (clicking the House Pot / Casino P&L card)
+  // reveals the house's running P&L line.
+  const [showCasinoChart, setShowCasinoChart] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -398,6 +404,48 @@ export default function GamblingLobby() {
         </section>
       )}
 
+      {/* Public callouts: direct challenges left unanswered are the point of
+          a callout — visible to everyone. Only the named opponent can accept
+          (they get the buttons in the Challenges section above). */}
+      {data?.callouts && data.callouts.length > 0 && (
+        <section>
+          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-2">Callouts — publicly challenged</h2>
+          <div className="space-y-2">
+            {data.callouts.map((c) => (
+              <div key={c.id} className="rounded-xl border border-red-100 bg-red-50/50 p-4 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold text-gray-900">
+                    <span className="text-red-600">📣 {c.challenger_name}</span> called out{' '}
+                    <span className="font-bold">{c.opponent_name}</span> · {c.game_name}
+                  </div>
+                  <div className="text-xs text-gray-500">
+                    {c.entry_fee} moose bucks each · {c.challenger_side === 'red' ? (
+                      <><span className="font-medium text-red-600 font-semibold">they play red</span>, {c.opponent_name} would be blue</>
+                    ) : (
+                      <><span className="font-medium text-blue-600 font-semibold">they play blue</span>, {c.opponent_name} would be red</>
+                    )}{' '}
+                    · {evensLabel(c.payout_line)} · at {new Date(c.scheduled_at.replace(' ', 'T') + 'Z').toLocaleString('en-GB', {
+                      weekday: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London',
+                    })} · {STATUS_LABEL_CHALLENGE[c.status] ?? c.status}
+                  </div>
+                  {c.special_rules && (
+                    <div className="text-xs text-amber-700 italic mt-0.5">📜 {c.special_rules}</div>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <Link
+                    href={`/gambling/challenges/${c.id}`}
+                    className="text-sm px-3 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 text-gray-700"
+                  >
+                    Details
+                  </Link>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
       {!me && (
         <div className="rounded-lg bg-amber-50 border border-amber-200 text-amber-800 px-4 py-3 text-sm">
           🔐 <b>Log in (top right)</b> with your bank username + password to bet and challenge, and
@@ -424,16 +472,30 @@ export default function GamblingLobby() {
 
           {/* Stat cards, office style */}
           <div className="mb-8 grid grid-cols-2 sm:grid-cols-4 gap-4">
-            <div className="bg-gradient-to-br from-slate-800 to-slate-900 rounded-xl p-5 text-white shadow-lg">
+            <button
+              type="button"
+              onClick={() => setShowCasinoChart(s => !s)}
+              title="Click to see the casino's P&L over time"
+              aria-pressed={showCasinoChart}
+              className={`bg-gradient-to-br from-slate-800 to-slate-900 rounded-xl p-5 text-white shadow-lg w-full text-left transition-all hover:brightness-110 cursor-pointer ${
+                showCasinoChart ? 'ring-2 ring-amber-400' : ''
+              }`}
+            >
               <div className="flex items-center gap-2 mb-2">
                 <span className="text-2xl">🏦</span>
                 <span className="text-sm font-medium text-slate-200 uppercase tracking-wide">House Pot</span>
               </div>
               <div className="text-3xl font-bold">{standings.house_balance.toLocaleString()}</div>
-            </div>
-            <div className={`rounded-xl p-5 text-white shadow-lg bg-gradient-to-br ${
-              standings.house_net >= 0 ? 'from-emerald-600 to-emerald-700' : 'from-rose-600 to-red-700'
-            }`}>
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowCasinoChart(s => !s)}
+              title="Click to see the casino's P&L over time"
+              aria-pressed={showCasinoChart}
+              className={`rounded-xl p-5 text-white shadow-lg w-full text-left bg-gradient-to-br transition-all hover:brightness-110 cursor-pointer ${
+                standings.house_net >= 0 ? 'from-emerald-600 to-emerald-700' : 'from-rose-600 to-red-700'
+              } ${showCasinoChart ? 'ring-2 ring-amber-400' : ''}`}
+            >
               <div className="flex items-center gap-2 mb-2">
                 <span className="text-2xl">🎩</span>
                 <span className="text-sm font-medium text-white/80 uppercase tracking-wide">Casino P&amp;L</span>
@@ -441,7 +503,7 @@ export default function GamblingLobby() {
               <div className="text-3xl font-bold">
                 {standings.house_net >= 0 ? '+' : ''}{standings.house_net.toLocaleString()}
               </div>
-            </div>
+            </button>
             <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl p-5 text-white shadow-lg">
               <div className="flex items-center gap-2 mb-2">
                 <span className="text-2xl">🪙</span>
@@ -465,6 +527,25 @@ export default function GamblingLobby() {
               <div className="text-xs text-white/80 mt-1">open including broadcasts</div>
             </div>
           </div>
+
+          {/* Selecting the casino's account (House Pot / Casino P&L card click)
+              reveals its running ledger line right under the cards */}
+          {showCasinoChart && (
+            <div className="mb-8 bg-card rounded-xl border border-gray-100 px-6 py-4">
+              <div className="flex items-center gap-2 mb-4">
+                <span className="text-lg">📈</span>
+                <span className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Casino P&amp;L over time</span>
+                <span className="text-xs text-gray-400">— one point per official gamble, from a net of 0</span>
+              </div>
+              {standings.house_history && standings.house_history.length > 0 ? (
+                <MoneyChart points={standings.house_history} gradientId="houseNetGradient" />
+              ) : (
+                <p className="text-sm text-gray-500">
+                  No official gambles yet — the line starts with the first one.
+                </p>
+              )}
+            </div>
+          )}
 
           {/* Retired / inactive toggles, same as the office leaderboards */}
           <div className="mb-4 flex flex-wrap gap-4">

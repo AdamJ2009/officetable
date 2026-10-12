@@ -6,7 +6,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import db from '@/lib/db';
-import { getBank, seedBalance, alcesMirrorEnabled } from '@/lib/bank';
+import { getBank, seedBalance, alcesMirrorEnabled, netHistory } from '@/lib/bank';
 import { gambleErrorResponse } from '@/lib/gambleApi';
 
 interface GamblerRow {
@@ -100,6 +100,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       house_balance: bank.getHouseBalance(),
       house_net: house.net,
+      house_history: netHistory(null),
       players: Number.isInteger(limitRaw)
         ? rows.slice(0, limitRaw)
         : rows,

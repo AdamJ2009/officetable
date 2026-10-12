@@ -19,7 +19,8 @@ import {
   validateBankPassword,
   resetAlcesBreaker,
 } from '@/lib/alcesBank';
-import { gambleErrorResponse, requirePlayerId } from '@/lib/gambleApi';
+import { gambleErrorResponse, requirePlayerId, requireSessionPlayer } from '@/lib/gambleApi';
+import { applySessionCookie } from '@/lib/session';
 
 export async function POST(request: NextRequest) {
   try {
@@ -42,6 +43,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: usernameError ?? passwordError }, { status: 400 });
     }
 
+    // Knowing the bank username + password IS the authorisation here (the same
+    // credential proof our login uses) — so linking/connecting is allowed while
+    // logged out, including re-linking an already-linked profile. Unlink
+    // (DELETE) still needs the owner's session; a successful link logs the
+    // browser in as this profile.
+
     // One bank account belongs to one site player
     const taken = db.prepare(`
       SELECT player_id FROM bank_accounts WHERE bank_username = ? AND player_id != ?
@@ -63,7 +70,10 @@ export async function POST(request: NextRequest) {
       resetAlcesBreaker();
       const { balance } = await linkBankAccount(playerId, action, username, password);
       kickBankSync();
-      return NextResponse.json({ player_id: playerId, bank_username: username, balance });
+      // Auto-login: the creds just registered on the bank ARE the site login.
+      const res = NextResponse.json({ player_id: playerId, bank_username: username, balance });
+      applySessionCookie(res, playerId);
+      return res;
     } catch (e) {
       // Map EVERY bank failure to a readable message — including the ones
       // surfacing from lib/bank's own wrappers. Duck-type the code so no
@@ -93,6 +103,7 @@ export async function DELETE(request: NextRequest) {
   try {
     const body = await request.json().catch(() => ({})) as { player_id?: number | string };
     const playerId = requirePlayerId(body.player_id);
+    await requireSessionPlayer(playerId); // disconnecting needs the owner's session
     unlinkBankAccount(playerId);
     return NextResponse.json({ player_id: playerId, bank_username: null });
   } catch (error) {

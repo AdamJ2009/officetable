@@ -8,7 +8,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { revalidatePath } from 'next/cache';
 import { respondToChallenge, type ChallengeTermsInput } from '@/lib/gamble';
 import { announceBetsOpen } from '@/lib/gambleNotifications';
-import { gambleErrorResponse, requirePlayerId } from '@/lib/gambleApi';
+import { gambleErrorResponse, requirePlayerId, requireSessionPlayer } from '@/lib/gambleApi';
 
 export async function POST(
   request: NextRequest,
@@ -23,6 +23,7 @@ export async function POST(
 
     const body = await request.json();
     const playerId = requirePlayerId(body.player_id);
+    await requireSessionPlayer(playerId); // responding moves money on accept
     const action = body.action;
     if (action !== 'accept' && action !== 'decline' && action !== 'cancel' && action !== 'counter') {
       return NextResponse.json({ error: 'action must be accept, decline, cancel or counter' }, { status: 400 });

@@ -213,8 +213,6 @@ async function main() {
   assert(getBets(gmD.id).every(b => b.status === 'refunded'), 'cancelled bets marked refunded');
 
   // ============ challenge F: broadcast + custom payout line ================
-  // (runs before the longshot case E — E deliberately leaves the house pot
-  // nearly dry, which would cap F's payouts and flip its pot negative)
   const c6 = createChallenge(gameId, blueId, null, {
     entryFee: fee, scheduledAt: localIn(FUTURE), side: 'blue',
     payoutLine: '7-3', specialRules: 'smoke: no jumpers, loser wipes the table',
@@ -253,28 +251,27 @@ async function main() {
   assert(sumF.pot.positive && sumF.pot.winnerPlayerId === gmF.red_player_id && sumF.pot.winnerShare > 0,
     'pot winner quarter still follows the actual winner on a custom line');
 
-  // ============ casino exposure guard: pre-block + full-pay longshot ========
+  // ============ casino cap: oversized bets refused at placement ============
+  // No single pick may pay more than the house bank pot (floor 100) — the
+  // place-time guard refuses it, so the settle cap is a never-expected backstop.
   const scheduledE = localIn(FUTURE);
   const c5 = createChallenge(gameId, redId, blueId, { entryFee: fee, scheduledAt: scheduledE, side: 'red' });
   const gmE = respondToChallenge(c5, blueId, 'accept').gambleMatch!;
-  // placeBet pre-blocks any stake that could ever out-win the casino's pot —
-  // the settle-time two-pot cap is a backstop for stakes placed before the
-  // house shrank, not a reachable settle path. Test the guard itself:
+  const odds100E = gmE.odds!.outcomes.find(o => o.redScore === 10 && o.blueScore === 0)!.decimalOdds;
   const houseBeforeE = bank.getHouseBalance();
-  const odds100E = gmE.odds!.outcomes.find(o => o.redScore === 10)!.decimalOdds;
-  const maxStakeE = Math.floor((houseBeforeE - 1) / odds100E); // top-price stake fitting the pot
-  assertThrows('over-pot stake pre-blocked (bet_exceeds_pot)',
-    () => placeBet(gmE.id, g1, 10, 0, maxStakeE + 5), 'bet_exceeds_pot');
-  const longStakeE = Math.floor(maxStakeE / 2); // under the cap but big enough to matter
-  placeBet(gmE.id, g1, 10, 0, longStakeE); // longest price on the board
+  const housePotE = Math.max(houseBeforeE, 100); // BASE_POT_MINIMUM
+  const maxStakeE = Math.floor((housePotE - 1) / odds100E);
+  assertThrows('bet paying above the bank pot refused (bet_exceeds_pot)',
+    () => placeBet(gmE.id, g1, 10, 0, maxStakeE + 1), 'bet_exceeds_pot');
+  placeBet(gmE.id, g1, 10, 0, maxStakeE); // the biggest payable stake
   fastForward(gmE.id);
   const sumE = settleGambleMatch(gmE.id, [
     { team: 0, player_ids: [gmE.red_player_id], score: 10 },
     { team: 1, player_ids: [gmE.blue_player_id], score: 0 },
   ]);
-  assert(!sumE.returnsCapped, 'under-cap longshot pays in full (no settle-side capping needed)');
-  assert(sumE.returns === longStakeE * odds100E, `longshot paid at frozen price (stake ${longStakeE} × odds ${odds100E})`);
-  assert(sumE.payoutCap >= sumE.returns, "cap reported in the summary");
+  assert(!sumE.returnsCapped && sumE.returns === Math.floor(maxStakeE * odds100E),
+    `biggest payable bet pays stake × odds (${maxStakeE} @ ${odds100E})`);
+  assert(sumE.returns <= sumE.payoutCap, 'settle-backstop cap still respected');
   assert(bank.getHouseBalance() >= 1, `house pot never drains below 1 (now ${bank.getHouseBalance()})`);
 
   // ============ challenge G: expiry 5 minutes before the start =============
@@ -290,7 +287,12 @@ async function main() {
   // ============ challenge H: auto-cancel when results are 15 min late ======
   const c8 = createChallenge(gameId, blueId, redId, { entryFee: fee, scheduledAt: localIn(FUTURE), side: 'blue' });
   const gmH = respondToChallenge(c8, redId, 'accept').gambleMatch!;
-  placeBet(gmH.id, g1, 3, 7, 20);
+  // The house pot is small by now (E paid out its winner) — stake the most
+  // the pot will pay on 3-7.
+  const odds37H = gmH.odds!.outcomes.find(o => o.redScore === 3 && o.blueScore === 7)!.decimalOdds;
+  const stakeH = Math.max(GAMBLE_RULES.minStake,
+    Math.floor((Math.max(bank.getHouseBalance(), 100) - 1) / odds37H));
+  placeBet(gmH.id, g1, 3, 7, stakeH);
   const preRedH = bank.getBalance(redId);
   const preBlueH = bank.getBalance(blueId);
   const preG1H = bank.getBalance(g1);
@@ -304,7 +306,7 @@ async function main() {
   assert(getChallenge(c8)!.status === 'cancelled', 'auto-cancel closes the challenge');
   assert(bank.getBalance(redId) === preRedH + fee && bank.getBalance(blueId) === preBlueH + fee,
     'auto-cancel: both entry fees refunded');
-  assert(bank.getBalance(g1) === preG1H + 20, 'auto-cancel refunds open stakes');
+  assert(bank.getBalance(g1) === preG1H + stakeH, 'auto-cancel refunds open stakes');
 
   // ============ conservation across everything =============================
   const conservation = ids.reduce((s, id) => s + bank.getBalance(id), 0) + bank.getHouseBalance();
@@ -313,7 +315,7 @@ async function main() {
   console.log('challenge A pot:', JSON.stringify(summary.pot));
   console.log('challenge B pot:', JSON.stringify(sumB.pot));
   console.log('challenge C pot:', JSON.stringify(sumC.pot));
-  console.log('challenge E (longshot): returns', sumE.returns, 'cap', sumE.payoutCap, 'pot', JSON.stringify(sumE.pot));
+  console.log('challenge E (pot-capped stake): returns', sumE.returns, 'cap', sumE.payoutCap, 'pot', JSON.stringify(sumE.pot));
   console.log('challenge F (broadcast 7-3 line): returns', sumF.returns, 'pot', JSON.stringify(sumF.pot));
 }
 

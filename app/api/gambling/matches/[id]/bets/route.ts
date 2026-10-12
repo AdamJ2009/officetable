@@ -6,7 +6,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { revalidatePath } from 'next/cache';
 import { placeBet } from '@/lib/gamble';
 import { getBank } from '@/lib/bank';
-import { gambleErrorResponse, requirePlayerId } from '@/lib/gambleApi';
+import { gambleErrorResponse, requirePlayerId, requireSessionPlayer } from '@/lib/gambleApi';
 
 export async function POST(
   request: NextRequest,
@@ -21,6 +21,7 @@ export async function POST(
 
     const body = await request.json();
     const bettorId = requirePlayerId(body.player_id);
+    await requireSessionPlayer(bettorId); // no betting in someone else's name
     const redScore = parseInt(String(body.red_score), 10);
     const blueScore = parseInt(String(body.blue_score), 10);
     const stake = parseInt(String(body.stake), 10);

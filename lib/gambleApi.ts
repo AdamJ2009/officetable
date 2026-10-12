@@ -1,10 +1,12 @@
-// Shared helpers for the gambling API routes: error → HTTP status mapping
-// and the standard validation of the explicit actor (player_id) body field.
+// Shared helpers for the gambling API routes: error → HTTP status mapping,
+// the standard validation of the explicit actor (player_id) body field, and
+// the session gate for money actions.
 
 import { NextResponse } from 'next/server';
 import db from '@/lib/db';
 import { GambleError } from '@/lib/gamble';
 import { BankError } from '@/lib/bank';
+import { readSessionPlayer } from './session';
 
 const STATUS_BY_CODE: Record<string, number> = {
   not_found: 404,
@@ -50,15 +52,34 @@ export function gambleErrorResponse(error: unknown): NextResponse {
   return NextResponse.json({ error: 'Gambling operation failed' }, { status: 500 });
 }
 
-/** Validated actor id from a body field (no auth in this app — explicit identity). */
+/** Validated actor id from a body field. The actor must still be the logged-in
+ *  session player for money actions — see requireSessionPlayer. */
 export function requirePlayerId(value: unknown): number {
   const id = typeof value === 'number' ? value : parseInt(String(value ?? ''), 10);
   if (!Number.isInteger(id)) {
-    throw new GambleError('player_id is required (this app has no login — pick who you are)', 'bad_actor');
+    throw new GambleError('player_id is required — log in (top right) to act as a player', 'bad_actor');
   }
   const row = db.prepare(`SELECT id FROM players WHERE id = ?`).get(id) as { id: number } | undefined;
   if (!row) throw new GambleError('Unknown player', 'unknown_player');
   return id;
+}
+
+/** Session gate for every money action: the actor must be logged in and BE
+ *  the session player. A free identity pick is no longer an identity. */
+export async function requireSessionPlayer(actorId: number): Promise<void> {
+  const sessionPlayerId = await readSessionPlayer();
+  if (sessionPlayerId === null) {
+    throw new GambleError(
+      'You must be logged in as this player to do that — log in with your bank username and password (top right)',
+      'not_logged_in',
+    );
+  }
+  if (sessionPlayerId !== actorId) {
+    throw new GambleError(
+      'You are logged in as a different player — you can\'t act in someone else\'s name',
+      'forbidden',
+    );
+  }
 }
 
 STATUS_BY_CODE['bets_still_open'] = 409;
@@ -67,3 +88,5 @@ STATUS_BY_CODE['challenge_expired'] = 409;
 STATUS_BY_CODE['counter_not_allowed'] = 409;
 STATUS_BY_CODE['bank_not_linked'] = 403;
 STATUS_BY_CODE['bet_exceeds_pot'] = 409;
+STATUS_BY_CODE['not_logged_in'] = 403;
+STATUS_BY_CODE['forbidden'] = 403;

@@ -3,60 +3,78 @@
 import { createContext, useContext, useEffect, useState, useCallback, ReactNode } from 'react';
 import type { Player } from '../types';
 
-// Gambling identity — this app has no login, so the gambler is whoever the
-// user picks here (persisted per-browser in localStorage). All money rules
-// are enforced server-side, so this only scopes what the UI shows.
+// Gambling identity IS the server session: an httpOnly cookie set by
+// /api/gambling/auth, logged in with the player's linked bank username +
+// password. Anonymous visitors view the casino read-only; all money rules
+// are enforced server-side (routes require the session to match the actor).
 
 interface MeContextType {
   me: Player | null;
-  setMe: (player: Player | null) => void;
   players: Player[];
   isLoading: boolean;
+  login: (username: string, password: string) => Promise<{ ok: boolean; error?: string }>;
+  logout: () => Promise<void>;
+  refresh: () => Promise<void>;
 }
 
 const MeContext = createContext<MeContextType | null>(null);
-
-const STORAGE_KEY = 'gamblingPlayerId';
 
 export function MeProvider({ children }: { children: ReactNode }) {
   const [players, setPlayers] = useState<Player[]>([]);
   const [me, setMeState] = useState<Player | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    async function load() {
-      try {
-        const res = await fetch('/api/players');
-        if (res.ok) {
-          const list = (await res.json()) as Player[];
-          setPlayers(list);
-
-          const stored = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEY) : null;
-          if (stored) {
-            const id = parseInt(stored, 10);
-            const found = list.find(p => p.id === id);
-            if (found) setMeState(found);
-          }
-        }
-      } catch (error) {
-        console.error('Failed to load players for identity:', error);
-      } finally {
-        setIsLoading(false);
+  const refresh = useCallback(async () => {
+    try {
+      // Players always; the identity is the server session's answer.
+      const [playersRes, authRes] = await Promise.all([
+        fetch('/api/players'),
+        fetch('/api/gambling/auth'),
+      ]);
+      const list: Player[] = playersRes.ok ? ((await playersRes.json()) as Player[]) : [];
+      setPlayers(list);
+      if (authRes.ok) {
+        const body = (await authRes.json()) as { player: { id: number; name: string } | null };
+        setMeState(body.player ? (list.find(p => p.id === body.player!.id) ?? (body.player as unknown as Player)) : null);
       }
+    } catch (error) {
+      console.error('Failed to load session identity:', error);
+    } finally {
+      setIsLoading(false);
     }
-    load();
   }, []);
 
-  const setMe = useCallback((player: Player | null) => {
-    setMeState(player);
-    if (typeof window !== 'undefined') {
-      if (player) localStorage.setItem(STORAGE_KEY, String(player.id));
-      else localStorage.removeItem(STORAGE_KEY);
+  // Clear the legacy free-picker key: identity is the session now, full stop.
+  useEffect(() => {
+    try { localStorage.removeItem('gamblingPlayerId'); } catch { /* private mode */ }
+  }, []);
+
+  useEffect(() => { void refresh(); }, []); // initial load
+
+  const login = useCallback(async (username: string, password: string) => {
+    try {
+      const res = await fetch('/api/gambling/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password }),
+      });
+      const body = await res.json().catch(() => ({})) as { error?: string };
+      if (!res.ok) return { ok: false, error: body.error ?? 'Login failed' };
+      await refresh();
+      return { ok: true };
+    } catch {
+      return { ok: false, error: 'Login failed — try again' };
+    }
+  }, [refresh]);
+
+  const logout = useCallback(async () => {
+    try { await fetch('/api/gambling/auth', { method: 'DELETE' }); } finally {
+      setMeState(null);
     }
   }, []);
 
   return (
-    <MeContext.Provider value={{ me, setMe, players, isLoading }}>
+    <MeContext.Provider value={{ me, players, isLoading, login, logout, refresh }}>
       {children}
     </MeContext.Provider>
   );

@@ -507,6 +507,68 @@ export function kickBankSync(): void {
 }
 
 /**
+ * Net-over-time per OFFICIAL gamble — one that ran to settlement. Cancelled
+ * gambles never count (their ledger washes to zero: fees and stakes refunded,
+ * the house fee only exists at settlement) and never advance the numbering:
+ * the first official gamble is gamble 1. A gamble's entry fees, stakes,
+ * payouts, house cut and refunds all fold into its single net delta — no
+ * jitter per individual pay. The series is prefixed with an arbitrary zero
+ * point so the line visibly sets out from a net of 0.
+ *
+ * challenge_fee rows are tagged with the CHALLENGE id, so they map to their
+ * gamble through gamble_matches.challenge_id before grouping. playerId null
+ * = the house's own rows (its fees, cuts and covered losses).
+ */
+export function netHistory(playerId: number | null): { gamble: number | null; date: string | null; net: number }[] {
+  const rows = (db.prepare(`
+    SELECT bt.id, bt.amount, bt.created_at,
+      CASE WHEN bt.ref_type = 'challenge_fee'
+        THEN (SELECT gm.id FROM gamble_matches gm WHERE gm.challenge_id = bt.ref_id ORDER BY gm.id DESC LIMIT 1)
+        ELSE bt.ref_id
+      END as gamble_id
+    FROM bank_transactions bt
+    WHERE bt.player_id ${playerId === null ? 'IS NULL' : '= ?'}
+      AND bt.ref_type NOT IN ('topup', 'seed')
+    ORDER BY bt.id
+  `).all(...(playerId === null ? [] : [playerId])) as unknown) as {
+    id: number; amount: number; created_at: string; gamble_id: number | null;
+  }[];
+
+  // Only settled gambles are official — the numbering counts them alone.
+  const official = new Set(
+    (db.prepare(`SELECT id FROM gamble_matches WHERE status = 'settled'`).all() as { id: number }[])
+      .map(r => r.id)
+  );
+
+  // First-movement order is chronological (rows themselves ordered by id)
+  const order: number[] = [];
+  const groups = new Map<number, { amount: number; date: string }>();
+  for (const row of rows) {
+    if (row.gamble_id == null || !official.has(row.gamble_id)) continue;
+    let group = groups.get(row.gamble_id);
+    if (!group) {
+      group = { amount: 0, date: row.created_at };
+      groups.set(row.gamble_id, group);
+      order.push(row.gamble_id);
+    }
+    group.amount += row.amount;
+    // a gamble's point sits at its last movement (the settlement, normally)
+    if (row.created_at > group.date) group.date = row.created_at;
+  }
+
+  const history: { gamble: number | null; date: string | null; net: number }[] = [
+    // the arbitrary 0 set: where the ledger starts, before any gamble
+    { gamble: 0, date: null, net: 0 },
+  ];
+  let net = 0;
+  order.forEach((id, i) => {
+    net += groups.get(id)!.amount;
+    history.push({ gamble: i + 1, date: groups.get(id)!.date, net });
+  });
+  return history;
+}
+
+/**
  * "Bank is the truth": once every movement has drained, snap the local
  * projections onto the real bank-side balances — it absorbs the bank's 2%
  * receipt skim and any spending done outside this site. The snap is

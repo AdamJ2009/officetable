@@ -184,6 +184,11 @@ export default function ChallengeDetailPage() {
       )}
 
       {/* Actions */}
+      {!me && (challenge.status === 'pending' || challenge.status === 'countered') && (
+        <div className="text-sm text-gray-500">
+          <span className="font-semibold">🔐 Log in (top right)</span> with your bank credentials to respond.
+        </div>
+      )}
       {amParticipant && (challenge.status === 'pending' || challenge.status === 'countered') && (
         <div className="rounded-xl border border-gray-200 bg-card p-4 flex flex-wrap items-center gap-3">
           {!iSentTerms ? (

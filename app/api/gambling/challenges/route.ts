@@ -10,7 +10,7 @@ import {
 } from '@/lib/gamble';
 import { computeOddsLadder } from '@/lib/gambleOdds';
 import { announceChallengeIssued } from '@/lib/gambleNotifications';
-import { gambleErrorResponse, requirePlayerId } from '@/lib/gambleApi';
+import { gambleErrorResponse, requirePlayerId, requireSessionPlayer } from '@/lib/gambleApi';
 import type { Challenge } from '@/lib/types';
 
 const LIST_SQL = `
@@ -55,6 +55,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const challengerId = requirePlayerId(body.challenger_id);
+    await requireSessionPlayer(challengerId); // challenges are money actions
     // Broadcast challenge: no opponent — first non-challenger to accept plays
     const broadcast = body.broadcast === true || body.broadcast === 1;
     const opponentId = broadcast ? null : requirePlayerId(body.opponent_id);

@@ -6,7 +6,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { revalidatePath } from 'next/cache';
 import { cancelGambleMatch, getGambleMatch, getBetPool } from '@/lib/gamble';
 import { announceCancelled } from '@/lib/gambleNotifications';
-import { gambleErrorResponse, requirePlayerId } from '@/lib/gambleApi';
+import { gambleErrorResponse, requirePlayerId, requireSessionPlayer } from '@/lib/gambleApi';
 
 export async function POST(
   request: NextRequest,
@@ -21,6 +21,7 @@ export async function POST(
 
     const body = await request.json();
     const playerId = requirePlayerId(body.player_id);
+    await requireSessionPlayer(playerId); // cancelling moves (refunds) money
 
     const gm = getGambleMatch(matchId);
     if (!gm) return NextResponse.json({ error: 'Gamble match not found' }, { status: 404 });

@@ -4,7 +4,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import db from '@/lib/db';
-import { seedBalance } from '@/lib/bank';
+import { seedBalance, netHistory } from '@/lib/bank';
 import { gambleErrorResponse } from '@/lib/gambleApi';
 
 interface Summary {
@@ -153,6 +153,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       summary: s,
+      net_history: netHistory(playerId),
       gambles: gambleRows,
       bets,
 	});

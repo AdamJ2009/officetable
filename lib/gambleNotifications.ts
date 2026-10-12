@@ -66,6 +66,23 @@ export async function announceBetsOpen(gambleMatch: GambleMatch, ladder: OddsLad
   await sendAnnouncementNotification(message);
 }
 
+/** Bets closed — the window shut and the match is on: players to the table.
+ *  Fired by syncStatuses exactly when rows flip open → awaiting_score. */
+export async function announceBetsClosed(gambleMatch: GambleMatch, resultDeadlineMinutes: number): Promise<void> {
+  const message: AnnouncementMessage = {
+    title: '⏰ Betting closed — to the table!',
+    subtitle: `${gambleMatch.red_player_name} (red) vs ${gambleMatch.blue_player_name} (blue)`,
+    paragraphs: [
+      `${gambleMatch.game_name ?? 'The match'} is scheduled for <b>${gambleMatch.scheduled_at} UTC</b> — time to play.`,
+      `No more bets. One of the two players records the result on the match page when it's done —`,
+      `if nothing is recorded within ${resultDeadlineMinutes} minutes of the deadline, the gamble is voided and everything is refunded.`,
+    ],
+    linkUrl: baseUrl() ? `${baseUrl()}/gambling/matches/${gambleMatch.id}` : undefined,
+    linkText: 'View the match',
+  };
+  await sendAnnouncementNotification(message);
+}
+
 /** Settled — result, payouts and the pot split. */
 export async function announceSettled(gambleMatch: GambleMatch, summary: SettleSummary): Promise<void> {
   const { pot } = summary;

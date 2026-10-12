@@ -64,7 +64,7 @@ export async function GET(request: NextRequest) {
       .all(...(Number.isInteger(playerId) ? [playerId, playerId] : [])) as Challenge[];
 
     // Live gamble matches (bets open / closed-awaiting-score)
-    let liveRows = db.prepare(
+    const liveRows = db.prepare(
       `${MATCH_SQL} WHERE gm.status IN ('open', 'awaiting_score')
        ${Number.isInteger(gameId) ? 'AND gm.game_id = ?' : ''}
        ORDER BY gm.scheduled_at ASC LIMIT 30`

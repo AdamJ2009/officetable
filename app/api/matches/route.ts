@@ -9,6 +9,7 @@ import { resolveScopeSeasonId, getCurrentSeason } from '@/lib/seasons';
 import { syncStatuses, settleGambleMatch, getGambleMatch } from '@/lib/gamble';
 import { announceSettled } from '@/lib/gambleNotifications';
 import { requirePlayerId } from '@/lib/gambleApi';
+import { readSessionPlayer } from '@/lib/session';
 import type { MatchWithParticipants, CreateMatchInput, MatchFilters, PaginationMeta } from '@/lib/types';
 
 export async function GET(request: NextRequest) {
@@ -232,6 +233,27 @@ export async function POST(request: NextRequest) {
         ORDER BY id DESC
       `).get(aId, bId, bId, aId) as { id: number; red_player_id: number; blue_player_id: number } | undefined;
       if (gmRow) {
+        // Settling a gamble moves real money, so under the session model the
+        // recorder must be LOGGED IN AS a participant — a body-supplied
+        // recorded_by alone is forgeable by anyone who can reach the API.
+        const sessionPlayer = await readSessionPlayer();
+        if (sessionPlayer === null) {
+          return NextResponse.json(
+            {
+              error: 'This result settles an open gamble — log in (top right) as one of the two participants to record it',
+              code: 'not_logged_in',
+              gamble_match_id: gmRow.id,
+            },
+            { status: 403 }
+          );
+        }
+        if (recordedBy !== null && recordedBy !== sessionPlayer) {
+          return NextResponse.json(
+            { error: "You are logged in as a different player — you can't record a result in someone else's name", code: 'forbidden' },
+            { status: 403 }
+          );
+        }
+        if (sessionPlayer !== aId && sessionPlayer !== bId) {
         if (recordedBy === null || (recordedBy !== aId && recordedBy !== bId)) {
           return NextResponse.json(
             {
@@ -241,6 +263,7 @@ export async function POST(request: NextRequest) {
             },
             { status: 409 }
           );
+        }
         }
         const [redTeam, blueTeam] = teams[0].player_ids[0] === gmRow.red_player_id
           ? [teams[0], teams[1]]

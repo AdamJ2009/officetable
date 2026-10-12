@@ -93,7 +93,10 @@ export class GambleError extends Error {
  *  3. unsettled gamble matches are voided (full refunds) once the result is
  *     more than N minutes overdue — with a Chat note. */
 export function syncStatuses(): void {
-  kickBankSync(); // best-effort push of queued movements to the central bank
+  // NOTE: no bank-sync kick here — this runs on every route including
+  // read-only GETs, and a non-empty backlog would turn page views into a
+  // flood of transfers against the bank's API. Only the money-moving paths
+  // (accept / bet / settle / cancel) kick the drain.
   db.prepare(`
     UPDATE gamble_matches SET status = 'awaiting_score'
     WHERE status = 'open' AND bet_close_at <= ?
@@ -395,10 +398,12 @@ export function respondToChallenge(
     );
     const gmId = result.lastInsertRowid as number;
 
-    db.prepare(`UPDATE challenges SET status = 'accepted', gamble_match_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
-      .run(gmId, challengeId);
+    db.prepare(`UPDATE challenges SET gamble_match_id = ? WHERE id = ?`).run(gmId, challengeId);
     return gmId;
   })();
+
+  // Money moved — push the entry-fee movements toward the central bank.
+  kickBankSync();
 
   return {
     challenge: getChallenge(challengeId)!,
@@ -521,7 +526,7 @@ export function placeBet(gambleMatchId: number, bettorId: number, redScore: numb
     );
   }
 
-  return db.transaction((): number => {
+  const betId = db.transaction((): number => {
     bank.debitChecked(bettorId, stake, {
       type: 'bet_stake',
       id: gambleMatchId,
@@ -533,6 +538,10 @@ export function placeBet(gambleMatchId: number, bettorId: number, redScore: numb
     `).run(gambleMatchId, bettorId, redScore, blueScore, stake, outcome.decimalOdds);
     return result.lastInsertRowid as number;
   })();
+  // A stake is a real central-bank movement — kick the drain after commit
+  // (fire-and-forget; the drain is bounded and breaker-shielded).
+  kickBankSync();
+  return betId as number;
 }
 
 export function getBets(gambleMatchId: number): Bet[] {
@@ -789,7 +798,10 @@ export function settleGambleMatch(
     };
   });
 
-  return settle();
+  const summary = settle();
+  // Payouts/fees moved — push them toward the central bank (bounded drain).
+  kickBankSync();
+  return summary;
 }
 
 /** Refund everything on a cancel: open bet stakes + both entry fees.
@@ -800,7 +812,7 @@ export function cancelGambleMatch(gambleMatchId: number): number {
   if (gm.status === 'settled') throw new GambleError('Match already settled', 'already_settled');
   if (gm.status === 'cancelled') throw new GambleError('Match already cancelled', 'already_cancelled');
 
-  return db.transaction((): number => {
+  const refunded = db.transaction((): number => {
     let refunded = gm.entry_fee * 2;
     bank.credit(gm.red_player_id, gm.entry_fee, { type: 'refund', id: gambleMatchId, memo: 'entry fee refund' });
     bank.credit(gm.blue_player_id, gm.entry_fee, { type: 'refund', id: gambleMatchId, memo: 'entry fee refund' });
@@ -818,4 +830,7 @@ export function cancelGambleMatch(gambleMatchId: number): number {
       .run(gm.challenge_id);
     return refunded;
   })();
+  // Refunds moved — push them toward the central bank (bounded drain).
+  kickBankSync();
+  return refunded as number;
 }

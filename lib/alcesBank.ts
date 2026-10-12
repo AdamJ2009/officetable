@@ -205,7 +205,10 @@ export async function listAlcesBalances(): Promise<Map<string, number>> {
     const { body } = await alcesRequest(`/users?page=${page}&limit=100`);
     const data = body.data as { username: string; balance: string }[] | undefined;
     for (const u of data ?? []) balances.set(u.username, parseFloat(u.balance));
-    const totalPages = (body.totalPages as number) ?? 1;
+    const totalPagesRaw = body.totalPages;
+    const totalPages = typeof totalPagesRaw === 'number' && Number.isInteger(totalPagesRaw) && totalPagesRaw > 0
+      ? Math.min(totalPagesRaw, MAX_BALANCE_PAGES)
+      : 1; // never trust the shape — a bad answer ends pagination after page 1
     if (!data?.length || page >= totalPages) break;
     page++;
   }

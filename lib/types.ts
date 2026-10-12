@@ -188,6 +188,8 @@ export interface Challenge {
   /** Free-text house rules written by the players, shown to gamblers. */
   special_rules: string | null;
   status: ChallengeStatus;
+  /** Why the challenge died (e.g. 'impossible_to_pay'); NULL on plain cancels. */
+  cancel_reason?: string | null;
   terms_by: number;
   terms_by_name?: string;
   gamble_match_id?: number | null;

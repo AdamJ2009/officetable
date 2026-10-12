@@ -7,6 +7,10 @@ import { useSelectedGame } from '@/lib/hooks/useSelectedGame';
 import { GambleOddsBoard } from '@/components/GambleOddsBoard';
 import type { OddsLadder } from '@/lib/types';
 
+// Mirror of GAMBLE_RULES.minEntryFee — the lib imports the DB, so the client
+// page keeps its own copy of the minimum fee for posting/accepting challenges.
+const MIN_ENTRY_FEE = 10;
+
 // New challenge: pick opponent, game, entry fee, side and time. The odds
 // preview is computed live in the browser from the same lib/ math the
 // accept path server-side uses — display only, never authoritative.
@@ -43,6 +47,26 @@ export default function NewChallengePage() {
   const opponent = broadcast ? null : (players.find(p => p.id === opponentId) ?? null);
   const redName = side === 'red' ? (me?.name ?? 'Red player') : (opponent?.name ?? 'Red player');
   const blueName = side === 'blue' ? (me?.name ?? 'Blue player') : (opponent?.name ?? 'Blue player');
+
+  // Callout eligibility, from the gambling table: anyone not on the
+  // leaderboard hasn't registered at the bank yet, and anyone under the 10
+  // moose buck minimum couldn't accept even if they wanted to — the server
+  // blocks both too.
+  const [board, setBoard] = useState<{ player_id: number; balance: number }[]>([]);
+  useEffect(() => {
+    fetch('/api/gambling/leaderboard')
+      .then(res => (res.ok ? res.json() : null))
+      .then((d: { players?: { player_id: number; balance: number }[] } | null) => setBoard(d?.players ?? []))
+      .catch(() => setBoard([]));
+  }, [me?.id]);
+  const boardById = new Map(board.map(p => [p.player_id, p]));
+  const opponentUnverified = (id: number) => !boardById.has(id);
+  const opponentUnderMinimum = (id: number) => {
+    const row = boardById.get(id);
+    return row != null && row.balance < MIN_ENTRY_FEE;
+  };
+  const blockedOpponent = !broadcast && opponentId != null
+    && (opponentUnverified(opponentId) || opponentUnderMinimum(opponentId));
 
   // Debounced preview fetch — the client lib needs Elo ratings from the DB,
   // so the preview runs through the games/odds endpoint.
@@ -144,10 +168,24 @@ export default function NewChallengePage() {
                 className="mt-1 w-full px-3 py-2 rounded-lg border border-gray-200 bg-background text-gray-800"
               >
                 <option value="">Choose a player…</option>
-                {players.filter(p => p.id !== me?.id).map(p => (
-                  <option key={p.id} value={p.id}>{p.name}</option>
-                ))}
+                {players.filter(p => p.id !== me?.id).map(p => {
+                  const broke = opponentUnderMinimum(p.id);
+                  const unverified = opponentUnverified(p.id);
+                  const blocked = broke || unverified;
+                  return (
+                    <option key={p.id} value={p.id} disabled={blocked}>
+                      {p.name}{broke ? ` — under ${MIN_ENTRY_FEE}, can't accept` : unverified ? ' — not at the bank yet' : ''}
+                    </option>
+                  );
+                })}
               </select>
+              {blockedOpponent && (
+                <span className="text-xs text-red-600 font-medium">
+                  {opponentId != null && opponentUnderMinimum(opponentId)
+                    ? `💸 They're under ${MIN_ENTRY_FEE} moose bucks — they couldn't accept even if they wanted to`
+                    : "They haven't signed up at the bank yet — unverified players can't be called out"}
+                </span>
+              )}
               <span className="text-xs text-gray-400">
                 {me ? `You are ${me.name} — log out (top right) if that's wrong.` : 'Not logged in — log in (top right) to send challenges.'}
               </span>
@@ -281,10 +319,10 @@ export default function NewChallengePage() {
 
         <button
           onClick={submit}
-          disabled={!me || (!broadcast && !opponentId) || !selectedGameId || feeInvalid || submitting}
-          className="w-full sm:w-auto font-semibold bg-primary text-white rounded-lg px-6 py-2.5 hover:bg-primary-hover shadow-sm disabled:opacity-40"
+          disabled={!me || (!broadcast && (!opponentId || blockedOpponent)) || !selectedGameId || feeInvalid || submitting}
+          className="w-full sm:w-auto font-semibold bg-primary text-white rounded-lg px-6 py-2.5 hover:bg-primary-hover shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
         >
-          {submitting ? 'Sending…' : 'Send challenge'}
+          {submitting ? 'Sending…' : blockedOpponent ? 'Pick another opponent' : 'Send challenge'}
         </button>
         <p className="text-xs text-gray-400">
           No money moves until the challenge is accepted{broadcast ? ' (first player to accept takes the other side)' : ''}.

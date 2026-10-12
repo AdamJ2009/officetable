@@ -409,7 +409,7 @@ export function netHistory(playerId: number | null): { gamble: number | null; da
       END as gamble_id
     FROM bank_transactions bt
     WHERE bt.player_id ${playerId === null ? 'IS NULL' : '= ?'}
-      AND bt.ref_type NOT IN ('topup', 'seed')
+      AND bt.ref_type NOT IN ('topup', 'seed', 'external_transfer')
     ORDER BY bt.id
   `).all(...(playerId === null ? [] : [playerId])) as unknown) as {
     id: number; amount: number; created_at: string; gamble_id: number | null;
@@ -450,6 +450,28 @@ export function netHistory(playerId: number | null): { gamble: number | null; da
 }
 
 /**
+ * Throttled background reconcile ("bank is the truth", continuously).
+ * Money moving OUTSIDE this site — a transfer another site pays a player —
+ * never creates a local bank_sync row, so without this the projections stay
+ * stale until the next movement on this site. Polling views (lobby, match
+ * pages) call this through syncStatuses; at most one snapshot per interval,
+ * and never two at once. Fire-and-forget; never throws.
+ */
+let lastReconcile = 0;
+let reconciling = false;
+const RECONCILE_EVERY_MS = 20_000;
+
+export function kickReconcile(): void {
+  if (!alcesMirrorEnabled() || reconciling) return;
+  if (Date.now() - lastReconcile < RECONCILE_EVERY_MS) return;
+  lastReconcile = Date.now();
+  reconciling = true;
+  void reconcileAlcesBalances()
+    .finally(() => { reconciling = false; })
+    .catch(e => console.error('reconcile:', e));
+}
+
+/**
  * "Bank is the truth": once every movement has drained, snap the local
  * projections onto the real bank-side balances — it absorbs the bank's 2%
  * receipt skim and any spending done outside this site. The house pot
@@ -472,10 +494,24 @@ export async function reconcileAlcesBalances(): Promise<void> {
   const update = db.prepare(`
     UPDATE bank_accounts SET balance = ?, updated_at = CURRENT_TIMESTAMP WHERE player_id = ?
   `);
+  // Every snap that isn't pure rounding is money that moved WITHOUT this site
+  // (a spend or payout on another linked site). Ledger it so the projection
+  // stays reconcilable to the ledger sum and the player's history shows the
+  // external movement. Local-only row: never mirrored (the bank already knows).
+  const ledgerExternal = db.prepare(`
+    INSERT INTO bank_transactions (ref_type, player_id, amount, memo)
+    VALUES ('external_transfer', ?, ?, ?)
+  `);
   for (const row of rows) {
     const truth = balances.get(row.bank_username);
     if (truth !== undefined && Math.abs(truth - row.balance) > 0.004) {
+      const delta = truth - row.balance;
       update.run(truth, row.player_id);
+      ledgerExternal.run(
+        row.player_id,
+        delta,
+        delta < 0 ? 'spent on another linked site' : 'received from another linked site',
+      );
     }
   }
   // The house pot includes everything players actually paid in — entry fees,

@@ -8,7 +8,7 @@
 
 import db from './db';
 import { processMatch } from './elo';
-import { getBank, assertBankLinked, kickBankSync } from './bank';
+import { getBank, assertBankLinked, isBankLinked, alcesMirrorEnabled, kickBankSync, kickReconcile } from './bank';
 import { computeOddsLadder } from './gambleOdds';
 import { announceCancelled } from './gambleNotifications';
 import { normaliseStartDate, toDbDate } from './seasons';
@@ -94,6 +94,7 @@ export class GambleError extends Error {
  *     more than N minutes overdue — with a Chat note. */
 export function syncStatuses(): void {
   kickBankSync(); // best-effort push of queued movements to the central bank
+  kickReconcile(); // throttled snapshot: pulls external bank changes into the projections
   db.prepare(`
     UPDATE gamble_matches SET status = 'awaiting_score'
     WHERE status = 'open' AND bet_close_at <= ?
@@ -104,6 +105,27 @@ export function syncStatuses(): void {
     WHERE status IN ('pending', 'countered')
       AND scheduled_at <= datetime('now', '+${GAMBLE_RULES.challengeExpiryLeadMinutes} minutes')
   `).run();
+
+  // Impossible to pay: a live challenge is an IOU, so any challenge whose
+  // fee-payers can no longer cover it gets cut off. The challenger must
+  // always be able to pay; on a 1v1 the named opponent does too. On a
+  // broadcast the taker is unknown until someone accepts, so a short taker
+  // is only blocked at accept time (challenge stays up).
+  const liveChallenges = db.prepare(`
+    SELECT id, challenger_id, opponent_id, entry_fee, broadcast
+    FROM challenges WHERE status IN ('pending', 'countered')
+  `).all() as { id: number; challenger_id: number; opponent_id: number | null; entry_fee: number; broadcast: number }[];
+  for (const c of liveChallenges) {
+    const payers = c.broadcast
+      ? [c.challenger_id]
+      : [c.challenger_id, c.opponent_id].filter((id): id is number => id !== null);
+    const cannotPay = payers.some(pid => bank.getBalance(pid) < c.entry_fee);
+    if (!cannotPay) continue;
+    db.prepare(`
+      UPDATE challenges SET status = 'cancelled', cancel_reason = 'impossible_to_pay', updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(c.id);
+  }
 
   const overdue = db.prepare(`
     SELECT id FROM gamble_matches
@@ -206,6 +228,34 @@ export function createChallenge(
 
   const error = validateTerms(terms);
   if (error) throw new GambleError(error, 'bad_terms');
+  // Cut-off at the source: a challenger who can't cover their own fee can't
+  // post it (a broadcast's taker is checked at accept instead).
+  if (bank.getBalance(challengerId) < terms.entryFee) {
+    throw new GambleError(
+      `You need ${terms.entryFee} moose bucks to post this challenge — impossible to pay right now`,
+      'impossible_to_pay',
+    );
+  }
+  // A callout needs a real, funded opponent: an unverified player can't bet
+  // yet, and a bankrupt one has nothing at stake. Calling them out is blocked.
+  // Unverified only exists with the central bank on — offline, everyone plays.
+  if (opponentId !== null) {
+    const opp = db.prepare(`SELECT name FROM players WHERE id = ?`)
+      .get(opponentId) as { name: string } | undefined;
+    if (!opp) throw new GambleError('Unknown player', 'unknown_player');
+    if (alcesMirrorEnabled() && !isBankLinked(opponentId)) {
+      throw new GambleError(
+        `${opp.name} hasn't signed up at the bank yet — unverified players can't be called out`,
+        'opponent_unverified',
+      );
+    }
+    if (bank.getBalance(opponentId) < GAMBLE_RULES.minEntryFee) {
+      throw new GambleError(
+        `${opp.name} has under ${GAMBLE_RULES.minEntryFee} moose bucks — they couldn't accept even if they wanted to`,
+        'opponent_bankrupt',
+      );
+    }
+  }
   const payoutLine = parsePayoutLine(terms.payoutLine, game.score_value);
   if (!payoutLine) {
     throw new GambleError("Payout line must be 'true_even', 'elo_even' or a scoreline from 9-1 to 1-9 that sums to the game total", 'bad_terms');
@@ -274,7 +324,10 @@ export function respondToChallenge(
     );
   }
   if (challenge.status !== 'pending' && challenge.status !== 'countered') {
-    throw new GambleError(`Challenge is already ${challenge.status}`, 'not_negotiable');
+    const reason = challenge.cancel_reason
+      ? ` — ${challenge.cancel_reason.replace(/_/g, ' ')}`
+      : '';
+    throw new GambleError(`Challenge is already ${challenge.status}${reason}`, 'not_negotiable');
   }
 
   const broadcast = challenge.broadcast === 1;
@@ -375,7 +428,14 @@ export function respondToChallenge(
     assertBankLinked(pid); // both entry fees become real central-bank transfers
     bank.ensureAccount(pid);
     if (bank.getBalance(pid) < fee) {
-      throw new GambleError(`Player ${pid} does not have ${fee} moose bucks to enter`, 'insufficient_funds');
+      // A short taker is only blocked from playing — the challenge stays up;
+      // a 1v1 whose payer is short was already swept to cancelled above.
+      throw new GambleError(
+        pid === playerId
+          ? `You don't have ${fee} moose bucks to enter — the challenge stays open`
+          : `Player ${pid} does not have ${fee} moose bucks to enter`,
+        'insufficient_funds',
+      );
     }
   }
 
@@ -420,6 +480,7 @@ function getGameTotal(gameId: number): number {
 export function getChallenge(id: number): Challenge | undefined {
   const row = db.prepare(`
     SELECT c.id, c.game_id, c.challenger_id, c.opponent_id, c.entry_fee, c.scheduled_at,
+           c.cancel_reason,
            c.red_player_id, c.challenger_side, c.broadcast, c.payout_line, c.special_rules,
            c.status, c.terms_by, c.gamble_match_id, c.created_at, c.updated_at,
            g.name as game_name,

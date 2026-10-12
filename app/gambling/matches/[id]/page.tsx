@@ -168,6 +168,9 @@ export default function GambleMatchPage() {
   const predicted = gm.odds?.predictedLine;
   const isRed = me?.id === gm.red_player_id;
   const status = detail.derived_status;
+  // Bankrupt = under 1 moose buck: no legal stake exists, so the bet
+  // submit greys out (the server refuses a bankrupt player regardless).
+  const bankrupt = !!balance && balance.balance < 1;
 
   return (
     <div className="space-y-5">
@@ -273,7 +276,13 @@ export default function GambleMatchPage() {
                 <div className="space-y-3">
                   <div className="text-sm text-gray-600">
                     Balance: <b>{balance ? balance.balance.toLocaleString() : '…'}</b> moose bucks
+                    {bankrupt && <span className="ml-2 font-bold text-red-600">💸 Bankrupt</span>}
                   </div>
+                  {bankrupt && (
+                    <div className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                      You're bankrupt — get back over 1 moose buck to bet.
+                    </div>
+                  )}
                   <div className="text-sm text-gray-700">
                     Pick: <b>{pick ? `${pick.red}-${pick.blue}` : 'none'}</b>{' '}
                     {pick && (() => {
@@ -291,10 +300,11 @@ export default function GambleMatchPage() {
                   </label>
                   <button
                     onClick={placeBet}
-                    disabled={busy || !pick || stake < 1}
-                    className="w-full font-semibold bg-primary text-white rounded-lg px-4 py-2 hover:bg-primary-hover disabled:opacity-40"
+                    disabled={busy || !pick || stake < 1 || bankrupt}
+                    title={bankrupt ? "Bankrupt — you can't bet" : undefined}
+                    className="w-full font-semibold bg-primary text-white rounded-lg px-4 py-2 hover:bg-primary-hover disabled:opacity-40 disabled:cursor-not-allowed"
                   >
-                    Place bet
+                    {bankrupt ? '💸 Can’t bet — bankrupt' : 'Place bet'}
                   </button>
                 </div>
               ) : (

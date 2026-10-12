@@ -521,6 +521,7 @@ db.exec(`
     broadcast INTEGER NOT NULL DEFAULT 0,
     payout_line TEXT NOT NULL DEFAULT 'true_even',
     special_rules TEXT,
+    cancel_reason TEXT,                           -- why a challenge died (e.g. 'impossible_to_pay')
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
@@ -677,6 +678,18 @@ try {
   }
 } catch (e) {
   console.error('challenges broadcast rebuild failed:', e);
+}
+
+// Migration: cancel_reason records WHY a challenge died (impossible_to_pay),
+// so a sweep-cancelled challenge can show its reason instead of a bare
+// "cancelled". Runs after any v2 rebuild above; every other DB just ALTERs.
+try {
+  const cols = db.prepare(`PRAGMA table_info(challenges)`).all() as { name: string }[];
+  if (!cols.find(c => c.name === 'cancel_reason')) {
+    db.exec(`ALTER TABLE challenges ADD COLUMN cancel_reason TEXT`);
+  }
+} catch (e) {
+  console.error('challenges cancel_reason migration failed:', e);
 }
 
 // Migration: broadcast challenges leave a term's red side undetermined until

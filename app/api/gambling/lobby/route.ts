@@ -37,11 +37,13 @@ export async function GET(request: NextRequest) {
 
     const bank = getBank();
 
-    // Challenges I'm part of that are still negotiable
+    // Challenges I'm part of that are still negotiable — plus ones auto-cancelled
+    // for an unpayable fee, so the "impossible to pay" cut-off is visible.
     const myChallenges = Number.isInteger(playerId)
       ? db.prepare(`${CHALLENGE_SQL}
           WHERE c.status IN ('pending', 'countered')
-            AND (c.challenger_id = ? OR c.opponent_id = ?)
+             OR (c.status = 'cancelled' AND c.cancel_reason = 'impossible_to_pay'
+                 AND (c.challenger_id = ? OR c.opponent_id = ?))
           ORDER BY c.id DESC LIMIT 20`).all(playerId, playerId) as Challenge[]
       : [];
 

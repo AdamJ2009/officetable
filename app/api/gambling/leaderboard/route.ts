@@ -22,6 +22,8 @@ interface GamblerRow {
   retired?: number;
   last_match_at?: string | null;
   is_inactive?: boolean;
+  /** Balance under 1 moose buck — hidden until the bankrupt filter is selected. */
+  bankrupt?: boolean;
 }
 
 const SQL = `
@@ -87,6 +89,8 @@ export async function GET(request: NextRequest) {
         ? (now - new Date(row.last_match_at.replace(' ', 'T') + 'Z').getTime())
           > inactiveThresholdDays * 24 * 60 * 60 * 1000
         : true;
+      // Bankrupt: nothing left to bet with (< 1 moose buck, dust included).
+      row.bankrupt = row.balance < 1;
     }
 
     // The casino's own results: house-pot movements + the 10% entry fees,

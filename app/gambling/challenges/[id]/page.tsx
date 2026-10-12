@@ -47,6 +47,16 @@ export default function ChallengeDetailPage() {
   const [counterSide, setCounterSide] = useState<'red' | 'blue'>('red');
   const [counterLine, setCounterLine] = useState('true_even');
   const [counterRules, setCounterRules] = useState('');
+  // Accepting pays the fee immediately — the respondent needs 10+ to do it.
+  const [myBalance, setMyBalance] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!me) { setMyBalance(null); return; }
+    fetch(`/api/gambling/bank?player_id=${me.id}`)
+      .then(res => (res.ok ? res.json() : null))
+      .then((d: { balance: number } | null) => setMyBalance(d?.balance ?? null))
+      .catch(() => setMyBalance(null));
+  }, [me?.id]);
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/gambling/challenges/${id}`);
@@ -114,6 +124,8 @@ export default function ChallengeDetailPage() {
     ? 'first to accept'
     : challenge.red_player_id === challenge.challenger_id ? challenge.challenger_name : (challenge.opponent_name ?? 'first to accept');
   const gameTotal = games.find(g => g.id === challenge.game_id)?.score_value ?? null;
+  // Under the 10 moose buck minimum you can't cover any fee — accept greys out.
+  const underMinimum = myBalance != null && myBalance < 10;
   const counterLines: { value: string; label: string }[] = [
     { value: 'true_even', label: 'Evens on a draw (5-5)' },
     { value: 'elo_even', label: "Evens on the bookie's predicted line" },
@@ -194,11 +206,14 @@ export default function ChallengeDetailPage() {
           {!iSentTerms ? (
             <>
               <button
-                disabled={busy}
+                disabled={busy || underMinimum}
                 onClick={() => respond('accept')}
-                className="font-semibold bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 disabled:opacity-50"
+                title={underMinimum ? "Under 10 moose bucks — you can't accept a challenge" : undefined}
+                className="font-semibold bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed"
               >
-                Accept — both pay {challenge.entry_fee}
+                {underMinimum
+                  ? `Can’t accept — under 10 moose bucks (both pay ${challenge.entry_fee})`
+                  : `Accept — both pay ${challenge.entry_fee}`}
               </button>
               {!isBroadcast && (
                 <>

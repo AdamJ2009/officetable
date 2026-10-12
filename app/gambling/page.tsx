@@ -9,6 +9,10 @@ import { PlayerAvatar } from '@/components/PlayerAvatar';
 import { MoneyChart } from '@/components/MoneyChart';
 import type { Challenge } from '@/lib/types';
 
+// Mirror of GAMBLE_RULES.minEntryFee — the lib imports the DB, so the client
+// page keeps its own copy of the minimum fee a challenge needs posted.
+const MIN_ENTRY_FEE = 10;
+
 interface ChallengeWithNames extends Challenge {
   game_name?: string;
   challenger_name?: string;
@@ -28,6 +32,7 @@ interface GamblerStanding {
   gambles_played: number;
   retired?: number;
   is_inactive?: boolean;
+  bankrupt?: boolean;
 }
 
 interface Standings {
@@ -87,6 +92,8 @@ const STATUS_LABEL: Record<string, string> = {
 const STATUS_LABEL_CHALLENGE: Record<string, string> = {
   pending: 'Awaiting response',
   countered: 'Countered — waiting on you',
+  // only impossible-to-pay cancels are listed, so the label can be specific
+  cancelled: 'Cancelled — impossible to pay',
 };
 
 const EVENS: Record<string, string> = {
@@ -103,11 +110,15 @@ export default function GamblingLobby() {
   const [standings, setStandings] = useState<Standings | null>(null);
   const [showRetired, setShowRetired] = useState(false);
   const [showInactive, setShowInactive] = useState(false);
+  const [showBankrupt, setShowBankrupt] = useState(false);
   // Selecting the casino's account (clicking the House Pot / Casino P&L card)
   // reveals the house's running P&L line.
   const [showCasinoChart, setShowCasinoChart] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Accepting funds the fee at once — under the 10 minimum nothing can be
+  // accepted, so every challenge Accept button greys out (server re-checks).
+  const canAccept = !!data?.me && data.me.bank_linked !== false && data.me.balance >= MIN_ENTRY_FEE;
 
   const load = useCallback(async () => {
     const qs = new URLSearchParams();
@@ -180,9 +191,14 @@ export default function GamblingLobby() {
           ) : (
             <div>
               <div className="text-xs uppercase tracking-wide text-gray-500">My moose bucks</div>
-              <div className="text-2xl font-bold text-gray-900">
-                {data?.me ? data.me.balance.toLocaleString() : '…'}
-              </div>
+              {data?.me && data.me.balance < 1 ? (
+                /* Under one moose buck — the account is bankrupt, say so */
+                <div className="text-2xl font-bold text-red-600">💸 Bankrupt</div>
+              ) : (
+                <div className="text-2xl font-bold text-gray-900">
+                  {data?.me ? data.me.balance.toLocaleString() : '…'}
+                </div>
+              )}
             </div>
           )}
           <span className="text-sm font-semibold text-primary">
@@ -198,6 +214,17 @@ export default function GamblingLobby() {
             <span className="text-xl font-bold text-gray-400">🔒 New Challenge</span>
             <span className="text-xs uppercase tracking-wide text-gray-400 mt-1">
               {me ? 'Challenges locked, you must have a linked account to challenge' : 'Log in with a linked account to challenge'}
+            </span>
+          </div>
+        ) : data && data.me && data.me.balance < MIN_ENTRY_FEE ? (
+          /* Under the 10 moose buck minimum — the challenge CTA greys out */
+          <div
+            title={`Impossible to pay — you need at least ${MIN_ENTRY_FEE} moose bucks to put up a challenge (win some back first)`}
+            className="rounded-xl border border-gray-200 bg-gray-100 p-4 flex flex-col justify-center items-center text-center select-none cursor-not-allowed opacity-60"
+          >
+            <span className="text-xl font-bold text-gray-400">🔒 New Challenge</span>
+            <span className="text-xs uppercase tracking-wide text-gray-400 mt-1">
+              Under the {MIN_ENTRY_FEE} moose buck minimum to challenge
             </span>
           </div>
         ) : (
@@ -219,7 +246,8 @@ export default function GamblingLobby() {
         {data && data.live_matches.length === 0 ? (
           <p className="text-sm text-gray-500">
             No gambles running
-            {(!me || data.me?.bank_linked === false) ? (
+            {(!me || data.me?.bank_linked === false || (data.me && data.me.balance < 1)) ? (
+              // Bankrupt players can't schedule — the link would go to a locked page.
               '.'
             ) : (
               <>
@@ -322,12 +350,13 @@ export default function GamblingLobby() {
                     >
                       Details
                     </Link>
-                    {!iSentTerms ? (
+                    {c.status !== 'cancelled' && !iSentTerms ? (
                       <>
                         <button
-                          disabled={busy}
+                          disabled={busy || !canAccept}
                           onClick={() => respond(c.id, 'accept')}
-                          className="text-sm font-semibold bg-green-600 text-white px-3 py-1.5 rounded-lg hover:bg-green-700 disabled:opacity-50"
+                          title={canAccept ? undefined : `Under ${MIN_ENTRY_FEE} moose bucks — you can't accept a challenge`}
+                          className="text-sm font-semibold bg-green-600 text-white px-3 py-1.5 rounded-lg hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed"
                         >
                           Accept {c.entry_fee}
                         </button>
@@ -390,9 +419,10 @@ export default function GamblingLobby() {
                   </Link>
                   {me ? (
                     <button
-                      disabled={busy}
+                      disabled={busy || !canAccept}
                       onClick={() => respond(c.id, 'accept')}
-                      className="text-sm font-semibold bg-green-600 text-white px-3 py-1.5 rounded-lg hover:bg-green-700 disabled:opacity-50"
+                      title={canAccept ? undefined : `Under ${MIN_ENTRY_FEE} moose bucks — you can't accept this challenge`}
+                      className="text-sm font-semibold bg-green-600 text-white px-3 py-1.5 rounded-lg hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                       Accept {c.entry_fee}
                     </button>
@@ -567,6 +597,15 @@ export default function GamblingLobby() {
               />
               Show inactive players
             </label>
+            <label className="flex items-center gap-2 text-sm text-gray-600">
+              <input
+                type="checkbox"
+                checked={showBankrupt}
+                onChange={(e) => setShowBankrupt(e.target.checked)}
+                className="rounded border-border text-primary focus:ring-primary"
+              />
+              Show bankrupt players
+            </label>
           </div>
 
           {/* Ranked table, office style */}
@@ -586,7 +625,7 @@ export default function GamblingLobby() {
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {standings.players
-                  .filter(p => (p.retired ? showRetired : true) && (p.is_inactive ? showInactive : true))
+                  .filter(p => (p.retired ? showRetired : true) && (p.is_inactive ? showInactive : true) && (p.bankrupt ? showBankrupt : true))
                   .map((p, index) => {
                   const rank = index + 1;
                   const betGames = p.bets_won + p.bets_lost;
@@ -628,6 +667,9 @@ export default function GamblingLobby() {
                           {!p.retired && p.is_inactive && (
                             <span className="ml-2 text-xs bg-gray-100 text-gray-400 px-2 py-0.5 rounded-full">Inactive</span>
                           )}
+                          {p.bankrupt && (
+                            <span className="ml-2 text-xs bg-red-100 text-red-500 px-2 py-0.5 rounded-full">Bankrupt</span>
+                          )}
                         </Link>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
@@ -654,7 +696,7 @@ export default function GamblingLobby() {
                     </tr>
                   );
                 })}
-                {standings.players.filter(p => (p.retired ? showRetired : true) && (p.is_inactive ? showInactive : true)).length === 0 && (
+                {standings.players.filter(p => (p.retired ? showRetired : true) && (p.is_inactive ? showInactive : true) && (p.bankrupt ? showBankrupt : true)).length === 0 && (
                   <tr>
                     <td colSpan={6} className="px-6 py-8 text-center">
                       {standings.players.length === 0 && data?.me?.bank_linked === false ? (

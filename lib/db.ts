@@ -623,13 +623,30 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS bank_sync (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     transaction_id INTEGER NOT NULL REFERENCES bank_transactions(id),
-    status TEXT NOT NULL DEFAULT 'pending',    -- pending | done | failed
+    status TEXT NOT NULL DEFAULT 'pending',    -- pending | sending | done | failed | unverified
     attempts INTEGER NOT NULL DEFAULT 0,
     error TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
   CREATE INDEX IF NOT EXISTS idx_bank_sync_status ON bank_sync(status, id);
 `);
+
+// Migration: delivery-verification for retried bank transfers. The bank has
+// no idempotency keys, so a retry after a lost response would double-send.
+// The drainer records the sender's real bank-side balance immediately before
+// each attempt; any later uncertain retry compares the fresh balance against
+// that snapshot (pre_balance) before deciding to re-send. Rows keep their
+// snapshot after completing so even a manual re-arm of a 'done' row verifies
+// instead of blind-resending.
+try {
+  db.exec(`ALTER TABLE bank_sync ADD COLUMN pre_balance REAL`);
+} catch (e) { /* column already exists */ }
+
+// One-time secret migration: anything stored as plaintext (pre-encryption
+// bank passwords, house password, service token) is re-encrypted at rest.
+// Harmless when already encrypted. ESM import keeps db.ts free of crypto
+// imports while running the migration once this module is loaded.
+import('./crypto').then(({ migratePlaintextSecrets }) => migratePlaintextSecrets());
 
 // Migration: challenges gain a link to the gamble match opened on accept
 // (added after the table shipped, so existing DBs need the ALTER).

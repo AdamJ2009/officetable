@@ -16,6 +16,7 @@
 //    duplicate user → 409 CONFLICTING_RESOURCE, missing user → 404 NOT_FOUND.
 
 import db from './db';
+import { decryptSecret, encryptSecret } from './crypto';
 
 const DEFAULT_URL = 'http://10.151.0.85:3000/api/v1';
 
@@ -40,36 +41,41 @@ function setting(key: string): string | undefined {
   return row?.value || undefined;
 }
 
+/** Secrets stored in the settings table are encrypted at rest (see lib/crypto.ts). */
+function secretSetting(key: string): string | undefined {
+  return decryptSecret(setting(key)) ?? undefined;
+}
+
+function setSecretSetting(key: string, value: string): void {
+  db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)`).run(key, encryptSecret(value));
+}
+
 export function alcesConfig(): AlcesConfig {
-  // Env first (never commit secrets), settings table as fallback persistence.
-  const serviceToken = process.env.ALCES_SERVICE_TOKEN ?? setting('alces_service_token') ?? null;
-  let housePassword = process.env.ALCES_HOUSE_PASSWORD ?? setting('alces_house_password') ?? null;
-  if (serviceToken && !setting('alces_service_token')) {
-    db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES ('alces_service_token', ?)`)
-      .run(serviceToken);
+  // Env first (never commit secrets), settings table as encrypted fallback.
+  const serviceToken = envStr('ALCES_SERVICE_TOKEN') ?? secretSetting('alces_service_token') ?? null;
+  let housePassword = envStr('ALCES_HOUSE_PASSWORD') ?? secretSetting('alces_house_password') ?? null;
+  if (serviceToken && !secretSetting('alces_service_token')) {
+    setSecretSetting('alces_service_token', serviceToken);
   }
-  const PASSWORD_MAX = 30;
   if (!housePassword && serviceToken) {
     // The house is the site's own bank user; its password is generated once
-    // and kept in settings — it must never change under the ledger.
-    housePassword = `ot-${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`;
-    db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES ('alces_house_password', ?)`)
-      .run(housePassword);
+    // and kept (encrypted) in settings — it must never change under the ledger.
+    housePassword = generateHousePassword();
+    setSecretSetting('alces_house_password', housePassword);
   }
   // The bank caps passwords at 30 chars; an older generation scheme stored a
   // 35-char one that the bank can never accept (register always 400s). The
   // house user is minted by whatever registration finally succeeds, so a
   // regenerate-once here is safe.
   if (housePassword && housePassword.length > PASSWORD_MAX) {
-    housePassword = `ot-${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`;
-    db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES ('alces_house_password', ?)`)
-      .run(housePassword);
+    housePassword = generateHousePassword();
+    setSecretSetting('alces_house_password', housePassword);
   }
   return {
-    baseUrl: (process.env.ALCES_BANK_URL ?? setting('alces_bank_url') ?? DEFAULT_URL).replace(/\/$/, ''),
+    baseUrl: (envStr('ALCES_BANK_URL') ?? setting('alces_bank_url') ?? DEFAULT_URL).replace(/\/$/, ''),
     serviceToken,
-    serviceName: process.env.ALCES_SERVICE_NAME ?? setting('alces_service_name') ?? 'officetable',
-    houseUser: process.env.ALCES_HOUSE_USER ?? setting('alces_house_user') ?? 'officetablehouse',
+    serviceName: envStr('ALCES_SERVICE_NAME') ?? setting('alces_service_name') ?? 'officetable',
+    houseUser: envStr('ALCES_HOUSE_USER') ?? setting('alces_house_user') ?? 'officetablehouse',
     housePassword,
   };
 }
@@ -81,6 +87,19 @@ export function alcesMirrorEnabled(): boolean {
 
 const USERNAME_MIN = 4;
 const USERNAME_MAX = 25;
+const PASSWORD_MAX = 30;
+
+/** Env var → undefined when unset OR empty/whitespace. Empty-string values
+ *  must never count as configured (an empty token would "enable" the mirror
+ *  and then fail every transfer). */
+function envStr(name: string): string | undefined {
+  const value = process.env[name];
+  return value === undefined ? undefined : (value.trim() || undefined);
+}
+
+function generateHousePassword(): string {
+  return `ot-${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`;
+}
 
 /** Suggested bank username for a player: their name flattened ("Adam B" → "AdamB"). */
 export function suggestBankUsername(name: string, playerId: number): string {
@@ -170,7 +189,23 @@ export async function registerAlcesUser(username: string, password: string): Pro
   });
 }
 
-/** All bank users with balances, following pagination. */
+/**
+ * Credential handshake: prove username/password actually log in to the bank.
+ * Used at link time so a wrong password can never quietly poison the sync
+ * queue, and misdirected payouts can't be parked on someone else's account.
+ * Throws AlcesBankError('unauthorised') on bad creds.
+ */
+export async function loginAlcesUser(username: string, password: string): Promise<void> {
+  await alcesRequest('/users/login', {
+    method: 'POST',
+    body: JSON.stringify({ username, password }),
+  });
+}
+
+/** All bank users with balances, following pagination. Hard page cap so a
+ *  malformed/huge totalPages from the bank can never turn one call into an
+ *  endless request loop against its API. */
+const MAX_BALANCE_PAGES = 20; // 20 × 100 users
 export async function listAlcesBalances(): Promise<Map<string, number>> {
   const balances = new Map<string, number>();
   let page = 1;
@@ -178,7 +213,10 @@ export async function listAlcesBalances(): Promise<Map<string, number>> {
     const { body } = await alcesRequest(`/users?page=${page}&limit=100`);
     const data = body.data as { username: string; balance: string }[] | undefined;
     for (const u of data ?? []) balances.set(u.username, parseFloat(u.balance));
-    const totalPages = (body.totalPages as number) ?? 1;
+    const totalPagesRaw = body.totalPages;
+    const totalPages = typeof totalPagesRaw === 'number' && Number.isInteger(totalPagesRaw) && totalPagesRaw > 0
+      ? Math.min(totalPagesRaw, MAX_BALANCE_PAGES)
+      : 1; // never trust the shape — a bad answer ends pagination after page 1
     if (!data?.length || page >= totalPages) break;
     page++;
   }
@@ -209,7 +247,21 @@ export interface TransferOpts {
   viaService?: boolean;
 }
 
-/** One central-bank transfer. Sender body creds, recipient is the path user. */
+/** One central-bank transfer. Sender body creds, recipient is the path user.
+ *
+ *  NOTE (probed, may differ bank-version to bank-version): the service
+ *  endpoint 500s when the serviceToken is wrong; a VALID token transfers
+ *  normally (204, moves money, ~2% receipt skim vs ~5% on the plain
+ *  endpoint).
+ *
+ *  There is deliberately NO fallback to the plain endpoint on service errors:
+ *  a service failure may mean "nothing moved" or "moved but the response was
+ *  lost" — automatically re-sending on the plain path would double-send in
+ *  the second case. Service-path failures instead fail the sync job, and the
+ *  drain's balance-verified retry (drainBankSync) re-sends only after
+ *  proving on the bank's balances that the first attempt never landed. If
+ *  this fires repeatedly, check ALCES_SERVICE_TOKEN and the bank's service
+ *  endpoint (invalid token = 500 on every transfer). */
 export async function transferAlces({ fromUser, fromPassword, toUser, amount, viaService }: TransferOpts): Promise<void> {
   const { serviceToken } = alcesConfig();
   const body: Record<string, unknown> = { username: fromUser, password: fromPassword, amount };
@@ -223,14 +275,5 @@ export async function transferAlces({ fromUser, fromPassword, toUser, amount, vi
     return;
   }
   body.serviceToken = serviceToken;
-  try {
-    await alcesRequest(`/transactions/service/${toUser}`, { method: 'POST', body: JSON.stringify(body) });
-  } catch (e) {
-    // PROBED on the new bank VM (10.151.0.85): its service endpoint answers
-    // 500 "undefined" and moves NO money, while the plain endpoint works and
-    // skims ~5% of the receipt instead of 2%. So on any service-path failure,
-    // do the same transfer plainly — safe (nothing executed) and keeps the
-    // economy flowing when the bank's service route misbehaves.
-    await alcesRequest(`/transactions/${toUser}`, { method: 'POST', body: JSON.stringify({ username: fromUser, password: fromPassword, amount }) });
-  }
+  await alcesRequest(`/transactions/service/${toUser}`, { method: 'POST', body: JSON.stringify(body) });
 }

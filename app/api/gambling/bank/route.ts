@@ -1,7 +1,10 @@
 // GET  /api/gambling/bank?player_id=  — balance + ledger for a player (or the
 //      house when player_id is omitted/house=1); player_id adds the player's
 //      central-bank (Alces Bookie) link status — NEVER their stored password.
-// POST /api/gambling/bank/topup      — office-bank admin: credit moose bucks
+//
+// There is deliberately NO top-up/withdraw endpoint: the site has no mint —
+// the central Alces Bookie bank controls real balances, and site movements
+// are earned through challenges, bets and settlements.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getBank, bankSyncBacklog, getLinkedAccount, alcesMirrorEnabled } from '@/lib/bank';

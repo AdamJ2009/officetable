@@ -8,9 +8,9 @@
 
 import db from './db';
 import { processMatch } from './elo';
-import { getBank, assertBankLinked, isBankLinked, alcesMirrorEnabled, kickBankSync, kickReconcile } from './bank';
+import { getBank, assertBankLinked, kickBankSync, alcesMirrorEnabled } from './bank';
 import { computeOddsLadder } from './gambleOdds';
-import { announceCancelled } from './gambleNotifications';
+import { announceBetsClosed, announceCancelled } from './gambleNotifications';
 import { normaliseStartDate, toDbDate } from './seasons';
 import type {
   Bet,
@@ -48,6 +48,11 @@ export const GAMBLE_RULES = {
   /** Cap on the free-text special rules note. */
   maxSpecialRulesLength: 500,
 } as const;
+
+/** Mock-mode floor under the casino's payout exposure guard: the local casino
+ *  stands behind every bet with at least this (it mints, so it's backed).
+ *  Mirror mode deliberately does NOT use it — see placeBet. */
+const BASE_POT_MINIMUM = 100;
 
 /**
  * Payout lines (stored format): 'true_even' = a literal draw (5-5);
@@ -93,12 +98,33 @@ export class GambleError extends Error {
  *  3. unsettled gamble matches are voided (full refunds) once the result is
  *     more than N minutes overdue — with a Chat note. */
 export function syncStatuses(): void {
-  kickBankSync(); // best-effort push of queued movements to the central bank
-  kickReconcile(); // throttled snapshot: pulls external bank changes into the projections
-  db.prepare(`
-    UPDATE gamble_matches SET status = 'awaiting_score'
-    WHERE status = 'open' AND bet_close_at <= ?
-  `).run(nowDbDate());
+  // NOTE: no bank-sync kick here — this runs on every route including
+  // read-only GETs, and a non-empty backlog would turn page views into a
+  // flood of transfers against the bank's API. Only the money-moving paths
+  // (accept / bet / settle / cancel) kick the drain.
+  // Bets window closed → the match must be played now: announce once, right
+  // as the matched rows flip open → awaiting_score (this function runs on
+  // every route, so only rows ACTUALLY changed here may trigger a message).
+  const closing = db.prepare(`
+    SELECT gm.id, gm.red_player_id, gm.blue_player_id, g.name AS game_name,
+           red.name AS red_player_name,
+           blue.name AS blue_player_name
+    FROM gamble_matches gm
+    JOIN games g ON g.id = gm.game_id
+    JOIN players red ON red.id = gm.red_player_id
+    JOIN players blue ON blue.id = gm.blue_player_id
+    WHERE gm.status = 'open' AND gm.bet_close_at <= ?
+  `).all(nowDbDate()) as { id: number; red_player_id: number; blue_player_id: number; red_player_name: string; blue_player_name: string; game_name: string }[];
+  if (closing.length) {
+    db.prepare(`
+      UPDATE gamble_matches SET status = 'awaiting_score'
+      WHERE status = 'open' AND bet_close_at <= ?
+    `).run(nowDbDate());
+    for (const gm of closing) {
+      announceBetsClosed(gm as unknown as GambleMatch).catch(() => {});
+      console.log(`gamble match ${gm.id}: bets closed — awaiting score`);
+    }
+  }
 
   db.prepare(`
     UPDATE challenges SET status = 'expired', updated_at = CURRENT_TIMESTAMP
@@ -440,6 +466,16 @@ export function respondToChallenge(
   }
 
   const gambleMatchId = db.transaction((): number => {
+    // Claim first: only the first accept of a challenge may open a match —
+    // repeated/concurrent accepts (two players racing for a broadcast) must
+    // not double-debit entry fees or open two gamble matches.
+    const claim = db.prepare(`
+      UPDATE challenges SET status = 'accepted', updated_at = CURRENT_TIMESTAMP
+      WHERE id = ? AND status IN ('pending', 'countered')
+    `).run(challengeId);
+    if (claim.changes === 0) {
+      throw new GambleError('Challenge is already accepted', 'not_negotiable');
+    }
     for (const pid of playerIds) {
       bank.debitChecked(pid, fee, { type: 'challenge_fee', id: challengeId, memo: 'entry fee' });
     }
@@ -455,10 +491,12 @@ export function respondToChallenge(
     );
     const gmId = result.lastInsertRowid as number;
 
-    db.prepare(`UPDATE challenges SET status = 'accepted', gamble_match_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
-      .run(gmId, challengeId);
+    db.prepare(`UPDATE challenges SET gamble_match_id = ? WHERE id = ?`).run(gmId, challengeId);
     return gmId;
   })();
+
+  // Money moved — push the entry-fee movements toward the central bank.
+  kickBankSync();
 
   return {
     challenge: getChallenge(challengeId)!,
@@ -570,8 +608,15 @@ export function placeBet(gambleMatchId: number, bettorId: number, redScore: numb
     FROM bets WHERE gamble_match_id = ? AND bettor_id = ? AND status = 'open'
       AND red_score = ? AND blue_score = ?
   `).get(gambleMatchId, bettorId, redScore, blueScore) as { staked: number };
-  const BASE_POT_MINIMUM = 100; // casino stands behind every bet with at least this
-  const bankPot = Math.max(bank.getHouseBalance(), BASE_POT_MINIMUM);
+  // Mock mode: the local casino stands behind every bet with at least this
+  // (it mints, so the floor is backed by the site's own money).
+  // Mirror mode: NO floor — the central bank's real house pot is the only
+  // thing winnings can be paid from, and promising an unbacked payout would
+  // mint money the bank mirror can never honour (payout credits would fail
+  // to drain forever). Cap = real house holdings, or nothing.
+  const bankPot = alcesMirrorEnabled()
+    ? Math.max(bank.getHouseBalance(), 1)
+    : Math.max(bank.getHouseBalance(), BASE_POT_MINIMUM);
   const potentialPayout = Math.floor((samePick.staked + stake) * outcome.decimalOdds);
   if (bankPot <= 1 || potentialPayout > bankPot - 1) {
     const maxStake = Math.max(GAMBLE_RULES.minStake,
@@ -582,7 +627,7 @@ export function placeBet(gambleMatchId: number, bettorId: number, redScore: numb
     );
   }
 
-  return db.transaction((): number => {
+  const betId = db.transaction((): number => {
     bank.debitChecked(bettorId, stake, {
       type: 'bet_stake',
       id: gambleMatchId,
@@ -594,6 +639,10 @@ export function placeBet(gambleMatchId: number, bettorId: number, redScore: numb
     `).run(gambleMatchId, bettorId, redScore, blueScore, stake, outcome.decimalOdds);
     return result.lastInsertRowid as number;
   })();
+  // A stake is a real central-bank movement — kick the drain after commit
+  // (fire-and-forget; the drain is bounded and breaker-shielded).
+  kickBankSync();
+  return betId as number;
 }
 
 export function getBets(gambleMatchId: number): Bet[] {
@@ -850,7 +899,10 @@ export function settleGambleMatch(
     };
   });
 
-  return settle();
+  const summary = settle();
+  // Payouts/fees moved — push them toward the central bank (bounded drain).
+  kickBankSync();
+  return summary;
 }
 
 /** Refund everything on a cancel: open bet stakes + both entry fees.
@@ -861,7 +913,7 @@ export function cancelGambleMatch(gambleMatchId: number): number {
   if (gm.status === 'settled') throw new GambleError('Match already settled', 'already_settled');
   if (gm.status === 'cancelled') throw new GambleError('Match already cancelled', 'already_cancelled');
 
-  return db.transaction((): number => {
+  const refunded = db.transaction((): number => {
     let refunded = gm.entry_fee * 2;
     bank.credit(gm.red_player_id, gm.entry_fee, { type: 'refund', id: gambleMatchId, memo: 'entry fee refund' });
     bank.credit(gm.blue_player_id, gm.entry_fee, { type: 'refund', id: gambleMatchId, memo: 'entry fee refund' });
@@ -879,4 +931,7 @@ export function cancelGambleMatch(gambleMatchId: number): number {
       .run(gm.challenge_id);
     return refunded;
   })();
+  // Refunds moved — push them toward the central bank (bounded drain).
+  kickBankSync();
+  return refunded as number;
 }

@@ -12,12 +12,14 @@
 // in lib/gamble.ts and the routes don't change.
 
 import db from './db';
+import { decryptSecret, encryptSecret } from './crypto';
 import {
   AlcesBankError,
   alcesBalance,
   alcesConfig,
   alcesMirrorEnabled,
   listAlcesBalances,
+  loginAlcesUser,
   registerAlcesUser,
   transferAlces,
 } from './alcesBank';
@@ -219,8 +221,10 @@ export function assertBankLinked(playerId: number): void {
 /**
  * Register (action 'create') or connect (action 'link') a player's Alces
  * Bookie account and record their credentials for future transfers.
- * 'create' proves itself by the bank minting the user; 'link' is trusted to
- * work (no credential probe). Returns the account's real (bank-side) balance.
+ * BOTH actions prove themselves with the bank's login handshake: a wrong
+ * password is rejected here instead of poisoning the sync queue later (and
+ * house payouts can never be parked on an account that isn't the linker's).
+ * Returns the account's real (bank-side) balance.
  */
 export async function linkBankAccount(
   playerId: number,
@@ -236,8 +240,10 @@ export async function linkBankAccount(
   if (action === 'create') {
     await registerAlcesUser(username, password); // 409 already_taken surfaces to the user
   }
-  // No credential-test handshake: the API is trusted as working — a wrong
-  // password surfaces naturally on the first real transfer as a failed sync.
+  // Handshake before anything is stored: wrong creds surface right here as a
+  // 401, never later as a failed transfer (or a payout into someone else's
+  // account — the house pays the LINKED username).
+  await loginAlcesUser(username, password);
 
   const balance = (await alcesBalance(username)) ?? 0;
   db.prepare(`
@@ -247,7 +253,7 @@ export async function linkBankAccount(
       balance = excluded.balance, bank_username = excluded.bank_username,
       bank_password = excluded.bank_password, bank_linked_at = excluded.bank_linked_at,
       updated_at = CURRENT_TIMESTAMP
-  `).run(playerId, balance, username, password);
+  `).run(playerId, balance, username, encryptSecret(password));
   return { balance };
 }
 
@@ -273,16 +279,32 @@ export function ensureAlcesHouse(): Promise<void> {
       // never re-POST the registration on later drains (the bank would only
       // 409 it, but each attempt is traffic the down/shared API shouldn't
       // see). Clear 'alces_house_registered' in settings to force a re-probe.
-      if (db.prepare(`SELECT value FROM settings WHERE key = 'alces_house_registered'`)
-        .get() as { value: string } | undefined) return;
       const { houseUser, housePassword } = alcesConfig();
       if (!housePassword) throw new BankError('No house password available', 'bank_disabled');
+      // The flag stores WHICH house user was registered/verified — it is
+      // re-probed (idempotently) whenever ALCES_HOUSE_USER changes.
+      const registeredFlag = db.prepare(`SELECT value FROM settings WHERE key = 'alces_house_registered'`)
+        .get() as { value: string } | undefined;
+      if (registeredFlag?.value === houseUser) return;
       try {
         await registerAlcesUser(houseUser, housePassword);
       } catch (e) {
         if (!(e instanceof AlcesBankError && e.code === 'already_taken')) throw e;
+        // The bank already has this house username — but is it OURS? If its
+        // password differs from this site's, every house→player payout will
+        // 401 forever (silently, via the sync backlog). Prove the handshake
+        // now so the site either runs or fails loudly with a fixable message.
+        try {
+          await loginAlcesUser(houseUser, housePassword);
+        } catch {
+          throw new BankError(
+            `The central bank already has a house account "${houseUser}" but its password does not match this site's — every payout would fail. Set ALCES_HOUSE_PASSWORD to that account's real bank password (or point ALCES_HOUSE_USER at this site's own house account), then clear the 'alces_house_registered' setting to retry.`,
+            'house_credentials_mismatch',
+          );
+        }
       }
-      db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES ('alces_house_registered', '1')`).run();
+      db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES ('alces_house_registered', ?)`)
+        .run(houseUser);
     })().catch(e => {
       // Don't cache the failure: one bank outage must not poison every later
       // link/sync attempt until a server restart. Clear and let it retry.
@@ -293,19 +315,29 @@ export function ensureAlcesHouse(): Promise<void> {
   return houseReady;
 }
 
-/** Ledger rows still waiting to reach (or that failed to reach) the central bank. */
-export function bankSyncBacklog(): { pending: number; failed: number } {
+/** Ledger rows still waiting to reach (or that failed to reach) the central bank.
+ *  'sending' rows count too: a crash can leave one mid-flight, and if nothing else
+ *  is queued it must still trigger a drain (the drainer verifies before resending). */
+export function bankSyncBacklog(): { pending: number; failed: number; unverified: number; sending: number } {
   const row = db.prepare(`
-    SELECT SUM(status = 'pending') as pending, SUM(status = 'failed') as failed
+    SELECT SUM(status = 'pending') as pending, SUM(status = 'failed') as failed,
+           SUM(status = 'unverified') as unverified, SUM(status = 'sending') as sending
     FROM bank_sync
-  `).get() as { pending: number | null; failed: number | null };
-  return { pending: row.pending ?? 0, failed: row.failed ?? 0 };
+  `).get() as { pending: number | null; failed: number | null; unverified: number | null; sending: number | null };
+  return {
+    pending: row.pending ?? 0,
+    failed: row.failed ?? 0,
+    unverified: row.unverified ?? 0,
+    sending: row.sending ?? 0,
+  };
 }
 
 interface SyncJob {
   id: number;
   transaction_id: number;
   attempts: number;
+  status: string;
+  pre_balance: number | null;
 }
 
 let draining = false;
@@ -314,7 +346,23 @@ let draining = false;
  *  'failed' for a manual/admin reset instead of hammering the bank forever. */
 const MAX_SYNC_ATTEMPTS = 10;
 
-/** Push queued movements to the central bank. Fire-and-forget; never throws. */
+/** Tolerance when comparing bank-side balances (they arrive as fractional
+ *  strings and the bank itself is imprecise about rounding). */
+const BALANCE_EPS = 0.005;
+
+/** Push queued movements to the central bank. Fire-and-forget; never throws.
+ *
+ *  Delivery safety (the bank has no idempotency keys, so a retry after a
+ *  lost response used to mean a double-send): before every attempt the
+ *  sender's real bank-side balance is snapshotted into bank_sync.pre_balance.
+ *  Any job whose previous attempt did not end with a clean acknowledgement is
+ *  VERIFIED first against a fresh balance read:
+ *    fresh == pre_balance           → never landed → safe to (re)send
+ *    fresh == pre_balance - amount  → already landed → mark done, no resend
+ *    anything else                  → parked 'unverified' for a human
+ *  Rows KEEP their snapshot after completing, so even a manual re-arm of a
+ *  'done' row verifies instead of blind-resending.
+ */
 export async function drainBankSync(): Promise<void> {
   if (!alcesMirrorEnabled() || draining) return;
   draining = true;
@@ -322,58 +370,129 @@ export async function drainBankSync(): Promise<void> {
     await ensureAlcesHouse();
     const { houseUser, housePassword } = alcesConfig();
     if (!housePassword) return;
-    for (;;) {
-      const jobs = db.prepare(`
-        SELECT id, transaction_id, attempts FROM bank_sync
-        WHERE status IN ('pending', 'failed') AND attempts < ${MAX_SYNC_ATTEMPTS}
-        ORDER BY id LIMIT 25
-      `).all() as SyncJob[];
-      if (!jobs.length) break;
-      const ledger = db.prepare(`
-        SELECT player_id, amount FROM bank_transactions WHERE id = ?
-      `);
-      // Each job is tried AT MOST ONCE per drain. If this batch made no
-      // progress (all failures — e.g. bank errors the breaker doesn't catch),
-      // stop: retrying in a tight loop would hammer the bank's API.
-      let progress = false;
-      for (const job of jobs) {
-        const tx = ledger.get(job.transaction_id) as { player_id: number; amount: number } | undefined;
-        const account = tx
-          ? db.prepare(`SELECT bank_username, bank_password FROM bank_accounts WHERE player_id = ?`)
-              .get(tx.player_id) as { bank_username: string | null; bank_password: string | null } | undefined
-          : undefined;
-        try {
-          if (!tx || !account?.bank_username || !account.bank_password) {
-            throw new BankError('Player bank account unregistered', 'bank_not_linked');
-          }
-          if (tx.amount < 0) {
-            // Debit: player pays the exact ledgered amount to the house.
-            await transferAlces({
-              fromUser: account.bank_username, fromPassword: account.bank_password,
-              toUser: houseUser, amount: -tx.amount, viaService: true,
-            });
-          } else {
-            // Credit: the house pays the player.
-            await transferAlces({
-              fromUser: houseUser, fromPassword: housePassword,
-              toUser: account.bank_username, amount: tx.amount, viaService: true,
-            });
-          }
-          db.prepare(`UPDATE bank_sync SET status = 'done', error = NULL WHERE id = ?`).run(job.id);
-          progress = true;
-        } catch (e) {
-          const msg = e instanceof Error ? e.message : String(e);
-          db.prepare(`
-            UPDATE bank_sync SET status = 'failed', attempts = attempts + 1, error = ? WHERE id = ?
-          `).run(msg, job.id);
-          // One hard stop per drain on connection trouble so a bank outage
-          // doesn't burn 25 failed attempts in a second — they retry on the
-          // next kick.
-          if (e instanceof AlcesBankError && e.code === 'unreachable') return;
+    // 'sending' = a crash leftover mid-flight attempt (needs verification).
+    // 'unverified' never auto-retries — only an explicit resync re-arms it,
+    // and even then it goes through the balance verification first.
+    const jobs = db.prepare(`
+      SELECT id, transaction_id, attempts, status, pre_balance FROM bank_sync
+      WHERE (status IN ('pending', 'failed') AND attempts < ${MAX_SYNC_ATTEMPTS})
+         OR status = 'sending'
+      ORDER BY id LIMIT 25
+    `).all() as SyncJob[];
+    if (!jobs.length) return;
+    const ledger = db.prepare(`
+      SELECT player_id, amount FROM bank_transactions WHERE id = ?
+    `);
+    const markDone = db.prepare(`
+      UPDATE bank_sync SET status = 'done', error = NULL WHERE id = ?
+    `);
+    const markFailed = db.prepare(`
+      UPDATE bank_sync SET status = 'failed', attempts = attempts + 1, error = ? WHERE id = ?
+    `);
+    const markUnverified = db.prepare(`
+      UPDATE bank_sync SET status = 'unverified', error = ? WHERE id = ?
+    `);
+    // Each job is tried AT MOST ONCE per drain. If this batch made no
+    // progress (all failures — e.g. bank errors the breaker doesn't catch),
+    // stop: retrying in a tight loop would hammer the bank's API.
+    let progress = false;
+    for (const job of jobs) {
+      const tx = ledger.get(job.transaction_id) as { player_id: number; amount: number } | undefined;
+      const account = tx
+        ? db.prepare(`SELECT bank_username, bank_password FROM bank_accounts WHERE player_id = ?`)
+            .get(tx.player_id) as { bank_username: string | null; bank_password: string | null } | undefined
+        : undefined;
+      try {
+        if (!tx || !account?.bank_username || !account.bank_password) {
+          throw new BankError('Player bank account unregistered', 'bank_not_linked');
         }
+        // Credentials are encrypted at rest (lib/crypto.ts).
+        const fromPassword = decryptSecret(account.bank_password);
+        if (!fromPassword) {
+          throw new BankError('Player bank credentials cannot be decrypted', 'bank_not_linked');
+        }
+        const transferAmount = Math.abs(tx.amount);
+        const fromUser = tx.amount < 0 ? account.bank_username : houseUser;
+
+        // ---- delivery verification for anything already attempted ----
+        // The snapshot (pre_balance) is recorded just before every send, so
+        // its presence means a previous attempt was at least staged — verify
+        // before re-sending. Never gate this on attempts: resync re-arms
+        // reset attempts to 0, and only the snapshot is unfakeable evidence
+        // "this row was on its way to the bank".
+        if (job.status === 'sending' || job.pre_balance !== null) {
+          if (job.pre_balance === null) {
+            // Old-style row (pre-snapshot migration) interrupted mid-flight —
+            // we can know nothing; park it for a human rather than resend.
+            markUnverified.run('Prior attempt mid-flight with no balance snapshot recorded — verify by hand on the bank, then re-arm via resync.', job.id);
+            continue;
+          }
+          const fresh = await listAlcesBalances().catch(() => null);
+          if (fresh === null) {
+            // Bank unreachable — abort this drain; nothing was sent, and the
+            // next drain will re-verify from the stored snapshot.
+            return;
+          }
+          const now = fresh.get(fromUser);
+          if (now === undefined) {
+            markUnverified.run(`Expected sender ${fromUser} not found on the bank — manual verification required.`, job.id);
+            continue;
+          }
+          if (Math.abs(now - (job.pre_balance - transferAmount)) < BALANCE_EPS) {
+            // The prior attempt DID land despite being recorded as a failure.
+            markDone.run(job.id);
+            progress = true;
+            continue;
+          }
+          if (Math.abs(now - job.pre_balance) >= BALANCE_EPS) {
+            // Sender's balance moved by neither 0 nor exactly the amount —
+            // something outside our ledger touched this account (another
+            // service, a player's own bank transfer). Never auto-resend.
+            markUnverified.run(
+              `Cannot verify delivery: sender ${fromUser} was ${job.pre_balance} on the bank,` +
+              ` expected ${job.pre_balance - transferAmount} if the prior attempt landed,` +
+              ` but the bank shows ${now}. Verify by hand, then re-arm via resync.`, job.id);
+            continue;
+          }
+          // fresh == pre_balance: the prior attempt never landed — fall
+          // through and send now.
+        }
+
+        // Fresh pre-send snapshot (used by any future verification).
+        const pre = (await listAlcesBalances()).get(fromUser) ?? null;
+        db.prepare(`
+          UPDATE bank_sync SET status = 'sending', pre_balance = ? WHERE id = ?
+        `).run(pre, job.id);
+
+        if (tx.amount < 0) {
+          // Debit: player pays the exact ledgered amount to the house.
+          await transferAlces({
+            fromUser: account.bank_username, fromPassword,
+            toUser: houseUser, amount: -tx.amount, viaService: true,
+          });
+        } else {
+          // Credit: the house pays the player.
+          await transferAlces({
+            fromUser: houseUser, fromPassword: housePassword,
+            toUser: account.bank_username, amount: tx.amount, viaService: true,
+          });
+        }
+        // NOTE: pre_balance is deliberately NOT cleared here — a done row
+        // that ever gets re-armed verifies against it instead of re-sending.
+        markDone.run(job.id);
+        progress = true;
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        markFailed.run(msg, job.id);
+        // HARD STOP on the first failure of any kind (not just connection
+        // trouble): a bad batch must not burn more attempts or hammer the
+        // bank — every kicking route would otherwise chain failing HTTP
+        // calls. The rest of the batch waits for the next kick. (The job's
+        // pre_balance snapshot survives, so the eventual retry verifies.)
+        return;
       }
-      if (!progress) break;
     }
+    if (!progress) return;
     await reconcileAlcesBalances();
   } finally {
     draining = false;
@@ -383,7 +502,7 @@ export async function drainBankSync(): Promise<void> {
 /** Fire-and-forget drainer kick. Nothing to move → no traffic at all. */
 export function kickBankSync(): void {
   const backlog = bankSyncBacklog();
-  if (backlog.pending === 0 && backlog.failed === 0) return;
+  if (backlog.pending === 0 && backlog.failed === 0 && backlog.unverified === 0 && backlog.sending === 0) return;
   void drainBankSync().catch(e => console.error('bank sync:', e));
 }
 
@@ -474,7 +593,8 @@ export function kickReconcile(): void {
 /**
  * "Bank is the truth": once every movement has drained, snap the local
  * projections onto the real bank-side balances — it absorbs the bank's 2%
- * receipt skim and any spending done outside this site. The house pot
+ * receipt skim and any spending done outside this site. The snap is
+ * DOWNWARD-ONLY for players (see comment below). The house pot
  * (bank_house) is engine bookkeeping and stays local.
  */
 export async function reconcileAlcesBalances(): Promise<void> {
@@ -494,18 +614,14 @@ export async function reconcileAlcesBalances(): Promise<void> {
   const update = db.prepare(`
     UPDATE bank_accounts SET balance = ?, updated_at = CURRENT_TIMESTAMP WHERE player_id = ?
   `);
-  // Every snap that isn't pure rounding is money that moved WITHOUT this site
-  // (a spend or payout on another linked site). Ledger it so the projection
-  // stays reconcilable to the ledger sum and the player's history shows the
-  // external movement. Local-only row: never mirrored (the bank already knows).
-  const ledgerExternal = db.prepare(`
-    INSERT INTO bank_transactions (ref_type, player_id, amount, memo)
-    VALUES ('external_transfer', ?, ?, ?)
-  `);
+  // Downward-only snap: absorb the bank's receipt skim and any spending done
+  // outside the site, but never import bank-side money the local ledger
+  // doesn't know about. Otherwise a fresh mint (registering a bank account
+  // mints 500) could be linked, re-linked and farmed into free site funds —
+  // the bookie, not registration freebies, must control site balances.
   for (const row of rows) {
     const truth = balances.get(row.bank_username);
-    if (truth !== undefined && Math.abs(truth - row.balance) > 0.004) {
-      const delta = truth - row.balance;
+    if (truth !== undefined && truth < row.balance - 0.004) {
       update.run(truth, row.player_id);
       ledgerExternal.run(
         row.player_id,

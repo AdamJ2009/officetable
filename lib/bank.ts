@@ -12,12 +12,14 @@
 // in lib/gamble.ts and the routes don't change.
 
 import db from './db';
+import { decryptSecret, encryptSecret } from './crypto';
 import {
   AlcesBankError,
   alcesBalance,
   alcesConfig,
   alcesMirrorEnabled,
   listAlcesBalances,
+  loginAlcesUser,
   registerAlcesUser,
   transferAlces,
 } from './alcesBank';
@@ -219,8 +221,10 @@ export function assertBankLinked(playerId: number): void {
 /**
  * Register (action 'create') or connect (action 'link') a player's Alces
  * Bookie account and record their credentials for future transfers.
- * 'create' proves itself by the bank minting the user; 'link' is trusted to
- * work (no credential probe). Returns the account's real (bank-side) balance.
+ * BOTH actions prove themselves with the bank's login handshake: a wrong
+ * password is rejected here instead of poisoning the sync queue later (and
+ * house payouts can never be parked on an account that isn't the linker's).
+ * Returns the account's real (bank-side) balance.
  */
 export async function linkBankAccount(
   playerId: number,
@@ -236,8 +240,10 @@ export async function linkBankAccount(
   if (action === 'create') {
     await registerAlcesUser(username, password); // 409 already_taken surfaces to the user
   }
-  // No credential-test handshake: the API is trusted as working — a wrong
-  // password surfaces naturally on the first real transfer as a failed sync.
+  // Handshake before anything is stored: wrong creds surface right here as a
+  // 401, never later as a failed transfer (or a payout into someone else's
+  // account — the house pays the LINKED username).
+  await loginAlcesUser(username, password);
 
   const balance = (await alcesBalance(username)) ?? 0;
   db.prepare(`

@@ -170,7 +170,23 @@ export async function registerAlcesUser(username: string, password: string): Pro
   });
 }
 
-/** All bank users with balances, following pagination. */
+/**
+ * Credential handshake: prove username/password actually log in to the bank.
+ * Used at link time so a wrong password can never quietly poison the sync
+ * queue, and misdirected payouts can't be parked on someone else's account.
+ * Throws AlcesBankError('unauthorised') on bad creds.
+ */
+export async function loginAlcesUser(username: string, password: string): Promise<void> {
+  await alcesRequest('/users/login', {
+    method: 'POST',
+    body: JSON.stringify({ username, password }),
+  });
+}
+
+/** All bank users with balances, following pagination. Hard page cap so a
+ *  malformed/huge totalPages from the bank can never turn one call into an
+ *  endless request loop against its API. */
+const MAX_BALANCE_PAGES = 20; // 20 × 100 users
 export async function listAlcesBalances(): Promise<Map<string, number>> {
   const balances = new Map<string, number>();
   let page = 1;

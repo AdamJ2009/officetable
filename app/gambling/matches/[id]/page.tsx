@@ -31,6 +31,10 @@ interface BalanceInfo {
   transactions: BankTransaction[];
 }
 
+// Mirror of GAMBLE_RULES.maxTotalBet — the lib imports the DB, so the client
+// page keeps its own copy of the per-player total-bet cap.
+const MAX_TOTAL_BET = 1000;
+
 const fmtTime = (dbStr: string) =>
   new Date(dbStr.replace(' ', 'T') + 'Z').toLocaleString('en-GB', {
     weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London',
@@ -171,6 +175,11 @@ export default function GambleMatchPage() {
   // Bankrupt = under 1 moose buck: no legal stake exists, so the bet
   // submit greys out (the server refuses a bankrupt player regardless).
   const bankrupt = !!balance && balance.balance < 1;
+  // Per-player total-bet cap: open stakes on this gamble across ALL picks —
+  // mirror of the server's bet_limit_reached guard in placeBet.
+  const myOpenStaked = detail.my_bets.filter(b => b.status === 'open').reduce((s, b) => s + b.stake, 0);
+  const stakeRemaining = Math.max(0, MAX_TOTAL_BET - myOpenStaked);
+  const overMyCap = stake > stakeRemaining;
 
   return (
     <div className="space-y-5">
@@ -283,6 +292,11 @@ export default function GambleMatchPage() {
                       You're bankrupt — get back over 1 moose buck to bet.
                     </div>
                   )}
+                  <div className="text-xs text-gray-500">
+                    Staked this gamble: <b>{myOpenStaked.toLocaleString()}</b> / {MAX_TOTAL_BET.toLocaleString()}{' '}
+                    {myOpenStaked > 0 && <span className="text-gray-400">(across all your picks · max {MAX_TOTAL_BET})</span>}
+                    {stakeRemaining === 0 && <span className="ml-1 font-semibold text-red-600">— cap reached</span>}
+                  </div>
                   <div className="text-sm text-gray-700">
                     Pick: <b>{pick ? `${pick.red}-${pick.blue}` : 'none'}</b>{' '}
                     {pick && (() => {
@@ -291,20 +305,27 @@ export default function GambleMatchPage() {
                     })()}
                   </div>
                   <label className="block">
-                    <span className="text-xs text-gray-500">Stake</span>
+                    <span className="text-xs text-gray-500">Stake{stakeRemaining < MAX_TOTAL_BET ? ` (max ${stakeRemaining.toLocaleString()} left)` : ''}</span>
                     <input
                       type="number" min={1} value={stake}
                       onChange={e => setStake(parseInt(e.target.value, 10) || 0)}
-                      className="mt-1 w-full px-3 py-2 rounded-lg border border-gray-200 bg-background"
+                      className={`mt-1 w-full px-3 py-2 rounded-lg border bg-background ${overMyCap ? 'border-red-300' : 'border-gray-200'}`}
                     />
+                    {overMyCap && (
+                      <span className="text-xs text-red-600 font-medium">
+                        Over your remaining cap — at most {stakeRemaining.toLocaleString()} more on this gamble
+                      </span>
+                    )}
                   </label>
                   <button
                     onClick={placeBet}
-                    disabled={busy || !pick || stake < 1 || bankrupt}
-                    title={bankrupt ? "Bankrupt — you can't bet" : undefined}
+                    disabled={busy || !pick || stake < 1 || bankrupt || overMyCap}
+                    title={bankrupt ? "Bankrupt — you can't bet" : overMyCap ? `Per-player cap: 1000 staked per gamble (${stakeRemaining} left)` : undefined}
                     className="w-full font-semibold bg-primary text-white rounded-lg px-4 py-2 hover:bg-primary-hover disabled:opacity-40 disabled:cursor-not-allowed"
                   >
-                    {bankrupt ? '💸 Can’t bet — bankrupt' : 'Place bet'}
+                    {bankrupt ? '💸 Can’t bet — bankrupt'
+                      : overMyCap ? '🔒 Bet cap — lower the stake'
+                      : 'Place bet'}
                   </button>
                 </div>
               ) : (

@@ -2,12 +2,12 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import db from '@/lib/db';
-import { getChallenge, getChallengeTerms, getGambleMatch, deriveStatus, getBetPool } from '@/lib/gamble';
+import { getChallenge, getChallengeTerms, getGambleMatch, deriveStatus, getBetPool, broadcastEligibility } from '@/lib/gamble';
 import { computeOddsLadder } from '@/lib/gambleOdds';
 import { gambleErrorResponse } from '@/lib/gambleApi';
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
@@ -17,6 +17,9 @@ export async function GET(
     if (!challenge) {
       return NextResponse.json({ error: 'Challenge not found' }, { status: 404 });
     }
+
+    const { searchParams } = new URL(request.url);
+    const playerId = parseInt(searchParams.get('player_id') ?? '', 10);
 
     const terms_history = getChallengeTerms(challengeId);
     const gambleMatch = challenge.gamble_match_id ? getGambleMatch(challenge.gamble_match_id) : undefined;
@@ -42,9 +45,16 @@ export async function GET(
       }
     }
 
+    // Narrow-broadcast verdict for the viewer (null fields when no window
+    // applies) — the Accept button greys out on eligible === false.
+    const broadcast_access = Number.isInteger(playerId)
+      ? broadcastEligibility(challenge, playerId)
+      : null;
+
     return NextResponse.json({
       challenge,
       terms_history,
+      broadcast_access,
       gamble_match: gambleMatch,
       derived_status: derived?.status ?? null,
       seconds_to_close: derived?.secondsToClose ?? null,

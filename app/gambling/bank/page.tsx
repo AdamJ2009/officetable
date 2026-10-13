@@ -39,6 +39,7 @@ const REF_LABEL: Record<string, string> = {
   topup: 'Moose bucks top-up',
   seed: 'Starting moose',
   refund: 'Refund',
+  donation: 'Casino donation',
 };
 
 const fmtTime = (dbStr: string) =>
@@ -56,6 +57,13 @@ export default function BankPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // Casino donation: amount, then the "are you sure" gate — nobody should
+  // be able to give money to the house in a single accidental click.
+  const [donateAmount, setDonateAmount] = useState(100);
+  const [donateConfirm, setDonateConfirm] = useState(false);
+  const [donating, setDonating] = useState(false);
+  const [donateError, setDonateError] = useState<string | null>(null);
+  const [donateDone, setDonateDone] = useState<string | null>(null);
 
   // Logged out, the page is the claiming desk: act on the profile you pick.
   const actingId = me?.id ?? profileId;
@@ -110,6 +118,35 @@ export default function BankPage() {
       await load();
     } finally {
       setBusy(false);
+    }
+  }
+
+  const donateValid = Number.isInteger(donateAmount) && donateAmount >= 1
+    && (data == null || donateAmount <= data.balance);
+
+  async function doDonate() {
+    if (!me || !donateValid) return;
+    setDonating(true);
+    setDonateError(null);
+    try {
+      const res = await fetch('/api/gambling/bank', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ player_id: me.id, action: 'donate', amount: donateAmount }),
+      });
+      const body = await res.json().catch(() => ({})) as { error?: string; donated?: number };
+      if (!res.ok) {
+        setDonateError(body.error ?? 'Donation failed');
+        return;
+      }
+      setDonateDone(
+        `The casino has accepted your ${body.donated} moose bucks. You received nothing. That's how donations work.`
+      );
+      setDonateConfirm(false);
+      await load();
+      refresh(); // MeContext balance badge — the money is gone, own it
+    } finally {
+      setDonating(false);
     }
   }
 
@@ -326,6 +363,111 @@ export default function BankPage() {
           </p>
         </section>
       )}
+
+      {/* Extra modes played alongside officetable — the gambling table page
+          lists them too; results settled over there count as extra modes. */}
+      <section>
+        <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-2">Extra modes</h2>
+        <div className="space-y-1">
+          {[
+            { href: 'http://10.151.0.73:3000', name: 'Alces Casino', hint: 'extra mode · 10.151.0.73:3000' },
+            { href: 'http://10.151.0.157', name: 'Frontend arena', hint: 'extra mode · 10.151.0.157' },
+          ].map(m => (
+            <a
+              key={m.href}
+              href={m.href}
+              target="_blank"
+              rel="noreferrer"
+              className="flex items-center justify-between rounded-lg border border-gray-100 bg-card px-4 py-2 text-sm hover:bg-gray-50"
+            >
+              <span>
+                <span className="font-medium text-gray-800">{m.name}</span>
+                <span className="text-gray-500"> · {m.hint}</span>
+              </span>
+              <span className="text-xs text-gray-400">↗ opens in a new tab</span>
+            </a>
+          ))}
+        </div>
+      </section>
+
+      {/* Donate to the casino — the most efficient way to lose on purpose:
+          you lose one hundred percent of your stake, instantly, forever. */}
+      <section>
+        <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-2">Donate to the casino</h2>
+        <div className="rounded-xl border border-gray-200 bg-card p-4 space-y-3 text-sm">
+          <p className="text-gray-500">
+            Give moose bucks straight to the house pot. You get nothing back — no bet, no odds,
+            no payout, no refund. For players who feel winning is too complicated.
+          </p>
+          {!me && (
+            <p className="text-gray-500">
+              <span className="font-semibold">🔐 Log in (top right)</span> to donate your moose bucks.
+            </p>
+          )}
+          {me && donateDone && (
+            <div className="rounded-lg bg-green-50 border border-green-200 text-green-800 px-4 py-3">
+              🦌 {donateDone}
+            </div>
+          )}
+          {me && !donateConfirm && (
+            <div className="flex flex-wrap items-center gap-3">
+              <label className="block">
+                <span className="text-xs text-gray-500">Amount (you&apos;re holding {data?.balance ?? '?'} moose bucks)</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={data?.balance ?? undefined}
+                  value={donateAmount}
+                  onChange={e => setDonateAmount(parseInt(e.target.value, 10) || 0)}
+                  className="mt-1 w-32 px-3 py-2 rounded-lg border border-gray-200 bg-background text-gray-800"
+                />
+              </label>
+              <button
+                disabled={!donateValid || donating}
+                onClick={() => { setDonateDone(null); setDonateError(null); setDonateConfirm(true); }}
+                className="font-semibold bg-amber-500 text-white px-4 py-2 rounded-lg hover:bg-amber-600 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                💸 Donate to the casino
+              </button>
+              {!donateValid && donateAmount > 0 && (
+                <span className="text-xs text-red-600 font-medium">
+                  {data != null && donateAmount > data.balance ? "That's more than you have — even the casino frowns on debt" : 'At least 1 whole moose buck, please'}
+                </span>
+              )}
+            </div>
+          )}
+          {me && donateConfirm && (
+            <div className="rounded-lg bg-amber-50 border border-amber-300 px-4 py-3 space-y-2">
+              <div className="font-semibold text-amber-900">
+                Are you sure? This gives {donateAmount} moose bucks to the casino for nothing.
+              </div>
+              <div className="text-amber-800">
+                No odds, no payout, no takebacks — your {donateAmount} moose bucks will simply be gone.
+                {donateAmount >= (data?.balance ?? 0) && ' That is everything you have.'}
+              </div>
+              <div className="flex gap-3 pt-1">
+                <button
+                  disabled={donating}
+                  onClick={doDonate}
+                  className="font-semibold bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 disabled:opacity-40"
+                >
+                  {donating ? 'Donating…' : 'Yes — take my moose bucks'}
+                </button>
+                <button
+                  disabled={donating}
+                  onClick={() => setDonateConfirm(false)}
+                  className="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-white disabled:opacity-40"
+                >
+                  No, keep them
+                </button>
+              </div>
+            </div>
+          )}
+          {donateError && (
+            <div className="rounded-lg bg-red-50 border border-red-200 text-red-700 px-4 py-3">{donateError}</div>
+          )}
+        </div>
+      </section>
     </div>
   );
 }

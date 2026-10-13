@@ -22,6 +22,9 @@ export default function NewChallengePage() {
 
   const [opponentId, setOpponentId] = useState<number | null>(null);
   const [broadcast, setBroadcast] = useState(false);
+  const [narrowBroadcast, setNarrowBroadcast] = useState(false);
+  // Narrow-broadcast Elo window — the challenger picks it, 5–100.
+  const [narrowElo, setNarrowElo] = useState(25);
   const [entryFee, setEntryFee] = useState(50);
   const [side, setSide] = useState<'red' | 'blue'>('red');
   const [payoutLine, setPayoutLine] = useState('true_even');
@@ -45,6 +48,7 @@ export default function NewChallengePage() {
   const [previewTimer, setPreviewTimer] = useState<ReturnType<typeof setTimeout> | null>(null);
 
   const opponent = broadcast ? null : (players.find(p => p.id === opponentId) ?? null);
+  const isNarrow = broadcast && narrowBroadcast;
   const redName = side === 'red' ? (me?.name ?? 'Red player') : (opponent?.name ?? 'Red player');
   const blueName = side === 'blue' ? (me?.name ?? 'Blue player') : (opponent?.name ?? 'Blue player');
 
@@ -108,6 +112,7 @@ export default function NewChallengePage() {
         body: JSON.stringify({
           challenger_id: me.id,
           broadcast,
+          ...(broadcast ? { broadcast_narrow: narrowBroadcast, ...(narrowBroadcast ? { broadcast_narrow_elo: narrowElo } : {}) } : {}),
           ...(broadcast ? {} : { opponent_id: opponentId }),
           game_id: selectedGameId,
           entry_fee: entryFee,
@@ -129,6 +134,8 @@ export default function NewChallengePage() {
   }
 
   const feeInvalid = !Number.isInteger(entryFee) || entryFee < 10 || entryFee > 500;
+  const narrowEloInvalid = broadcast && narrowBroadcast
+    && (!Number.isInteger(narrowElo) || narrowElo < 5 || narrowElo > 100);
 
   // Payout line options: evens presets + custom R-B lines that sum to the
   // game total (10-0 / 0-10 are deliberately not choosable — real wins/draws
@@ -153,7 +160,7 @@ export default function NewChallengePage() {
             <div className="block">
               <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Challenging</span>
               <div className="mt-1 px-3 py-2 rounded-lg border border-amber-300 bg-amber-50 text-sm text-amber-800">
-                📢 Broadcast — first player to accept plays the opposite side
+                📢 Broadcast — first player to accept plays the opposite side{isNarrow ? ` · 🔒 narrow: they must be within ${narrowElo} Elo of you` : ''}
               </div>
               <span className="text-xs text-gray-400">
                 Countering isn't possible on broadcasts. If nobody accepts by 5 minutes before the start, it expires.
@@ -241,7 +248,7 @@ export default function NewChallengePage() {
           </label>
         </div>
 
-        {/* Broadcast toggle */}
+        {/* Broadcast toggle: the challenge opens as a broadcast, wide or narrow */}
         <label className="flex items-center gap-2 cursor-pointer">
           <input
             type="checkbox"
@@ -249,8 +256,47 @@ export default function NewChallengePage() {
             onChange={e => setBroadcast(e.target.checked)}
             className="w-4 h-4 accent-amber-600"
           />
-          <span className="text-sm text-gray-700 font-medium">📢 Broadcast — open to everyone, first to accept plays the other side</span>
+          <span className="text-sm text-gray-700 font-medium">📢 Broadcast — no single opponent, first to accept plays the other side</span>
         </label>
+
+        {/* Broadcast width — wide is the original open-to-everyone mode; narrow
+            only lets acceptors inside the challenger's Elo window say yes */}
+        {broadcast && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50/50 px-4 py-3 space-y-2">
+            <div className="text-xs font-semibold uppercase tracking-wide text-amber-800">Broadcast mode</div>
+            {(['wide', 'narrow'] as const).map(mode => (
+              <label key={mode} className="flex items-start gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  name="broadcast-width"
+                  checked={(mode === 'narrow') === narrowBroadcast}
+                  onChange={() => setNarrowBroadcast(mode === 'narrow')}
+                  className="mt-0.5 w-4 h-4 accent-amber-600"
+                />
+                <span className="text-sm text-gray-700">
+                  {mode === 'wide' ? (
+                    <><b>Wide</b> — anyone can accept (the original broadcast mode)</>
+                  ) : (
+                    <><b>Narrow</b> — only players within your chosen Elo window on this game can accept; everyone else sees it but can't press yes</>
+                  )}
+                </span>
+              </label>
+            ))}
+            {narrowBroadcast && (
+              <label className="block max-w-xs">
+                <span className="text-xs font-semibold uppercase tracking-wide text-amber-800">Elo window (5–100)</span>
+                <input
+                  type="number" min={5} max={100} value={narrowElo}
+                  onChange={e => setNarrowElo(parseInt(e.target.value, 10) || 0)}
+                  className="mt-1 w-full px-3 py-2 rounded-lg border border-amber-300 bg-background text-gray-800"
+                />
+                <span className="text-xs text-gray-400">
+                  Acceptors must sit within {narrowElo} Elo of you on this game (rated on the live season — unrated players sit at 0).
+                </span>
+              </label>
+            )}
+          </div>
+        )}
 
         {/* Side */}
         <div>
@@ -319,7 +365,7 @@ export default function NewChallengePage() {
 
         <button
           onClick={submit}
-          disabled={!me || (!broadcast && (!opponentId || blockedOpponent)) || !selectedGameId || feeInvalid || submitting}
+          disabled={!me || (!broadcast && (!opponentId || blockedOpponent)) || !selectedGameId || feeInvalid || narrowEloInvalid || submitting}
           className="w-full sm:w-auto font-semibold bg-primary text-white rounded-lg px-6 py-2.5 hover:bg-primary-hover shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
         >
           {submitting ? 'Sending…' : blockedOpponent ? 'Pick another opponent' : 'Send challenge'}

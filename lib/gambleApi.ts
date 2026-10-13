@@ -90,3 +90,5 @@ STATUS_BY_CODE['bank_not_linked'] = 403;
 STATUS_BY_CODE['bet_exceeds_pot'] = 409;
 STATUS_BY_CODE['not_logged_in'] = 403;
 STATUS_BY_CODE['forbidden'] = 403;
+STATUS_BY_CODE['bet_limit_reached'] = 409;
+STATUS_BY_CODE['broadcast_narrow_locked'] = 403;

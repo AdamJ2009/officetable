@@ -9,9 +9,9 @@
 import db from './db';
 import { processMatch } from './elo';
 import { getBank, assertBankLinked, isBankLinked, kickBankSync, kickReconcile, alcesMirrorEnabled } from './bank';
-import { computeOddsLadder } from './gambleOdds';
+import { computeOddsLadder, getSideElo } from './gambleOdds';
 import { announceBetsClosed, announceCancelled } from './gambleNotifications';
-import { normaliseStartDate, toDbDate } from './seasons';
+import { normaliseStartDate, toDbDate, resolveSeason } from './seasons';
 import type {
   Bet,
   Challenge,
@@ -32,6 +32,9 @@ export const GAMBLE_RULES = {
   minEntryFee: 10,
   maxEntryFee: 500,
   minStake: 1,
+  /** Max total a single bettor may have staked on one gamble match, across
+   *  all their picks/odds combined (their open bets are summed). */
+  maxTotalBet: 1000,
   /** Bets close this many minutes before the scheduled start. */
   betCloseLeadMinutes: 2,
   /** Leftover pot split (spec text: 50/25/25; draw → winner share to house). */
@@ -47,6 +50,14 @@ export const GAMBLE_RULES = {
   resultDeadlineMinutes: 15,
   /** Cap on the free-text special rules note. */
   maxSpecialRulesLength: 500,
+  /** Default window for narrow broadcasts: an acceptor must sit within this
+   *  much Elo of the challenger (same game, live season ledger — the numbers
+   *  the odds ladder is built from). Wide broadcasts have no Elo window. The
+   *  window itself is chosen per challenge between the min and max below. */
+  broadcastEloWindow: 25,
+  /** Narrow-broadcast Elo window bounds the challenger can choose from. */
+  broadcastEloMin: 5,
+  broadcastEloMax: 100,
 } as const;
 
 /** Mock-mode floor under the casino's payout exposure guard: the local casino
@@ -226,12 +237,26 @@ function validateTerms(terms: ChallengeTermsInput): string | null {
  * non-challenger may accept, and countering is off — the accepted side comes
  * from the terms, the acceptor takes the other side. Broadcast challenges
  * expire by the same deadline rule (and, unaccepted, they simply time out).
+ *
+ * Broadcasts come in two widths (see `options`):
+ *  - wide (default): anyone can accept — the original broadcast mode;
+ *  - narrow: only players within GAMBLE_RULES.broadcastEloWindow Elo of the
+ *    challenger (on this game, live season) can accept.
  */
+export interface CreateChallengeOptions {
+  /** Broadcasts only: restrict acceptors to the challenger's Elo window. */
+  narrowBroadcast?: boolean;
+  /** Broadcasts only: the Elo window to enforce, 5–100 (default
+   *  GAMBLE_RULES.broadcastEloWindow). Ignored unless narrowBroadcast. */
+  narrowBroadcastElo?: number;
+}
+
 export function createChallenge(
   gameId: number,
   challengerId: number,
   opponentId: number | null,
-  terms: ChallengeTermsInput
+  terms: ChallengeTermsInput,
+  options: CreateChallengeOptions = {}
 ): number {
   const game = db.prepare(`SELECT id, name, score_type, score_value FROM games WHERE id = ?`)
     .get(gameId) as { id: number; name: string; score_type: string; score_value: number } | undefined;
@@ -240,6 +265,22 @@ export function createChallenge(
     throw new GambleError(`Betting is only set up for fixed-total games (${game.name} is "${game.score_type}")`, 'unsupported_game');
   }
   const broadcast = opponentId === null;
+  // Narrowing is a broadcast-only dial — a direct challenge ignores it.
+  const broadcastNarrow = broadcast && options.narrowBroadcast === true;
+  // The window is the challenger's call, within the tunable bounds; an
+  // ungiven window falls back to the default.
+  let narrowElo: number = GAMBLE_RULES.broadcastEloWindow;
+  if (broadcastNarrow && options.narrowBroadcastElo != null) {
+    if (!Number.isInteger(options.narrowBroadcastElo)
+      || options.narrowBroadcastElo < GAMBLE_RULES.broadcastEloMin
+      || options.narrowBroadcastElo > GAMBLE_RULES.broadcastEloMax) {
+      throw new GambleError(
+        `Narrow broadcast window must be a whole number between ${GAMBLE_RULES.broadcastEloMin} and ${GAMBLE_RULES.broadcastEloMax} Elo`,
+        'bad_terms',
+      );
+    }
+    narrowElo = options.narrowBroadcastElo;
+  }
   if (!broadcast && challengerId === opponentId) {
     throw new GambleError('You cannot challenge yourself', 'same_player');
   }
@@ -300,10 +341,10 @@ export function createChallenge(
     const result = db.prepare(`
       INSERT INTO challenges (
         game_id, challenger_id, opponent_id, entry_fee, scheduled_at,
-        red_player_id, challenger_side, status, terms_by, broadcast, payout_line, special_rules
+        red_player_id, challenger_side, status, terms_by, broadcast, broadcast_narrow, broadcast_narrow_elo, payout_line, special_rules
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)
-    `).run(gameId, challengerId, broadcast ? null : opponentId, terms.entryFee, scheduled, redPlayerId, side, challengerId, broadcast ? 1 : 0, payoutLine, specialRules);
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?)
+    `).run(gameId, challengerId, broadcast ? null : opponentId, terms.entryFee, scheduled, redPlayerId, side, challengerId, broadcast ? 1 : 0, broadcastNarrow ? 1 : 0, broadcastNarrow ? narrowElo : null, payoutLine, specialRules);
     const challengeId = result.lastInsertRowid as number;
 
     db.prepare(`
@@ -313,6 +354,57 @@ export function createChallenge(
 
     return challengeId;
   })();
+}
+
+// ---------------------------------------------------------------------------
+// Broadcast width
+// ---------------------------------------------------------------------------
+
+export interface BroadcastEligibility {
+  /** True only for narrow broadcasts — wide ones are open to everyone. */
+  narrow: boolean;
+  /** null = no Elo window applies (wide broadcast), the viewer is unknown,
+   *  or the viewer is the challenger (the accept guard doesn't bite them). */
+  eligible: boolean | null;
+  /** The window this challenge enforces (default when the row predates it). */
+  window: number | null;
+  challengerElo: number | null;
+  viewerElo: number | null;
+  gap: number | null;
+}
+
+/**
+ * Narrow-broadcast gate for a viewer: a narrow broadcast can only be pressed
+ * "yes" by a player within the challenge's Elo window of the challenger,
+ * rated on the challenge's game in the live season ledger — the same numbers
+ * the odds ladder is built from (unrated players sit at 0).
+ */
+export function broadcastEligibility(
+  challenge: Challenge,
+  viewerId: number | undefined
+): BroadcastEligibility {
+  const narrow = (challenge.broadcast_narrow ?? 0) === 1;
+  const window = narrow
+    ? (challenge.broadcast_narrow_elo ?? GAMBLE_RULES.broadcastEloWindow)
+    : null;
+  const notApplicable = !narrow
+    || viewerId == null
+    || viewerId === challenge.challenger_id;
+  if (notApplicable) {
+    return { narrow, eligible: null, window, challengerElo: null, viewerElo: null, gap: null };
+  }
+  const seasonId = resolveSeason(new Date());
+  const challengerElo = getSideElo([challenge.challenger_id], challenge.game_id, seasonId);
+  const viewerElo = getSideElo([viewerId], challenge.game_id, seasonId);
+  const gap = Math.abs(challengerElo - viewerElo);
+  return {
+    narrow,
+    eligible: gap <= window!,
+    window,
+    challengerElo,
+    viewerElo,
+    gap,
+  };
 }
 
 function futureScheduledAt(input: string): string {
@@ -426,6 +518,18 @@ export function respondToChallenge(
   const fee = challenge.entry_fee;
   const side = challenge.challenger_side === 'blue' ? 'blue' : 'red';
   const broadcastAccept = broadcast && !isChallenger;
+  // Narrow broadcast gate: only a player inside the challenger's Elo window
+  // may press "yes" on it (the acceptor takes the opposite side; the
+  // challenger is never in this branch — they can't accept their own post).
+  if (broadcastAccept) {
+    const eligibility = broadcastEligibility(challenge, playerId);
+    if (eligibility.eligible === false) {
+      throw new GambleError(
+        `Narrow broadcast — only players within ${eligibility.window} Elo of ${challenge.challenger_name} (${eligibility.challengerElo}) can accept; you're ${eligibility.viewerElo}, a gap of ${eligibility.gap}`,
+        'broadcast_narrow_locked',
+      );
+    }
+  }
   // A broadcast acceptor takes the opposite side to the challenger; normal
   // challenges keep the agreed red/blue assignment.
   const redPlayerId = broadcastAccept
@@ -520,7 +624,8 @@ export function getChallenge(id: number): Challenge | undefined {
   const row = db.prepare(`
     SELECT c.id, c.game_id, c.challenger_id, c.opponent_id, c.entry_fee, c.scheduled_at,
            c.cancel_reason,
-           c.red_player_id, c.challenger_side, c.broadcast, c.payout_line, c.special_rules,
+           c.red_player_id, c.challenger_side, c.broadcast, c.broadcast_narrow, c.broadcast_narrow_elo,
+           c.payout_line, c.special_rules,
            c.status, c.terms_by, c.gamble_match_id, c.created_at, c.updated_at,
            g.name as game_name,
            cha.name as challenger_name, opp.name as opponent_name, tu.name as terms_by_name
@@ -597,6 +702,23 @@ export function placeBet(gambleMatchId: number, bettorId: number, redScore: numb
   bank.ensureAccount(bettorId);
   if (bank.getBalance(bettorId) < stake) {
     throw new GambleError(`Not enough moose bucks: balance ${bank.getBalance(bettorId)} < stake ${stake}`, 'insufficient_funds');
+  }
+
+  // Per-player total cap, checked before the casino's exposure guard: one
+  // bettor's combined OPEN stakes on this match — across every scoreline/
+  // odds they've backed — may not exceed maxTotalBet moose bucks.
+  const myStaked = db.prepare(`
+    SELECT COALESCE(SUM(stake), 0) as staked
+    FROM bets WHERE gamble_match_id = ? AND bettor_id = ? AND status = 'open'
+  `).get(gambleMatchId, bettorId) as { staked: number };
+  if (myStaked.staked + stake > GAMBLE_RULES.maxTotalBet) {
+    const remaining = Math.max(0, GAMBLE_RULES.maxTotalBet - myStaked.staked);
+    throw new GambleError(
+      myStaked.staked === 0
+        ? `Bet too big — the per-player cap is ${GAMBLE_RULES.maxTotalBet} moose bucks staked per gamble`
+        : `Bet limit reached — you have ${myStaked.staked} of ${GAMBLE_RULES.maxTotalBet} moose bucks staked on this gamble across all your picks; at most ${remaining} more`,
+      'bet_limit_reached',
+    );
   }
 
   // Exposure guard — winnings are capped by the CASINO's total bank pot, not

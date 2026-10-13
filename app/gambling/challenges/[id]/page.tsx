@@ -11,6 +11,15 @@ import type { Challenge, ChallengeTerm, GambleMatch, OddsLadder } from '@/lib/ty
 // contextual actions — the non-terms author accepts/declines/counters, the
 // terms author cancels.
 
+interface BroadcastAccess {
+  narrow: boolean;
+  eligible?: boolean | null;
+  window?: number | null;
+  challengerElo?: number | null;
+  viewerElo?: number | null;
+  gap?: number | null;
+}
+
 interface Detail {
   challenge: Challenge;
   terms_history: ChallengeTerm[];
@@ -19,6 +28,7 @@ interface Detail {
   seconds_to_close: number | null;
   pool: number;
   ladder?: OddsLadder | null;
+  broadcast_access?: BroadcastAccess | null;
 }
 
 const fmtTime = (dbStr: string) =>
@@ -59,7 +69,8 @@ export default function ChallengeDetailPage() {
   }, [me?.id]);
 
   const load = useCallback(async () => {
-    const res = await fetch(`/api/gambling/challenges/${id}`);
+    const qs = me ? `?player_id=${me.id}` : '';
+    const res = await fetch(`/api/gambling/challenges/${id}${qs}`);
     if (res.ok) {
       const data: Detail = await res.json();
       setDetail(data);
@@ -126,6 +137,11 @@ export default function ChallengeDetailPage() {
   const gameTotal = games.find(g => g.id === challenge.game_id)?.score_value ?? null;
   // Under the 10 moose buck minimum you can't cover any fee — accept greys out.
   const underMinimum = myBalance != null && myBalance < 10;
+  // Narrow broadcast: only acceptors inside the challenger's Elo window may
+  // press yes — the server refuses the rest, so the button greys out to match.
+  const broadcastAccess = detail.broadcast_access ?? null;
+  const narrowWindow = challenge.broadcast_narrow_elo ?? 25;
+  const narrowLocked = isBroadcast && broadcastAccess?.eligible === false;
   const counterLines: { value: string; label: string }[] = [
     { value: 'true_even', label: 'Evens on a draw (5-5)' },
     { value: 'elo_even', label: "Evens on the bookie's predicted line" },
@@ -186,7 +202,13 @@ export default function ChallengeDetailPage() {
         )}
         {isBroadcast && (
           <div className="mt-2 text-xs text-amber-700">
-            📢 Broadcast challenge — anyone (except the challenger) can accept and take the opposite side. Countering isn't possible. It expires 5 minutes before the start if nobody accepts.
+            📢 Broadcast challenge{challenge.broadcast_narrow === 1 ? ` · 🔒 narrow ±${narrowWindow}` : ''} — anyone (except the challenger) can accept and take the opposite side
+            {challenge.broadcast_narrow === 1 ? ` — but only players within ${narrowWindow} Elo of the challenger can press yes` : ''}. Countering isn't possible. It expires 5 minutes before the start if nobody accepts.
+          </div>
+        )}
+        {narrowLocked && (
+          <div className="mt-2 text-xs font-medium text-red-600">
+            🔒 Too far from the challenger in Elo — you're {broadcastAccess?.viewerElo}, they're {broadcastAccess?.challengerElo}, a gap of {broadcastAccess?.gap}. The window is {narrowWindow}.
           </div>
         )}
       </div>
@@ -206,14 +228,18 @@ export default function ChallengeDetailPage() {
           {!iSentTerms ? (
             <>
               <button
-                disabled={busy || underMinimum}
+                disabled={busy || underMinimum || narrowLocked}
                 onClick={() => respond('accept')}
-                title={underMinimum ? "Under 10 moose bucks — you can't accept a challenge" : undefined}
+                title={narrowLocked
+                  ? `Narrow broadcast — you're outside the challenger's ${narrowWindow}-Elo window`
+                  : underMinimum ? "Under 10 moose bucks — you can't accept a challenge" : undefined}
                 className="font-semibold bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed"
               >
-                {underMinimum
-                  ? `Can’t accept — under 10 moose bucks (both pay ${challenge.entry_fee})`
-                  : `Accept — both pay ${challenge.entry_fee}`}
+                {narrowLocked
+                  ? `Can’t accept — ${broadcastAccess?.gap} Elo outside the narrow window`
+                  : underMinimum
+                    ? `Can’t accept — under 10 moose bucks (both pay ${challenge.entry_fee})`
+                    : `Accept — both pay ${challenge.entry_fee}`}
               </button>
               {!isBroadcast && (
                 <>

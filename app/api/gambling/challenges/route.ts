@@ -72,7 +72,14 @@ export async function POST(request: NextRequest) {
       specialRules: body.special_rules != null ? String(body.special_rules) : undefined,
     };
 
-    const challengeId = createChallenge(gameId, challengerId, opponentId, terms);
+    const challengeId = createChallenge(gameId, challengerId, opponentId, terms, {
+      // Narrow broadcast: only acceptors within the challenger's chosen Elo
+      // window (5–100) may press "yes" on it.
+      narrowBroadcast: body.broadcast_narrow === true || body.broadcast_narrow === 1,
+      narrowBroadcastElo: body.broadcast_narrow_elo != null
+        ? parseInt(String(body.broadcast_narrow_elo), 10)
+        : undefined,
+    });
 
     // Announce (fire and forget) with the pre-accept odds preview —
     // broadcast challenges can't preview (red may be undetermined yet)

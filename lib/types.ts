@@ -183,6 +183,11 @@ export interface Challenge {
   challenger_side: 'red' | 'blue';
   /** 1 = broadcast: no fixed opponent, first non-challenger to accept takes the other side. */
   broadcast: number;
+  /** 1 = narrow broadcast: only acceptors within the challenge's Elo window
+   *  of the challenger (same game, live season) can accept. */
+  broadcast_narrow: number;
+  /** The narrow window in Elo (5–100); NULL → GAMBLE_RULES.broadcastEloWindow. */
+  broadcast_narrow_elo?: number | null;
   /** The scoreline whose result treats the entry payout as even (see PayoutLine). */
   payout_line: PayoutLine;
   /** Free-text house rules written by the players, shown to gamblers. */

@@ -219,6 +219,31 @@ export function assertBankLinked(playerId: number): void {
 }
 
 /**
+ * Donate moose bucks to the casino — a pure player→house gift with nothing in
+ * return. The debit is an ordinary player ledger row, so the central-bank
+ * outbox mirrors it out as a real transfer, exactly like an entry fee; the
+ * house-side credit stays local like every house row. Donating yourself down
+ * to nothing is allowed — that is rather the point.
+ */
+export function donateToHouse(playerId: number, amount: number): void {
+  if (!Number.isInteger(amount) || amount < 1) {
+    throw new BankError(
+      'Donation must be a whole number of moose bucks, at least 1',
+      'bad_amount',
+    );
+  }
+  const bank = getBank();
+  db.transaction(() => {
+    assertBankLinked(playerId); // money moves — same gate as every other action
+    bank.debitChecked(playerId, amount, {
+      type: 'donation',
+      memo: 'donated to the casino — no gain, purely generous',
+    });
+    bank.credit(null, amount, { type: 'donation', memo: 'casino donation received' });
+  })();
+}
+
+/**
  * Register (action 'create') or connect (action 'link') a player's Alces
  * Bookie account and record their credentials for future transfers.
  * BOTH actions prove themselves with the bank's login handshake: a wrong

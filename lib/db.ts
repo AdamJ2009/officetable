@@ -519,6 +519,8 @@ db.exec(`
     status TEXT NOT NULL DEFAULT 'pending',
     terms_by INTEGER NOT NULL,
     broadcast INTEGER NOT NULL DEFAULT 0,
+    broadcast_narrow INTEGER NOT NULL DEFAULT 0,  -- 1 = acceptors must sit within the Elo window of the challenger
+    broadcast_narrow_elo INTEGER,                 -- the narrow window in Elo (5–100); NULL → GAMBLE_RULES.broadcastEloWindow
     payout_line TEXT NOT NULL DEFAULT 'true_even',
     special_rules TEXT,
     cancel_reason TEXT,                           -- why a challenge died (e.g. 'impossible_to_pay')
@@ -747,6 +749,8 @@ try {
 for (const stmt of [
   `ALTER TABLE challenges ADD COLUMN challenger_side TEXT NOT NULL DEFAULT 'red'`,
   `ALTER TABLE challenges ADD COLUMN broadcast INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE challenges ADD COLUMN broadcast_narrow INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE challenges ADD COLUMN broadcast_narrow_elo INTEGER`,
   `ALTER TABLE challenges ADD COLUMN payout_line TEXT NOT NULL DEFAULT 'true_even'`,
   `ALTER TABLE challenges ADD COLUMN special_rules TEXT`,
   `ALTER TABLE challenge_terms ADD COLUMN payout_line TEXT NOT NULL DEFAULT 'true_even'`,

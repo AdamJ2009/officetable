@@ -2,13 +2,17 @@
 //      house when player_id is omitted/house=1); player_id adds the player's
 //      central-bank (Alces Bookie) link status — NEVER their stored password.
 //
+// POST /api/gambling/bank  { player_id, action: 'donate', amount } — gift
+//      moose bucks straight to the casino. Nothing in return, by design.
+//
 // There is deliberately NO top-up/withdraw endpoint: the site has no mint —
 // the central Alces Bookie bank controls real balances, and site movements
 // are earned through challenges, bets and settlements.
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getBank, bankSyncBacklog, getLinkedAccount, alcesMirrorEnabled } from '@/lib/bank';
-import { gambleErrorResponse, requirePlayerId } from '@/lib/gambleApi';
+import { getBank, bankSyncBacklog, getLinkedAccount, alcesMirrorEnabled, donateToHouse } from '@/lib/bank';
+import { GambleError } from '@/lib/gamble';
+import { gambleErrorResponse, requirePlayerId, requireSessionPlayer } from '@/lib/gambleApi';
 
 const bank = getBank();
 
@@ -38,6 +42,26 @@ export async function GET(request: NextRequest) {
       } : null,
       bank_username: linked?.bank_username ?? null,
       sync_backlog: alcesMirrorEnabled() ? bankSyncBacklog() : null,
+    });
+  } catch (error) {
+    return gambleErrorResponse(error);
+  }
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json() as { player_id?: unknown; action?: unknown; amount?: unknown };
+    const playerId = requirePlayerId(body.player_id);
+    await requireSessionPlayer(playerId); // money action: the session player only
+    if (body.action !== 'donate') {
+      throw new GambleError('Unknown bank action', 'bad_terms');
+    }
+    const amount = typeof body.amount === 'number' ? body.amount : parseInt(String(body.amount ?? ''), 10);
+    donateToHouse(playerId, amount);
+    return NextResponse.json({
+      donated: amount,
+      balance: bank.getBalance(playerId),
+      house_balance: bank.getHouseBalance(),
     });
   } catch (error) {
     return gambleErrorResponse(error);

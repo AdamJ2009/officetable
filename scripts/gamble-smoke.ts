@@ -14,8 +14,9 @@ import {
   syncStatuses,
 } from '../lib/gamble';
 import type { GambleError } from '../lib/gamble';
-import { getBank } from '../lib/bank';
+import { getBank, donateToHouse } from '../lib/bank';
 import { HOUSE_MARGIN } from '../lib/gambleOdds';
+import { resolveSeason } from '../lib/seasons';
 
 function assert(cond: boolean, label: string): void {
   if (!cond) { console.error(`FAIL: ${label}`); process.exitCode = 1; }
@@ -37,6 +38,15 @@ function assertThrows(label: string, fn: () => unknown, wantCode?: string): void
     }
     console.log(`ok: ${label}${code ? ` (${code})` : ''}`);
   }
+}
+
+/** A narrow-broadcast accept must be refused on the Elo window AND leave the
+ *  challenge untouched (still open for the next taker, no fee ever debited). */
+function assertRejectNarrow(challengeId: number, viewerId: number, label: string): void {
+  const balanceBefore = bank.getBalance(viewerId);
+  assertThrows(label, () => respondToChallenge(challengeId, viewerId, 'accept'), 'broadcast_narrow_locked');
+  assert(getChallenge(challengeId)!.status === 'pending', `${label} — challenge stays open`);
+  assert(bank.getBalance(viewerId) === balanceBefore, `${label} — no money moved`);
 }
 
 const bank = getBank();
@@ -72,13 +82,13 @@ async function main() {
     db.prepare(`INSERT INTO games (name, score_type, score_value) VALUES ('smoke-foos', 'best_of', 10)`).run();
   }
   const gameId = (db.prepare(`SELECT id FROM games WHERE name = 'smoke-foos'`).get() as { id: number }).id;
-  const names = ['SmokeRed', 'SmokeBlue', 'SmokeGambler1', 'SmokeGambler2'];
+  const names = ['SmokeRed', 'SmokeBlue', 'SmokeGambler1', 'SmokeGambler2', 'SmokeGambler3', 'SmokeGambler4'];
   const insPlayer = db.prepare(`INSERT INTO players (name, status) VALUES (?, 'active')`);
   const ids = names.map(n => {
     const row = db.prepare(`SELECT id FROM players WHERE name = ?`).get(n) as { id: number } | undefined;
     return row ? row.id : (insPlayer.run(n).lastInsertRowid as number);
   });
-  const [redId, blueId, g1, g2] = ids;
+  const [redId, blueId, g1, g2, g3, g4] = ids;
   for (const id of ids) bank.ensureAccount(id);
 
   // The casino has two pots: the bet pool (staked money) and the house pot
@@ -86,6 +96,7 @@ async function main() {
   // needs real reserves for big winners to be payable — seed them.
   const HOUSE_SEED = 5000;
   bank.credit(null, HOUSE_SEED, { type: 'topup', memo: 'smoke: seed the house pot' });
+
 
   // ============ challenge A: counter loop + bets + house loss ==============
   const scheduledA = localIn(FUTURE);
@@ -165,6 +176,90 @@ async function main() {
   const matchCount = (db.prepare(`SELECT COUNT(*) n FROM matches`).get() as { n: number }).n;
   assert(matchCount === 1, 'processMatch recorded exactly one real match');
   assert(getBets(gm.id).every(b => b.status === 'lost' || b.status === 'won'), 'both correct picks marked won');
+
+  // ============ per-player bet cap: 1000 staked across all picks ==========
+  // One bettor's combined OPEN stakes on one gamble, spread over any number
+  // of scorelines, may not exceed GAMBLE_RULES.maxTotalBet.
+  const c9 = createChallenge(gameId, redId, blueId, { entryFee: fee, scheduledAt: localIn(FUTURE), side: 'red' });
+  const gm9 = respondToChallenge(c9, blueId, 'accept').gambleMatch!;
+  const fav9 = gm9.odds!.outcomes.reduce((a, b) => (b.prob > a.prob ? b : a)); // safest big stake
+  // g1 has winnings from challenge A on top of the 1000 seed — a fresh
+  // 1000-balance player could never top up past the cap without also hitting
+  // insufficient_funds, so the cap guard needs a funded bettor to bite.
+  const g1BalanceBeforeCap = bank.getBalance(g1);
+  placeBet(gm9.id, g1, fav9.redScore, fav9.blueScore, 700);
+  assertThrows('top-up past the 1000 cap refused (bet_limit_reached)',
+    () => placeBet(gm9.id, g1, 5, 5, 301), 'bet_limit_reached');
+  placeBet(gm9.id, g1, 5, 5, 300); // 700 + 300 = exactly 1000 across two odds
+  assert(bank.getBalance(g1) === g1BalanceBeforeCap - 1000, 'bet cap: 1000 total staked fully debited');
+  assertThrows('one more moose over the cap refused (bet_limit_reached)',
+    () => placeBet(gm9.id, g1, 9, 1, 1), 'bet_limit_reached');
+  // The cap is per-PLAYER, not per-pool: an untouched bettor can still bet.
+  placeBet(gm9.id, g3, 9, 1, 1);
+  assert(getBetPool(gm9.id) === 1001, 'cap is per-player: a fresh bettor can still bet (pool 1001)');
+  fastForward(gm9.id);
+  const sum9 = settleGambleMatch(gm9.id, [
+    { team: 0, player_ids: [gm9.red_player_id], score: fav9.redScore },
+    { team: 1, player_ids: [gm9.blue_player_id], score: fav9.blueScore },
+  ]);
+  assert(sum9.pool === 1001, 'bet cap: capped 1000 + the fresh bettor moose sat in the pool');
+
+  // ============ narrow broadcast: Elo window gates the accept ==============
+  // A narrow broadcast can only be pressed "yes" by someone within the
+  // challenger's chosen Elo window (5–100) on this game's live season ledger.
+  const narrowGameCount = (db.prepare(`SELECT COUNT(*) n FROM games WHERE name = 'smoke-narrow'`).get() as { n: number }).n;
+  if (narrowGameCount === 0) {
+    db.prepare(`INSERT INTO games (name, score_type, score_value) VALUES ('smoke-narrow', 'best_of', 10)`).run();
+  }
+  const narrowGameId = (db.prepare(`SELECT id FROM games WHERE name = 'smoke-narrow'`).get() as { id: number }).id;
+
+  // Challenger redId sits at 100 Elo on this game; blueId at 80 (gap 20); g2
+  // at −2 so even the widest window can't bridge the gap to 102.
+  const seasonId = resolveSeason(new Date());
+  const upsertElo = db.prepare(`
+    INSERT INTO player_ratings (player_id, game_id, season_id, elo)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(player_id, game_id, season_id) DO UPDATE SET elo = excluded.elo
+  `);
+  upsertElo.run(redId, narrowGameId, seasonId, 100);
+  upsertElo.run(blueId, narrowGameId, seasonId, 80);
+  upsertElo.run(g2, narrowGameId, seasonId, -2);
+  // g3/g4 stay unrated on this game → they sit at 0 (gap 100 from redId).
+
+  const c10 = createChallenge(narrowGameId, redId, null, {
+    entryFee: fee, scheduledAt: localIn(FUTURE), side: 'red',
+  }, { narrowBroadcast: true }); // default window
+  assert(getChallenge(c10)!.broadcast_narrow === 1, 'narrow broadcast created with the narrow flag');
+  assertRejectNarrow(c10, g3, 'unrated acceptor (gap 100) refused beyond the default 25 window');
+  // Configurable window: 5 leaves blueId (gap 20) outside; 100 lets
+  // unrated g4 (gap 100) ride the maximum bound in.
+  const c11 = createChallenge(narrowGameId, redId, null, {
+    entryFee: fee, scheduledAt: localIn(FUTURE), side: 'red',
+  }, { narrowBroadcast: true, narrowBroadcastElo: 5 });
+  assertRejectNarrow(c11, blueId, '20-Elo gap refused inside a tight 5 window');
+  assertThrows('broadcast Elo window above 100 refused (bad_terms)',
+    () => createChallenge(narrowGameId, redId, null, { entryFee: fee, scheduledAt: localIn(FUTURE), side: 'red' }, { narrowBroadcast: true, narrowBroadcastElo: 101 }),
+    'bad_terms');
+  assertThrows('broadcast Elo window below 5 refused (bad_terms)',
+    () => createChallenge(narrowGameId, redId, null, { entryFee: fee, scheduledAt: localIn(FUTURE), side: 'red' }, { narrowBroadcast: true, narrowBroadcastElo: 4 }),
+    'bad_terms');
+  const c12 = createChallenge(narrowGameId, redId, null, {
+    entryFee: fee, scheduledAt: localIn(FUTURE), side: 'red',
+  }, { narrowBroadcast: true, narrowBroadcastElo: 100 });
+  assertRejectNarrow(c12, g2, '102-Elo gap refused even at the widest 100 window');
+  const narrowAcc = respondToChallenge(c10, blueId, 'accept'); // gap 20 ≤ 25 in
+  const gmN = narrowAcc.gambleMatch!;
+  assert(gmN.red_player_id === redId && gmN.blue_player_id === blueId, 'narrow broadcast accepted inside the window');
+  const c13 = createChallenge(narrowGameId, redId, null, {
+    entryFee: fee, scheduledAt: localIn(FUTURE), side: 'red',
+  }, { narrowBroadcast: true, narrowBroadcastElo: 100 });
+  const gmWide4 = respondToChallenge(c13, g4, 'accept').gambleMatch!;
+  assert(gmWide4.blue_player_id === g4, 'unrated g4 accepted the widest 100-Elo narrow window (gap 100)');
+  // Both accepted narrow gambles get cancelled so their entry fees are
+  // refunded — the final conservation check must not be off by their hold.
+  assert(getChallenge(c10)!.status === 'accepted', 'narrow challenge marked accepted');
+  cancelGambleMatch(gmN.id);
+  cancelGambleMatch(gmWide4.id);
 
   // ============ challenge B: draw, single winning bet ======================
   const scheduledB = localIn(FUTURE);
@@ -307,6 +402,26 @@ async function main() {
   assert(bank.getBalance(redId) === preRedH + fee && bank.getBalance(blueId) === preBlueH + fee,
     'auto-cancel: both entry fees refunded');
   assert(bank.getBalance(g1) === preG1H + stakeH, 'auto-cancel refunds open stakes');
+
+  // ============ casino donation: pure gift, nothing in return ==============
+  const preDonor = bank.getBalance(g3);
+  const preHouse = bank.getHouseBalance();
+  assertThrows('donation refuses zero', () => donateToHouse(g3, 0), 'bad_amount');
+  assertThrows('donation refuses fractional moose', () => donateToHouse(g3, 12.5), 'bad_amount');
+  assertThrows('donation refuses overdraft', () => donateToHouse(g3, preDonor + 1), 'insufficient_funds');
+  assert(bank.getBalance(g3) === preDonor && bank.getHouseBalance() === preHouse,
+    'failed donations move no money');
+  donateToHouse(g3, 100);
+  assert(bank.getBalance(g3) === preDonor - 100, 'donation debits the donor');
+  assert(bank.getHouseBalance() === preHouse + 100, 'donation credits the house pot');
+  const donationRow = db.prepare(`
+    SELECT amount FROM bank_transactions
+    WHERE player_id = ? AND ref_type = 'donation' AND amount < 0
+    ORDER BY id DESC LIMIT 1
+  `).get(g3) as { amount: number } | undefined;
+  assert(!!donationRow && donationRow.amount === -100, 'donation writes a ledger row');
+  donateToHouse(g4, bank.getBalance(g4));
+  assert(bank.getBalance(g4) === 0, 'donating your entire balance is allowed (that is the point)');
 
   // ============ conservation across everything =============================
   const conservation = ids.reduce((s, id) => s + bank.getBalance(id), 0) + bank.getHouseBalance();

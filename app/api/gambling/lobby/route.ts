@@ -4,7 +4,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import db from '@/lib/db';
-import { syncStatuses, deriveStatus, getBetPool } from '@/lib/gamble';
+import { syncStatuses, deriveStatus, getBetPool, broadcastEligibility } from '@/lib/gamble';
 import { getBank, isBankLinked } from '@/lib/bank';
 import { gambleErrorResponse } from '@/lib/gambleApi';
 import type { Challenge, GambleMatch, OddsLadder } from '@/lib/types';
@@ -36,6 +36,12 @@ export async function GET(request: NextRequest) {
     const gameId = parseInt(searchParams.get('game_id') ?? '', 10);
 
     const bank = getBank();
+
+    // Narrow broadcasts are gated by Elo: a viewer outside the challenger's
+    // window can't accept, so each broadcast carries that verdict per viewer
+    // (null = no window / unknown viewer) for the Accept button to respect.
+    const broadcastEligibilityFor = (c: Challenge) =>
+      Number.isInteger(playerId) ? broadcastEligibility(c, playerId) : null;
 
     // Challenges I'm part of that are still negotiable — plus ones auto-cancelled
     // for an unpayable fee, so the "impossible to pay" cut-off is visible.
@@ -98,8 +104,8 @@ export async function GET(request: NextRequest) {
         ? { player_id: playerId, balance: bank.getBalance(playerId), bank_linked: isBankLinked(playerId) }
         : null,
       house_balance: bank.getHouseBalance(),
-      my_challenges: myChallenges,
-      broadcast_challenges: broadcasts,
+      my_challenges: myChallenges.map(c => ({ ...c, ...(broadcastEligibilityFor(c) ?? {}) })),
+      broadcast_challenges: broadcasts.map(c => ({ ...c, ...(broadcastEligibilityFor(c) ?? {}) })),
       callouts,
       live_matches: live,
       settled_matches: settledRows.map(row => ({

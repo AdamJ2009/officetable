@@ -18,6 +18,11 @@ interface ChallengeWithNames extends Challenge {
   challenger_name?: string;
   opponent_name?: string;
   terms_by_name?: string;
+  // Narrow-broadcast verdict for the viewer (narrow_eligible null = no window)
+  narrow_eligible?: boolean | null;
+  challenger_elo?: number | null;
+  viewer_elo?: number | null;
+  elo_gap?: number | null;
 }
 
 interface GamblerStanding {
@@ -102,6 +107,9 @@ const EVENS: Record<string, string> = {
 };
 
 const evensLabel = (line: string) => EVENS[line] ?? `evens on ${line}`;
+
+// Mirror of GAMBLE_RULES.broadcastEloWindow (per-challenge value wins).
+const narrowWindow = (c: ChallengeWithNames) => c.broadcast_narrow_elo ?? 25;
 
 export default function GamblingLobby() {
   const { me } = useMe();
@@ -330,7 +338,7 @@ export default function GamblingLobby() {
                   <div>
                     <div className="text-sm font-semibold text-gray-900">
                       {c.broadcast
-                        ? (amChallenger ? 'You broadcast a challenge (no opponent yet)' : 'Broadcast challenge')
+                        ? `${amChallenger ? 'You broadcast a challenge (no opponent yet)' : 'Broadcast challenge'}${c.broadcast_narrow === 1 ? ' · 🔒 narrow' : ''}`
                         : `${amChallenger ? 'You' : counterpart} challenged ${amChallenger ? counterpart : 'you'}`} · {c.game_name}
                     </div>
                     <div className="text-xs text-gray-500">
@@ -395,17 +403,28 @@ export default function GamblingLobby() {
                 <div>
                   <div className="text-sm font-semibold text-gray-900">
                     {c.challenger_name} challenged · nobody yet (first to accept) · {c.game_name}
+                    {c.broadcast_narrow === 1 && (
+                      <span className="ml-2 align-middle text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-200 text-amber-900">
+                        🔒 narrow ±{narrowWindow(c)}
+                      </span>
+                    )}
                   </div>
                   <div className="text-xs text-gray-500">
                     {c.entry_fee} moose bucks each · {c.challenger_side === 'red' ? (
-                      <><span className="font-medium text-red-600 font-semibold">they play red</span>, you'd be blue</>
+                      <><span className="font-medium text-red-600 font-semibold">they play red</span>, you&apos;d be blue</>
                     ) : (
-                      <><span className="font-medium text-blue-600 font-semibold">they play blue</span>, you'd be red</>
+                      <><span className="font-medium text-blue-600 font-semibold">they play blue</span>, you&apos;d be red</>
                     )}{' '}
                     · {evensLabel(c.payout_line)} · at {new Date(c.scheduled_at.replace(' ', 'T') + 'Z').toLocaleString('en-GB', {
                       weekday: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London',
                     })}
                   </div>
+                  {c.broadcast_narrow === 1 && c.narrow_eligible === false && (
+                    <div className="text-xs text-red-600 font-medium mt-0.5">
+                      🔒 Narrow broadcast — you&apos;re {c.elo_gap} Elo away from {c.challenger_name}
+                      ({c.viewer_elo} vs {c.challenger_elo}); only players within {narrowWindow(c)} can accept
+                    </div>
+                  )}
                   {c.special_rules && (
                     <div className="text-xs text-amber-700 italic mt-0.5">📜 {c.special_rules}</div>
                   )}
@@ -419,12 +438,14 @@ export default function GamblingLobby() {
                   </Link>
                   {me ? (
                     <button
-                      disabled={busy || !canAccept}
+                      disabled={busy || !canAccept || c.narrow_eligible === false}
                       onClick={() => respond(c.id, 'accept')}
-                      title={canAccept ? undefined : `Under ${MIN_ENTRY_FEE} moose bucks — you can't accept this challenge`}
+                      title={c.narrow_eligible === false
+                        ? `Narrow broadcast — only players within ${narrowWindow(c)} Elo of ${c.challenger_name} (${c.challenger_elo}) can accept; you're ${c.viewer_elo}`
+                        : canAccept ? undefined : `Under ${MIN_ENTRY_FEE} moose bucks — you can't accept this challenge`}
                       className="text-sm font-semibold bg-green-600 text-white px-3 py-1.5 rounded-lg hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed"
                     >
-                      Accept {c.entry_fee}
+                      {c.narrow_eligible === false ? '🔒 Out of Elo window' : `Accept ${c.entry_fee}`}
                     </button>
                   ) : null}
                 </div>
@@ -746,6 +767,32 @@ export default function GamblingLobby() {
           </div>
         </section>
       )}
+
+      {/* Extra modes — friend teams' gambling apps on the LAN, playable
+          alongside officetable. Results there count as extra-mode results. */}
+      <section>
+        <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-2">Extra modes</h2>
+        <div className="space-y-1">
+          {[
+            { href: 'http://10.151.0.73:3000', name: 'Alces Casino', hint: 'extra mode · 10.151.0.73:3000' },
+            { href: 'http://10.151.0.157', name: 'Frontend arena', hint: 'extra mode · 10.151.0.157' },
+          ].map(m => (
+            <a
+              key={m.href}
+              href={m.href}
+              target="_blank"
+              rel="noreferrer"
+              className="flex items-center justify-between rounded-lg border border-gray-100 bg-card px-4 py-2 text-sm hover:bg-gray-50"
+            >
+              <span>
+                <span className="font-medium text-gray-800">{m.name}</span>
+                <span className="text-gray-500"> · {m.hint}</span>
+              </span>
+              <span className="text-xs text-gray-400">↗ opens in a new tab</span>
+            </a>
+          ))}
+        </div>
+      </section>
     </div>
   );
 }

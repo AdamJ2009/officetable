@@ -7,6 +7,7 @@ import { useMe } from '@/lib/contexts/MeContext';
 import { betsClosingSoon, formatBetsCountdown } from '@/lib/betsClock';
 import { PlayerAvatar } from '@/components/PlayerAvatar';
 import { MoneyChart } from '@/components/MoneyChart';
+import { BookieBankLink } from '@/components/BookieBankLink';
 import type { Challenge } from '@/lib/types';
 
 // Mirror of GAMBLE_RULES.minEntryFee — the lib imports the DB, so the client
@@ -517,7 +518,7 @@ export default function GamblingLobby() {
               <b className={standings.house_net >= 0 ? 'text-green-700' : 'text-red-700'}>
                 {standings.house_net >= 0 ? '+' : ''}{standings.house_net.toLocaleString()}
               </b>{' '}
-              moose bucks
+              moose bucks · <BookieBankLink className="text-xs text-gray-500 hover:text-primary" />
             </span>
           </div>
 

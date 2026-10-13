@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { MoneyChart } from '@/components/MoneyChart';
+import { BookieBankLink } from '@/components/BookieBankLink';
 
 // Gambling section on a player profile — the same tracking as the gambling
 // leaderboard, per person: stat cards, net-over-time line, every gamble
@@ -121,6 +122,10 @@ export function GamblingSection({ playerId }: { playerId: number }) {
                 <div className="bg-gradient-to-br from-slate-800 to-slate-900 rounded-xl p-4 text-white shadow">
                   <div className="text-xs font-medium text-slate-200 uppercase tracking-wide mb-1">Balance</div>
                   <div className="text-2xl font-bold">{summary.balance.toLocaleString()}</div>
+                  <BookieBankLink
+                    className="text-[11px] text-slate-300 hover:text-white mt-1 inline-block"
+                    title="Open the central bank — see this account in the book"
+                  />
                 </div>
                 <div className={`rounded-xl p-4 text-white shadow bg-gradient-to-br ${
                   summary.net >= 0 ? 'from-emerald-600 to-emerald-700' : 'from-rose-600 to-red-700'

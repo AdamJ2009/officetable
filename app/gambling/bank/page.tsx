@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useMe } from '@/lib/contexts/MeContext';
+import { BookieBankLink } from '@/components/BookieBankLink';
 import type { BankTransaction } from '@/lib/types';
 
 // Your Alces Bookie account — the central office bank is where moose bucks
@@ -201,7 +202,9 @@ export default function BankPage() {
           <>
             <div className="flex items-center justify-between">
               <div>
-                <div className="text-xs uppercase tracking-wide text-gray-500">Linked account</div>
+                <div className="text-xs uppercase tracking-wide text-gray-500">
+                  Linked account · <BookieBankLink className="text-[11px] text-primary" title="Open the central bank — see this account in the book" />
+                </div>
                 <div className="text-xl font-bold text-gray-900">{data.bank_username}</div>
               </div>
               <button
@@ -249,7 +252,8 @@ export default function BankPage() {
             </div>
             <div className="text-xs text-gray-400">
               No account yet? You can still play everything on the game side — leaderboards,
-              matches and achievements don&apos;t need the bank.
+              matches and achievements don&apos;t need the bank. All accounts — yours and everyone
+              else&apos;s — live in the central bank&apos;s <BookieBankLink className="text-primary" title="Open the central bank — see every individual account in the book" />.
             </div>
 
             {!me && (
@@ -451,14 +455,14 @@ export default function BankPage() {
                   onClick={doDonate}
                   className="font-semibold bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 disabled:opacity-40"
                 >
-                  {donating ? 'Donating…' : 'Yes — take my moose bucks'}
+                  {donating ? 'Taking your money…' : '💸 Shut up and take my money'}
                 </button>
                 <button
                   disabled={donating}
                   onClick={() => setDonateConfirm(false)}
                   className="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-white disabled:opacity-40"
                 >
-                  No, keep them
+                  Back out
                 </button>
               </div>
             </div>

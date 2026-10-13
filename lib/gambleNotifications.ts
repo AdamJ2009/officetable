@@ -8,7 +8,9 @@
 import db from './db';
 import {
   sendAnnouncementNotification,
+  buildAnnouncementCardsPayload,
   faceOffWidget,
+  faceOffColumn,
   type AnnouncementMessage,
 } from './notifications';
 import type { Challenge, GambleMatch, SettleSummary } from './types';
@@ -175,4 +177,67 @@ export async function announceCancelled(gambleMatch: GambleMatch, refundTotal: n
     linkText: 'View match',
   };
   await sendAnnouncementNotification(message);
+}
+
+// ============================================================
+// Casino donations — every donation gets its own chat receipt: the
+// donor's profile-pic row plus Fry demanding the site take the money.
+// ============================================================
+
+/** Direct tenor media for Fry's "shut up and take my money" — the donor gif.
+ *  View page: tenor.com/view/.../gif-6882124657810317443 */
+export const DONATION_GIF_URL =
+  'https://media1.tenor.com/m/X4I36ci9oIMAAAAC/shut-up-and-take-my-money-money.gif';
+
+const AMBER = '#b45309';
+
+/** The donation receipt message: donor row (profile pic + amount) and the Fry gif. */
+function donationMessage(playerId: number, amount: number): AnnouncementMessage {
+  const row = db.prepare(`SELECT name FROM players WHERE id = ?`).get(playerId) as
+    { name: string | null } | undefined;
+  const name = row?.name ?? `Player ${playerId}`;
+  const avatars = avatarMapFor([playerId]);
+  return {
+    title: '💸 Shut up and take my money!',
+    subtitle: 'Casino donation — nothing given in return',
+    paragraphs: [
+      `<b>${name}</b> just handed the casino ${moose(amount)}. The house pot thanks you for your service.`,
+    ],
+    widgets: [
+      {
+        columns: {
+          columnItems: [
+            faceOffColumn({
+              name,
+              avatarUrl: avatars.get(playerId),
+              badge: `donated ${moose(amount)}`,
+              badgeColor: AMBER,
+            }),
+          ],
+        },
+      },
+      {
+        image: {
+          imageUrl: DONATION_GIF_URL,
+          altText: 'Fry — shut up and take my money',
+        },
+      },
+    ],
+    linkUrl: baseUrl() ? `${baseUrl()}/gambling/bank` : undefined,
+    linkText: 'Feeling stupid too? The bank page takes donations',
+  };
+}
+
+/** Chat cards payload for one donation (testable without a webhook). */
+export function buildDonationCardsPayload(playerId: number, amount: number): Record<string, unknown> {
+  return buildAnnouncementCardsPayload(donationMessage(playerId, amount));
+}
+
+/**
+ * Chat receipt for one donation — posted once per donation. Senders
+ * fire-and-forget with .catch — a webhook failure must never undo the
+ * ledger. Returns 'sent' | 'skipped' (no webhook configured).
+ */
+export async function announceDonation(playerId: number, amount: number): Promise<'sent' | 'skipped'> {
+  return sendAnnouncementNotification(donationMessage(playerId, amount));
 }

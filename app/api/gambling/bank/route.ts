@@ -12,6 +12,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getBank, bankSyncBacklog, getLinkedAccount, alcesMirrorEnabled, donateToHouse } from '@/lib/bank';
 import { GambleError } from '@/lib/gamble';
+import { announceDonation } from '@/lib/gambleNotifications';
 import { gambleErrorResponse, requirePlayerId, requireSessionPlayer } from '@/lib/gambleApi';
 
 const bank = getBank();
@@ -58,6 +59,9 @@ export async function POST(request: NextRequest) {
     }
     const amount = typeof body.amount === 'number' ? body.amount : parseInt(String(body.amount ?? ''), 10);
     donateToHouse(playerId, amount);
+    // Chat receipt: one Fry gif per donation. Fire-and-forget — a webhook
+    // failure must never undo the settled ledger.
+    void announceDonation(playerId, amount).catch(e => console.error('donation chat:', e));
     return NextResponse.json({
       donated: amount,
       balance: bank.getBalance(playerId),

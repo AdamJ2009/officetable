@@ -15,6 +15,7 @@ import {
 } from '../lib/gamble';
 import type { GambleError } from '../lib/gamble';
 import { getBank, donateToHouse } from '../lib/bank';
+import { announceDonation, buildDonationCardsPayload, DONATION_GIF_URL } from '../lib/gambleNotifications';
 import { HOUSE_MARGIN } from '../lib/gambleOdds';
 import { resolveSeason } from '../lib/seasons';
 
@@ -422,6 +423,30 @@ async function main() {
   assert(!!donationRow && donationRow.amount === -100, 'donation writes a ledger row');
   donateToHouse(g4, bank.getBalance(g4));
   assert(bank.getBalance(g4) === 0, 'donating your entire balance is allowed (that is the point)');
+  // Chat receipt per donation — resolves without a webhook configured.
+  const chatResult = await announceDonation(g3, 100);
+  if (!process.env.GOOGLE_CHAT_WEBHOOK_URL) {
+    assert(chatResult === 'skipped', 'donation chat card resolves (no webhook configured — skipped)');
+  } else {
+    assert(chatResult === 'sent', 'donation chat card sent to the configured webhook');
+  }
+  // The card itself is built from the real builder: donor row + the Fry gif.
+  const donorName = (db.prepare(`SELECT name FROM players WHERE id = ?`).get(g3) as { name: string }).name;
+  const cards = buildDonationCardsPayload(g3, 100);
+  const g3Avatar = (db.prepare(`SELECT avatar_url FROM players WHERE id = ?`).get(g3) as { avatar_url: string | null }).avatar_url;
+  const cardWidgets = (cards.cardsV2 as { cardId: string; card: { sections: { widgets: Record<string, unknown>[] }[] } }[])[0]
+    .card.sections[0].widgets;
+  assert(cardWidgets.some(w => 'image' in w && (w.image as { imageUrl: string }).imageUrl === DONATION_GIF_URL),
+    'donation chat card embeds the Fry take-my-money gif');
+  const donorColumnIcons = (cardWidgets.find(w => 'columns' in w) as {
+    columns: { columnItems: { widgets: { decoratedText?: { startIcon?: { iconUrl?: string }, text?: string } }[] }[] } | undefined
+  })?.columns?.columnItems?.[0]?.widgets;
+  assert(!!donorColumnIcons?.some(w =>
+    (w.decoratedText?.startIcon?.iconUrl ?? null) === (g3Avatar ?? 'https://fonts.gstatic.com/s/i/short-term/release/googlesymbols/person/default/48px.svg')
+    && (w.decoratedText?.text ?? '').includes(donorName) && (w.decoratedText?.text ?? '').includes('100 moose bucks')),
+  'donation chat card shows the donor profile pic next to their name + amount');
+
+  // ============ conservation across everything =============================
 
   // ============ conservation across everything =============================
   const conservation = ids.reduce((s, id) => s + bank.getBalance(id), 0) + bank.getHouseBalance();
